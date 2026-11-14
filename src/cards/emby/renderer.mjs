@@ -302,7 +302,7 @@ export function mount(ctx) {
       if (isDisposed() || generation !== imageLoadGeneration) return;
       // Summary 折叠 / 切会话时 host 会暂时脱离 DOM。即使此刻 disconnected 也必须
       // 把 Blob URL 写回原节点（entry 已在缓存，写 src 无副作用），否则重新挂载后
-      // 这些位置会永久停在占位图 —— 红果侧同款问题已在 bindHongguoImage 修过。
+      // 这些位置会永久停在占位图。
       applyImageEntry(img, entry);
       queueMicrotask(trimImageCache);
     }).catch((errorValue) => {
@@ -1987,7 +1987,7 @@ export function mount(ctx) {
     embyVideo.controls = true;
     embyVideo.playsInline = true;
     embyVideo.preload = "metadata";
-    // 与红果播放视图一致禁用画中画（Electron 下 PiP 行为未验证，两卡统一）。
+    // 禁用画中画：Electron 下 PiP 行为未验证。
     embyVideo.disablePictureInPicture = true;
     // 布局：视频按片源比例固定在顶部（.emby-stage），画面上只叠返回/全屏两个
     // 自动隐藏的控件；标题、集数、上一集/下一集、字幕与选集都放在下方信息区，

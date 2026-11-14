@@ -17,17 +17,16 @@ function validateParams(params, allowed) {
 
 // 保留旧构造注入边界，具体引擎与方法清单由各卡片 service entry 拥有。
 export class CodexCompanionService {
-  constructor({ configStore = new CompanionConfig(), inspectCodexProxy, logger = console, embyService, hongguoService, modules, manifests = CARD_MANIFESTS, platform = {} } = {}) {
+  constructor({ configStore = new CompanionConfig(), inspectCodexProxy, logger = console, embyService, modules, manifests = CARD_MANIFESTS, platform = {} } = {}) {
     this.configStore = configStore;
     this.platform = platform;
     this.catalog = manifests.map(({ id, title, defaultEnabled, defaultOrder }) => ({ id, title, defaultEnabled, defaultOrder }));
     this.embyService = embyService;
-    this.hongguoService = hongguoService;
     const loadConfig = () => typeof configStore.loadV2 === "function" ? configStore.loadV2() : configStore.load();
     this.loadConfig = loadConfig;
     this.registry = new ServiceRegistry({
       modules, manifests, loadConfig, logger,
-      dependencies: { embyService, hongguoService, inspectCodexProxy, logger, loadConfig }
+      dependencies: { embyService, inspectCodexProxy, logger, loadConfig }
     });
   }
 

@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { CodexCompanionService } from "../src/codex-companion-service.mjs";
 import { ServiceRegistry } from "../src/platform/services/registry.mjs";
 import { EMBY_OPERATIONS } from "../src/cards/emby/service.mjs";
 import { SERVICE_REGISTRY } from "../src/cards/service-registry.generated.mjs";
+import { createServiceWithClips } from "./helpers/clips-card.mjs";
 
 const ctx = (cardId, generation = 1, targetId = "target-a", executionContextId = 7) => ({ cardId, generation, targetId, executionContextId });
 function fixture() {
@@ -20,26 +20,26 @@ function fixture() {
     disposeTarget(targetId) { calls.push({ name, disposedTarget: targetId }); },
     dispose() { calls.push({ name, disposed: true }); }
   });
-  const service = new CodexCompanionService({
-    embyService: engine("emby"), hongguoService: engine("hongguo"),
+  const service = createServiceWithClips({
+    embyService: engine("emby"), clipsService: engine("clips"),
     configStore: { loadV2: async () => config }
   });
   return { service, calls, setConfig: next => { config = next; } };
 }
 
 test("生成服务目录用于真实路由；Emby 仅接受有限全名和旧别名", async () => {
-  assert.deepEqual(Object.keys(SERVICE_REGISTRY), ["proxy", "tasks", "hongguo", "emby"]);
+  assert.deepEqual(Object.keys(SERVICE_REGISTRY), ["proxy", "tasks", "emby"]);
   const { service, calls } = fixture();
   for (const method of EMBY_OPERATIONS.filter(value => !value.startsWith("playback."))) {
     await service.handleRpc(method, {}, { targetId: "legacy" });
     await service.handleRpc(`emby.${method}`, {}, ctx("emby"));
   }
   const before = calls.length;
-  for (const method of ["totally.unknown", "emby.admin.delete", "hongguo.unknown", "games.fetch", "constructor"]) {
+  for (const method of ["totally.unknown", "emby.admin.delete", "clips.unknown", "games.fetch", "constructor"]) {
     await assert.rejects(service.handleRpc(method), { code: "RPC_METHOD_NOT_FOUND" });
   }
   assert.equal(calls.length, before);
-  await assert.rejects(service.handleRpc("emby.home.get", {}, ctx("hongguo")), { code: "RPC_INVALID_REQUEST" });
+  await assert.rejects(service.handleRpc("emby.home.get", {}, ctx("clips")), { code: "RPC_INVALID_REQUEST" });
   await assert.rejects(service.handleRpc("connection.status", {}, ctx("emby")), { code: "RPC_INVALID_REQUEST" });
 });
 
@@ -59,17 +59,17 @@ test("第五张卡仅注册 manifest + service 模块即可路由和清理", asy
 test("禁用卡拒绝新工作但允许停止/清理，applyConfig 主动清理该卡而保留其他卡", async () => {
   const { service, calls, setConfig } = fixture();
   const opened = await service.handleRpc("emby.playback.open", {}, ctx("emby"));
-  await service.handleRpc("hongguo.home", {}, ctx("hongguo"));
-  const config = { enabled: true, cards: { emby: { enabled: false }, hongguo: { enabled: true } } };
+  await service.handleRpc("clips.home", {}, ctx("clips"));
+  const config = { enabled: true, cards: { emby: { enabled: false }, clips: { enabled: true } } };
   setConfig(config);
   assert.deepEqual(await service.handleRpc("emby.playback.stop", { playbackId: opened.playbackId }, ctx("emby")), { stopped: true });
   await service.applyConfig(config);
-  assert.equal(calls.filter(call => call.name === "hongguo" && call.disposedTarget).length, 0);
+  assert.equal(calls.filter(call => call.name === "clips" && call.disposedTarget).length, 0);
   await assert.rejects(service.handleRpc("emby.home.get", {}, ctx("emby", 2)), { code: "CARD_DISABLED" });
   assert.deepEqual(await service.handleRpc("emby.lifecycle.dispose", {}, ctx("emby", 2)), { disposed: true });
-  await service.handleRpc("hongguo.home", {}, ctx("hongguo"));
+  await service.handleRpc("clips.home", {}, ctx("clips"));
   setConfig({ enabled: false, cards: {} });
-  await assert.rejects(service.handleRpc("hongguo.home", {}, ctx("hongguo", 2)), { code: "CARD_DISABLED" });
+  await assert.rejects(service.handleRpc("clips.home", {}, ctx("clips", 2)), { code: "CARD_DISABLED" });
 });
 
 test("旧 generation 不能清理或操作新 generation；卡片、target 和 context 会话隔离", async () => {
@@ -77,7 +77,7 @@ test("旧 generation 不能清理或操作新 generation；卡片、target 和 c
   const old = await service.handleRpc("emby.playback.open", {}, ctx("emby", 1));
   const newest = await service.handleRpc("emby.playback.open", {}, ctx("emby", 2));
   const other = await service.handleRpc("emby.playback.open", {}, ctx("emby", 1, "target-a", 8));
-  await service.handleRpc("hongguo.home", {}, ctx("hongguo"));
+  await service.handleRpc("clips.home", {}, ctx("clips"));
   const before = calls.length;
   await assert.rejects(service.handleRpc("emby.lifecycle.dispose", {}, ctx("emby", 1)), { code: "RPC_STALE_GENERATION" });
   await assert.rejects(service.handleRpc("emby.playback.stop", { playbackId: newest.playbackId }, ctx("emby", 1)), { code: "RPC_STALE_GENERATION" });
@@ -88,33 +88,33 @@ test("旧 generation 不能清理或操作新 generation；卡片、target 和 c
   await service.handleRpc("emby.lifecycle.dispose", {}, ctx("emby", 1, "target-a", 8));
   await service.handleRpc("emby.playback.direct.next", { playbackId: newest.playbackId }, ctx("emby", 2));
   assert.ok(old.playbackId && other.playbackId);
-  assert.equal(calls.filter(call => call.name === "hongguo" && call.disposedTarget).length, 0);
+  assert.equal(calls.filter(call => call.name === "clips" && call.disposedTarget).length, 0);
 });
 
 test("卡片清理中一个同步抛错不阻止其他卡的 target/global 清理", async () => {
   const events = [];
-  const service = new CodexCompanionService({
+  const service = createServiceWithClips({
     configStore: { loadV2: async () => ({ enabled: true, cards: {} }) },
-    hongguoService: { disposeTarget() { events.push("hongguo-target"); throw new Error("target failure"); }, dispose() { events.push("hongguo-global"); throw new Error("global failure"); } },
+    clipsService: { disposeTarget() { events.push("clips-target"); throw new Error("target failure"); }, dispose() { events.push("clips-global"); throw new Error("global failure"); } },
     embyService: { disposeTarget() { events.push("emby-target"); }, dispose() { events.push("emby-global"); } }
   });
   await assert.rejects(service.disposeTarget("a"), /target failure/);
   await assert.rejects(service.dispose(), /global failure/);
-  assert.deepEqual(events, ["hongguo-target", "emby-target", "hongguo-global", "emby-global"]);
+  assert.deepEqual(events, ["clips-target", "emby-target", "clips-global", "emby-global"]);
 });
 
 test("迟到打开会话在旧 scope 再次清理；新 generation 与其他卡不受影响", async () => {
   let finish;
   let oldContext;
   const disposed = [];
-  const service = new CodexCompanionService({
+  const service = createServiceWithClips({
     configStore: { loadV2: async () => ({ enabled: true, cards: {} }) },
     embyService: {
       handleRpc(_method, _params, context) {
         if (!oldContext) { oldContext = context; return new Promise(resolve => { finish = resolve; }); }
         return { playbackId: "new-playback" };
       }, disposeTarget(key) { disposed.push(key); }
-    }, hongguoService: {}
+    }, clipsService: {}
   });
   const pending = service.handleRpc("emby.playback.open", {}, ctx("emby", 1));
   await new Promise(resolve => setImmediate(resolve));

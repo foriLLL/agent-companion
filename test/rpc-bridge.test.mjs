@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import vm from "node:vm";
 import { getEventListeners } from "node:events";
-import { CodexCompanionService } from "../src/codex-companion-service.mjs";
+import { createServiceWithClips } from "./helpers/clips-card.mjs";
 import test from "node:test";
 import {
   CdpRpcBridge,
@@ -313,7 +313,7 @@ test("新 RPC 元数据校验并使用 CDP target/context，拒绝 namespace/gen
   const invalid = [
     { cardId: "emby", generation: -1 }, { cardId: "emby", generation: 0.5 },
     { cardId: "emby", generation: Number.MAX_SAFE_INTEGER + 1 }, { cardId: "emby" },
-    { generation: 1 }, { cardId: "hongguo", generation: 1 }
+    { generation: 1 }, { cardId: "clips", generation: 1 }
   ];
   for (const [index, metadata] of invalid.entries()) emitRequest(connection, { id: `bad-${index}`, method: "emby.connection.status", ...metadata });
   await waitFor(() => connection.responses.length === invalid.length);
@@ -338,7 +338,7 @@ test("generation 升级只取消该卡该 context，旧 dispose 不会送到服�
   } });
   await bridge.attach();
   emitRequest(connection, { id: "old", method: "emby.home.get", cardId: "emby", generation: 1 });
-  emitRequest(connection, { id: "other-card", method: "hongguo.home", cardId: "hongguo", generation: 1 });
+  emitRequest(connection, { id: "other-card", method: "clips.home", cardId: "clips", generation: 1 });
   emitRequest(connection, { id: "other-context", method: "emby.home.get", cardId: "emby", generation: 1 }, 8);
   await waitFor(() => signals.size === 3);
   emitRequest(connection, { id: "new", method: "emby.home.get", cardId: "emby", generation: 2 });
@@ -360,7 +360,7 @@ test("取消必须同时匹配 card/generation/context；旧无元数据取消�
   await bridge.attach();
   emitRequest(connection, { id: "pending", method: "emby.home.get", cardId: "emby", generation: 2 });
   await waitFor(() => signal);
-  emitRequest(connection, { id: "wrong-card", method: "rpc.cancel", cardId: "hongguo", generation: 2, params: { requestId: "pending" } });
+  emitRequest(connection, { id: "wrong-card", method: "rpc.cancel", cardId: "clips", generation: 2, params: { requestId: "pending" } });
   emitRequest(connection, { id: "wrong-context", method: "rpc.cancel", cardId: "emby", generation: 2, params: { requestId: "pending" } }, 8);
   emitRequest(connection, { id: "wrong-generation", method: "rpc.cancel", cardId: "emby", generation: 3, params: { requestId: "pending" } });
   emitRequest(connection, { id: "legacy-cancel", method: "rpc.cancel", params: { requestId: "pending" } });
@@ -398,20 +398,20 @@ test("公共 bridge 到真实 ServiceRegistry：禁用与旧 dispose 不影响�
   const contexts = new Map();
   const disposed = [];
   let enabled = true;
-  const service = new CodexCompanionService({
+  const service = createServiceWithClips({
     configStore: { loadV2: async () => ({ enabled: true, cards: { emby: { enabled } } }) },
     embyService: {
       handleRpc(_method, _params, context) { contexts.set(`emby-${context.generation}`, context); return { connected: true }; },
       disposeTarget(key) { disposed.push(["emby", key]); }
     },
-    hongguoService: {
-      handleRpc(_method, _params, context) { contexts.set("hongguo", context); return new Promise(() => {}); },
-      disposeTarget(key) { disposed.push(["hongguo", key]); }
+    clipsService: {
+      handleRpc(_method, _params, context) { contexts.set("clips", context); return new Promise(() => {}); },
+      disposeTarget(key) { disposed.push(["clips", key]); }
     }
   });
   const bridge = new CdpRpcBridge(connection, { handler: service, targetId: "trusted-target" });
   await bridge.attach();
-  emitRequest(connection, { id: "hongguo", method: "hongguo.home", cardId: "hongguo", generation: 1 });
+  emitRequest(connection, { id: "clips", method: "clips.home", cardId: "clips", generation: 1 });
   emitRequest(connection, { id: "emby-1", method: "emby.connection.status", cardId: "emby", generation: 1 });
   await waitFor(() => contexts.size === 2);
   emitRequest(connection, { id: "emby-2", method: "emby.connection.status", cardId: "emby", generation: 2 });
@@ -420,17 +420,17 @@ test("公共 bridge 到真实 ServiceRegistry：禁用与旧 dispose 不影响�
   emitRequest(connection, { id: "old-dispose", method: "emby.lifecycle.dispose", cardId: "emby", generation: 1 });
   await waitFor(() => connection.responses.some(({ response }) => response.id === "old-dispose"));
   assert.equal(disposed.length, priorDisposals);
-  assert.equal(contexts.get("hongguo").signal.aborted, false);
+  assert.equal(contexts.get("clips").signal.aborted, false);
   enabled = false;
   await service.applyConfig({ enabled: true, cards: { emby: { enabled: false } } });
   assert.equal(contexts.get("emby-2").signal.aborted, true);
-  assert.equal(contexts.get("hongguo").signal.aborted, false);
+  assert.equal(contexts.get("clips").signal.aborted, false);
   emitRequest(connection, { id: "disabled", method: "emby.home.get", cardId: "emby", generation: 3 });
   await waitFor(() => connection.responses.some(({ response }) => response.id === "disabled"));
   assert.equal(connection.responses.find(({ response }) => response.id === "disabled").response.error.code, "CARD_DISABLED");
-  assert.equal(disposed.some(([id]) => id === "hongguo"), false);
+  assert.equal(disposed.some(([id]) => id === "clips"), false);
   bridge.detach();
-  await waitFor(() => contexts.get("hongguo").signal.aborted);
+  await waitFor(() => contexts.get("clips").signal.aborted);
 });
 
 

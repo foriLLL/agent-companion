@@ -1,7 +1,7 @@
 import { createFile } from "mp4box";
 import { EmbyError } from "./emby-client.mjs";
 
-// 2MB 与两侧 Range 上限（Emby DEFAULT_DIRECT_RANGE_LIMIT、红果 HONGGUO_RESOURCE_LIMIT）
+// 2MB 与 Emby 的 Range 上限（DEFAULT_DIRECT_RANGE_LIMIT）
 // 对齐；普通分片每次 RPC 仍最多 8MB。异常媒体仍可能产生更大的完整分片，允许
 // 单片最多 48MB，并在 RPC 边界上拆成连续字节块传输。
 export const DIRECT_MP4_CHUNK_BYTES = 2 * 1024 * 1024;

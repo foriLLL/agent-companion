@@ -2,7 +2,7 @@
 // 静态元数据，供 Node 与 bundle 直接 import；运行时不读文件系统。
 import { validateCatalog } from "./platform/registry/manifest.mjs";
 
-export const CARD_REGISTRY_HASH = "55d38fa8afc9e2f70f02417e0f84f1ddd9a429776f32e23e979e60cf722abb97";
+export const CARD_REGISTRY_HASH = "a854d72b9a167d45ae35e29abf8d2b22b58e3704f1452ce3f3ebbececfd8f35d";
 
 export const CARD_MANIFESTS = validateCatalog([
   {
@@ -73,30 +73,6 @@ export const CARD_MANIFESTS = validateCatalog([
       "version": 1
     },
     "capabilities": [
-      "storage"
-    ]
-  },
-  {
-    "id": "hongguo",
-    "title": "红果短剧",
-    "version": 1,
-    "defaultEnabled": true,
-    "defaultOrder": 20,
-    "layout": {
-      "height": "viewport",
-      "minHeight": 320,
-      "scroll": "inner"
-    },
-    "lifecycle": {
-      "hidden": "retain",
-      "start": "first-visible"
-    },
-    "state": {
-      "scope": "target",
-      "version": 1
-    },
-    "capabilities": [
-      "rpc",
       "storage"
     ]
   },

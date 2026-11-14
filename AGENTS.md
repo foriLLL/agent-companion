@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Codex Companion — 在 Codex 桌面端（macOS；Linux 预览）中注入红果短剧、Emby、小游戏、代理状态与任务看板。
+Codex Companion — 在 Codex 桌面端（macOS；Linux 预览）中注入 Emby、小游戏、代理状态与任务看板。
 不修改 app.asar 或应用签名：launchd 常驻 agent 监听 Codex 启动，刚打开且未带调试参数的 Codex
 在安全条件下被正常退出、以 loopback 随机端口重开，再经 CDP 注入卡片；设置页在 Codex 内（卡片区齿轮）。
 Linux 不自动重开：用户级 `chatgpt.desktop` 覆盖菜单入口（`open-codex` 带调试参数启动），
@@ -24,7 +24,7 @@ systemd 用户服务常驻发现并注入；主进程 cmdline 被 Chromium setpr
   `secret-store.mjs` 凭证存储（钥匙串 / DPAPI / Secret Service）
 - `src/` — 共用核心逻辑。旧入口 `cli.mjs`；`injection.mjs` 为旧注入的卡片
   UI/CSS/渲染器；`emby-*.mjs` Emby 相关；`hls-proxy.mjs` Emby HLS 的
-  127.0.0.1 本地代理（替代 RPC + base64 分片通道）；`hongguo.mjs` 红果短剧；
+  127.0.0.1 本地代理（替代 RPC + base64 分片通道）；
   `daemon.mjs` 看门狗；`cdp-connection.mjs`、`rpc-bridge.mjs` 通信层
 - `test/` — `*.test.mjs`，Node 内置 test runner
 - `scripts/` — 构建 (`build-app.mjs`、`build-linux.mjs`、`build-native.mjs`、`prepare-installer.mjs`)、生成 (`generate-renderer.mjs`)、
