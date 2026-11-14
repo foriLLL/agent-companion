@@ -9,19 +9,44 @@ import { reserveLoopbackPort } from "../src/launcher.mjs";
 import { listCdpTargets } from "../src/targets.mjs";
 import { createCodexAdapter } from "../src/renderer/adapters/codex.mjs";
 
-// 原生 thread-summary-panel-layout chunk 的同构替身：函数体照抄原生，导出名故意打乱，
-// 验证适配器按行为而非导出名识别。
-const nativeLayoutSource = `function a(e,t=300){let n=(e-736)/2,r=t-300;return n<180+r/2?"overlay":n<400+r?"shift":"gutter"}
+// 原生 Summary 布局函数的同构替身：函数体照抄原生，导出名故意打乱，验证适配器按行为而非导出名识别。
+const nativeLayoutFunctions = `function a(e,t=300){let n=(e-736)/2,r=t-300;return n<180+r/2?"overlay":n<400+r?"shift":"gutter"}
 function b({displayMode:e,isPinned:t,isPopoverOpen:n}){let r=t&&e!=="overlay",i=null;return r?i="inline":e==="overlay"&&n&&(i="popover"),{displayMode:e,shouldHideInlineImmediately:e==="overlay"&&n,shouldShow:r,visibleSurface:i}}
 function c({displayMode:e,isPinned:t,panelWidth:n=300}){return t&&e==="shift"?-(308+n-300)/2:0}
-function d(){}
+function d(){}`;
+// Vite 打包（26.1027 之前）：独立的 thread-summary-panel-layout-*.js。
+const nativeLayoutSource = `${nativeLayoutFunctions}
 export { d as q, c as w, a as k, b as z };`;
+// Rspack ESM（26.1103 起）：入口脚本导出 __webpack_require__，布局模块是 .m 里的一个工厂。
+// decoy 的源码同样像布局模块但尚未实例化，执行它就记一笔，验证适配器不主动执行原生工厂。
+const runtimeEntrySource = `const factories = {
+  big(e, t) { t.Ab = () => "overlay"; t.Cd = () => "shift"; },
+  w2yL(e, t) { ${nativeLayoutFunctions}
+    Object.assign(t, { D6: b, Sj: c, UQ: a, Zz: d }); },
+  decoy(e, t) { globalThis.decoyExecuted = true; ${nativeLayoutFunctions}
+    Object.assign(t, { D6: b, Sj: c, UQ: a }); }
+};
+const cache = {};
+function __webpack_require__(id) {
+  if (cache[id]) return cache[id].exports;
+  const module = cache[id] = { exports: {} };
+  factories[id](module, module.exports, __webpack_require__);
+  return module.exports;
+}
+__webpack_require__.m = factories;
+__webpack_require__.c = cache;
+__webpack_require__("big");
+__webpack_require__("w2yL");
+export { __webpack_require__ };`;
 const layoutServer = http.createServer((request, response) => {
-  if (!request.url?.startsWith("/assets/thread-summary-panel-layout-")) { response.writeHead(404).end(); return; }
-  response.writeHead(200, { "content-type": "text/javascript", "access-control-allow-origin": "*" }).end(nativeLayoutSource);
+  const body = request.url?.startsWith("/assets/thread-summary-panel-layout-") ? nativeLayoutSource
+    : request.url?.startsWith("/assets/348410.") ? runtimeEntrySource : null;
+  if (body === null) { response.writeHead(404).end(); return; }
+  response.writeHead(200, { "content-type": "text/javascript", "access-control-allow-origin": "*" }).end(body);
 });
 await new Promise((resolve) => layoutServer.listen(0, "127.0.0.1", resolve));
 const layoutUrl = `http://127.0.0.1:${layoutServer.address().port}/assets/thread-summary-panel-layout-0a1b2c3d.js`;
+const runtimeEntryUrl = `http://127.0.0.1:${layoutServer.address().port}/assets/348410.0a1b2c3d4e.js`;
 
 // 只启动独立临时 Chrome profile；不访问用户 Codex 的 CDP 端口或配置。
 const port = await reserveLoopbackPort();
@@ -239,11 +264,12 @@ try {
   assert.deepEqual(await evaluate(`errors`), []);
 
   // 原生 Summary 布局：判定来自原生 layout chunk（这里用导出名打乱的同构替身），
-  // 平移只写原生的 --thread-content-x，由原生 _shiftWithTranscript_* 样式完成。
+  // 平移只写原生的 --thread-content-x，由原生 shiftWithTranscript 样式完成。Vite 时代类名为 _shiftWithTranscript_<hash>，
+  // 26.1103 起为 shiftWithTranscript-<hash>，样式两种都声明，各段按对应版本切换。
   // gutter 留白=(宽度-736)/2：<180 overlay，<400 shift（平移 154px），其余 gutter。
   await connection.send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "no-preference" }] });
   await evaluate(`(() => {
-    document.body.innerHTML='<style>._shiftWithTranscript_t_2{translate:var(--thread-content-x,none);--thread-wide-block-inline-shift:max(var(--thread-content-x,0px), calc(-1 * var(--thread-content-x,0px)))}</style>'
+    document.body.innerHTML='<style>._shiftWithTranscript_t_2,.shiftWithTranscript-t2{translate:var(--thread-content-x,none);--thread-wide-block-inline-shift:max(var(--thread-content-x,0px), calc(-1 * var(--thread-content-x,0px)))}</style>'
       + '<link rel="modulepreload" href="${layoutUrl}">'
       + '<header style="position:fixed;top:0;left:0;right:0;height:44px;display:flex"><div style="margin-left:auto;display:flex;gap:6px"><div><button aria-label="New tab" style="width:28px;height:28px">+</button></div></div></header>'
       + '<div id="layout-root" data-request-input-activity-root style="position:absolute;top:48px;left:0;width:1280px;height:700px;--thread-content-x: initial;">'
@@ -256,6 +282,7 @@ try {
     globalThis.sampleShift=(ms)=>new Promise(resolve=>{const out=[],start=performance.now();const tick=()=>{out.push(Math.round(shiftOf('shift-column')*10)/10);if(performance.now()-start<ms)requestAnimationFrame(tick);else resolve(out);};requestAnimationFrame(tick);});
   })()`);
   await waitFor(`shiftAdapter.getDiagnostics().nativeLayout && shiftAdapter.getDiagnostics().displayMode === 'shift'`, "加载原生布局模块并判定 shift 档");
+  assert.equal(await evaluate(`shiftAdapter.getDiagnostics().layoutSource`), "chunk", "Vite 独立分包");
   const expectedShift = 154;
   const opening = await evaluate(`(async()=>{shiftAdapter.setOpen(true);return sampleShift(500);})()`);
   assert.equal(opening.at(-1), expectedShift, "平移量取自原生模块");
@@ -310,6 +337,27 @@ try {
   assert.deepEqual(await evaluate(`(() => { const {nativeLayout, layoutSource, displayMode, drawerSurface} = bareAdapter.getDiagnostics(); return {nativeLayout, layoutSource, displayMode, drawerSurface, footer: Math.round(shiftOf('shift-footer'))}; })()`),
     { nativeLayout: false, layoutSource: "builtin", displayMode: "shift", drawerSurface: "inline", footer: expectedShift }, "内置公式与原生一致");
   await evaluate(`bareAdapter.dispose()`);
+  assert.deepEqual(await evaluate(`errors`), []);
+
+  // Rspack ESM（26.1103 起）：分包文件名不可识别，从入口导出的 __webpack_require__ 里取已实例化的原生布局模块；
+  // 平移钩子换成 shiftWithTranscript-<hash> 新命名。
+  await evaluate(`(() => {
+    for (const node of document.querySelectorAll('._shiftWithTranscript_t_2')) node.className = 'shiftWithTranscript-t2';
+    const entry = document.createElement('script');
+    entry.type = 'module';
+    entry.src = '${runtimeEntryUrl}';
+    document.head.append(entry);
+    globalThis.decoyExecuted = false;
+    globalThis.runtimeAdapter=createCodexAdapter({host,onError:error=>errors.push(error.message)});
+  })()`);
+  await waitFor(`runtimeAdapter.getDiagnostics().layoutSource === 'runtime' && runtimeAdapter.getDiagnostics().displayMode === 'shift'`, "从 Rspack 运行时取原生布局模块");
+  await evaluate(`runtimeAdapter.setOpen(true)`);
+  await waitFor(`runtimeAdapter.isOpen() && drawerOf().dataset.state === 'open' && Math.round(shiftOf('shift-column')) === ${expectedShift}`, "新类名下按原生模块平移");
+  assert.deepEqual(await evaluate(`({footer: Math.round(shiftOf('shift-footer')), surface: runtimeAdapter.getDiagnostics().drawerSurface, decoyExecuted})`),
+    { footer: expectedShift, surface: "inline", decoyExecuted: false }, "输入框同步平移，且不执行未实例化的原生工厂");
+  await evaluate(`setRootWidth(1000)`);
+  await waitFor(`runtimeAdapter.getDiagnostics().displayMode === 'overlay' && shiftOf('shift-column') === 0`, "运行时模块同样判出 overlay 档");
+  await evaluate(`runtimeAdapter.dispose()`);
   assert.deepEqual(await evaluate(`errors`), []);
 
   // 侧聊关闭确认等 Codex 模态弹窗：遮罩（z-50）与确认框必须盖过已打开的抽屉，关闭后抽屉恢复置顶。
@@ -368,7 +416,7 @@ try {
   await evaluate(`dotAdapter.dispose()`);
   assert.deepEqual(await evaluate(`errors`), []);
 
-  // 宿主改版保障：认不出结构 → 不透明侧板、不打标记；滚动内容里的按钮不推低抽屉。
+  // 宿主改版保障：认不出会话结构 → 抽屉浮在会话上方（floating）、不打平移标记；滚动内容里的按钮不推低抽屉。
   await evaluate(`(() => {
     document.body.innerHTML='<header style="position:fixed;top:0;left:0;right:0;height:44px;display:flex"><div style="margin-left:auto;display:flex;gap:6px"><div><button aria-label="New tab" style="width:28px;height:28px">+</button></div></div></header>'
       + '<main style="position:absolute;inset:44px 0 0;display:flex;flex-direction:column"><div style="flex:1;overflow:auto"><div style="max-width:600px;margin:0 auto">Unknown<button id="scrolling-action" style="position:absolute;right:20px;top:20px;width:28px;height:28px">R</button></div></div>'
@@ -376,27 +424,12 @@ try {
     globalThis.unknownAdapter=createCodexAdapter({host,onError:error=>errors.push(error.message)});
   })()`);
   await evaluate(`unknownAdapter.setOpen(true)`);
-  await waitFor(`unknownAdapter.isOpen() && unknownAdapter.getDiagnostics().surface === 'sheet'`, "未知结构应退回不透明侧板");
+  await waitFor(`unknownAdapter.isOpen() && unknownAdapter.getDiagnostics().drawerSurface === 'floating'`, "未知结构应浮在会话上方");
   assert.deepEqual(await evaluate(`(() => {
     const drawer=document.getElementById('codex-companion-root-shell').shadowRoot.querySelector('.drawer');
-    return {marks:document.querySelectorAll('[data-companion-dock]').length,top:drawer.style.top,opaque:getComputedStyle(drawer).backgroundColor!=='rgba(0, 0, 0, 0)'};
-  })()`), { marks: 0, top: "48px", opaque: true }, "未知结构不移动原生节点，滚动区按钮不推低抽屉");
+    return {marks:document.querySelectorAll('[data-companion-dock]').length,top:drawer.style.top};
+  })()`), { marks: 0, top: "48px" }, "未知结构不移动原生节点，滚动区按钮不推低抽屉");
   await evaluate(`unknownAdapter.dispose()`);
-
-  // 选择器命中但平移没有生效（原生样式压过让位样式）：复核发现遮挡，撤销让位并退回侧板，且不再反复尝试。
-  await evaluate(`(() => {
-    document.body.innerHTML='<style>#stuck-list{transform:none !important}</style><header style="position:fixed;top:0;left:0;right:0;height:44px;display:flex"><div style="margin-left:auto;display:flex;gap:6px"><div><button aria-label="New tab" style="width:28px;height:28px">+</button></div></div></header>'
-      + '<main style="position:absolute;inset:44px 0 0;display:flex;flex-direction:column"><div style="display:flex;flex:1;min-height:0"><div data-role="messages-scroll" style="flex:1;overflow:auto"><div id="stuck-list" class="message-list" style="max-width:600px;margin:0 auto">Message</div></div></div></main>';
-    globalThis.stuckAdapter=createCodexAdapter({host,onError:error=>errors.push(error.message)});
-  })()`);
-  await evaluate(`stuckAdapter.setOpen(true)`);
-  await waitFor(`stuckAdapter.isOpen() && stuckAdapter.getDiagnostics().surface === 'sheet'`, "平移失效应退回侧板");
-  assert.deepEqual(await evaluate(`(async () => {
-    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-    const {dockFallbacks, surface} = stuckAdapter.getDiagnostics();
-    return {dockFallbacks, surface, marks:document.querySelectorAll('[data-companion-dock]').length};
-  })()`), { dockFallbacks: 1, surface: "sheet", marks: 0 }, "复核失败后撤销且不重试");
-  await evaluate(`stuckAdapter.dispose()`);
   assert.deepEqual(await evaluate(`errors`), []);
 
   await evaluate(`clearInterval(frameTimer);video.srcObject.getTracks().forEach(track=>track.stop())`);
