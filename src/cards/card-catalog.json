@@ -1,5 +1,5 @@
 {
-  "hash": "55d38fa8afc9e2f70f02417e0f84f1ddd9a429776f32e23e979e60cf722abb97",
+  "hash": "a854d72b9a167d45ae35e29abf8d2b22b58e3704f1452ce3f3ebbececfd8f35d",
   "cards": [
     {
       "id": "proxy",
@@ -82,34 +82,6 @@
       "entries": {
         "renderer": true,
         "service": false
-      }
-    },
-    {
-      "id": "hongguo",
-      "title": "红果短剧",
-      "version": 1,
-      "defaultEnabled": true,
-      "defaultOrder": 20,
-      "layout": {
-        "height": "viewport",
-        "minHeight": 320,
-        "scroll": "inner"
-      },
-      "lifecycle": {
-        "hidden": "retain",
-        "start": "first-visible"
-      },
-      "state": {
-        "scope": "target",
-        "version": 1
-      },
-      "capabilities": [
-        "rpc",
-        "storage"
-      ],
-      "entries": {
-        "renderer": true,
-        "service": true
       }
     },
     {

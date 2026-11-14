@@ -1,5 +1,4 @@
 import { mount as mountEmby } from "/emby.js";
-import { mount as mountHongguo } from "/hongguo.js";
 import { createEffects } from "/effects.js";
 
 const errors = [];
@@ -15,7 +14,6 @@ const wait = async (predicate, label) => {
   throw new Error(`等待超时：${label}`);
 };
 const movie = { id: "movie", name: "媒体夹具", type: "Movie" };
-const drama = { id: "123", name: "短剧夹具", totalEpisodes: 2 };
 const fixture = await fetch("/fixture.json").then((response) => response.json());
 let mode = "hls";
 let id = 0;
@@ -34,11 +32,6 @@ async function handle(method, params) {
     if (params.responseType === "text") return { data: await response.text(), url: params.url };
     return { data: await response.arrayBuffer(), url: params.url };
   }
-  if (method === "hongguo.home") return { items: [drama], hasMore: false };
-  if (method === "hongguo.list.get") return { items: [] };
-  if (method === "hongguo.list.add") return { items: [drama] };
-  if (method === "hongguo.detail") return { ...drama, accessibleEpisodeCount: 2, fullEpisodeCount: 2 };
-  if (method === "hongguo.playback.open") return { playbackId: "hg-play", episode: params.episode, streamMode: "direct-mp4" };
   if (method.endsWith("playback.direct.init")) return { tracks: [{ id: 1, mime: 'video/mp4; codecs="avc1.42c01e"', codec: "avc1.42c01e", initData: fixture.init }], durationSeconds: 8, keyframeTimesSeconds: [0, 1, 2, 3, 4, 5, 6, 7], keyframeIntervalSeconds: 1 };
   if (method.endsWith("playback.direct.next")) return { segments: [{ trackId: 1, data: fixture.media }], end: true };
   if (method.endsWith("playback.direct.seek")) return { timestampOffsetSeconds: 0 };
@@ -74,12 +67,9 @@ function context(card) {
 
 async function run() {
   const embyContext = context("emby");
-  const hgContext = context("hongguo");
   const emby = mountEmby(embyContext);
-  const hg = mountHongguo(hgContext);
-  await wait(() => emby.api.getState().view === "home" && hg.api.getState().view === "home", "首页");
+  await wait(() => emby.api.getState().view === "home", "首页");
   assert(emby.api.getState().latestCount === 1, "Emby 首页数据通过平台 RPC 加载");
-  assert(hg.api.getState().featuredCount === 1, "红果首页数据通过平台 RPC 加载");
   assert(getComputedStyle(embyContext.root.querySelector(".panel")).boxShadow === "none", "外框阴影由平台独占");
 
   emby.api.dispatch("showSearch", { query: "媒体", items: [] });
@@ -103,25 +93,6 @@ async function run() {
   assert(embyContext.root.querySelector("video") === video && video.currentTime === time, "Emby inline 隐藏重开保留视频身份和进度");
   assert(calls.filter((call) => call.method.endsWith("playback.stop")).length === stopCount, "Emby 隐藏不发送停止请求");
 
-  await hg.api.openById("123");
-  assert(hg.api.getState().selectedDramaId === "123", "红果 ID 直达和详情 API");
-  await hg.api.playEpisode(1);
-  await wait(() => hgContext.root.querySelector("video")?.readyState >= 2, "红果 MSE 首帧");
-  const hgVideo = hgContext.root.querySelector("video");
-  hgVideo.pause();
-  assert(hg.api.getState().diagnostics.streamMode === "direct-mp4", "红果 MSE 播放保留原管线");
-  hgContext.host.hidden = true;
-  hg.visibilityChanged({ visible: false, reason: "inline-collapse" });
-  await delay(80);
-  hgContext.host.hidden = false;
-  hg.visibilityChanged({ visible: true });
-  assert(hgContext.root.querySelector("video") === hgVideo && hg.api.getState().playing, "红果 inline 隐藏重开保留播放实例");
-  hgVideo.dispatchEvent(new Event("ended"));
-  assert(!hgContext.root.querySelector(".hg-autoplay").hidden, "红果自动下一集菜单仍可用");
-  hgContext.root.querySelector(".hg-autoplay .primary").click();
-  await wait(() => calls.some((call) => call.method === "hongguo.playback.open" && call.params.episode === 2), "红果下一集");
-  assert(calls.some((call) => call.method === "hongguo.playback.open" && call.params.episode === 2), "红果连播发起下一集");
-
   emby.api.dispatch("back");
   mode = "direct-mp4";
   emby.api.dispatch("showSearch", { query: "媒体", items: [movie] });
@@ -135,9 +106,6 @@ async function run() {
 
   embyContext.root.querySelector("video").dispatchEvent(new Event("error"));
   assert(emby.api.getState().view === "error" && emby.api.getState().mseDiagnostics !== null, "Emby MSE 失败保留诊断并显示重试界面");
-  await wait(() => hgContext.root.querySelector("video")?.readyState >= 2, "红果第二集首帧");
-  hgContext.root.querySelector("video").dispatchEvent(new Event("error"));
-  assert(hg.api.getState().view === "error", "红果 MSE 失败不依赖 Emby 状态");
 
   mode = "ffmpeg-fmp4";
   emby.api.dispatch("showSearch", { query: "媒体", items: [movie] });
@@ -161,16 +129,14 @@ async function run() {
   await wait(() => embyContext.root.querySelector("video")?.currentSrc.startsWith("blob:") && embyContext.root.querySelector("video").readyState >= 2, "原生加载失败回退 MSE");
 
   embyContext.controller.abort();
-  hgContext.controller.abort();
   secondContext.controller.abort();
-  await Promise.all([emby.dispose(), hg.dispose(), second.dispose()]);
-  assert(embyContext.root.childNodes.length === 0 && hgContext.root.childNodes.length === 0, "卸载移除业务 DOM");
-  assert(embyContext.effects.diagnostics().active === 0 && hgContext.effects.diagnostics().active === 0, "卸载回收平台副作用");
+  await Promise.all([emby.dispose(), second.dispose()]);
+  assert(embyContext.root.childNodes.length === 0, "卸载移除业务 DOM");
+  assert(embyContext.effects.diagnostics().active === 0, "卸载回收平台副作用");
   const afterDispose = calls.length;
-  hg.api.setVideoSource(`${base}/clip.mp4`);
   emby.api.dispatch("previewPlayback");
   await delay(100);
-  assert(calls.length === afterDispose && hgContext.root.childNodes.length === 0, "旧 API 不复活已卸载实例");
+  assert(calls.length === afterDispose && embyContext.root.childNodes.length === 0, "旧 API 不复活已卸载实例");
   assert(errors.length === 0, `没有未隔离异常：${errors.join(", ")}`);
   return { checks, rpcCalls: calls.length, errors };
 }

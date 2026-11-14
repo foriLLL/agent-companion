@@ -86,14 +86,14 @@ print_ffmpeg_summary() {
     skipped)
       cat <<EOF
   ⚠️  FFmpeg：已按 CODEX_COMPANION_SKIP_FFMPEG=1 跳过安装。
-      红果、Emby HLS 和常规码率兼容 MP4 仍可播放；HEVC、EC-3、MKV、超高码率媒体和图形字幕烧录不可用。
+      Emby HLS 和常规码率兼容 MP4 仍可播放；HEVC、EC-3、MKV、超高码率媒体和图形字幕烧录不可用。
       如需补装，请运行：brew install ffmpeg
 EOF
       ;;
     *)
       cat <<EOF
   ⚠️  FFmpeg：未安装成功，但 Codex Companion 已可正常使用。
-      红果、Emby HLS 和常规码率兼容 MP4 仍可播放；HEVC、EC-3、MKV、超高码率媒体和图形字幕烧录不可用。
+      Emby HLS 和常规码率兼容 MP4 仍可播放；HEVC、EC-3、MKV、超高码率媒体和图形字幕烧录不可用。
       安装 Homebrew：https://brew.sh/
       安装 FFmpeg：brew install ffmpeg
 EOF
@@ -289,7 +289,7 @@ print_linux_ffmpeg_summary() {
   fi
   cat <<EOF
   ⚠️  FFmpeg：未检测到，但 Codex Companion 已可正常使用。
-      红果、Emby HLS 和常规码率兼容 MP4 仍可播放；HEVC、EC-3、MKV、超高码率媒体和图形字幕烧录不可用。
+      Emby HLS 和常规码率兼容 MP4 仍可播放；HEVC、EC-3、MKV、超高码率媒体和图形字幕烧录不可用。
       如需补装：sudo apt install ffmpeg（Fedora：sudo dnf install ffmpeg-free）
 EOF
 }

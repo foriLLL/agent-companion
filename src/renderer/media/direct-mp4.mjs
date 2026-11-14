@@ -1,4 +1,4 @@
-// 红果与 Emby 共用的 MSE 管线；每次调用独占播放器状态。
+// Emby 直连 MP4 的 MSE 管线；每次调用独占播放器状态。
 export function createDirectMp4Stream(scope, ui) {
   const { rpc, listen, unlisten, setTimeout, clearTimeout, createObjectURL, revokeObjectURL, isDisposed } = scope;
   const { rpcError, toRpcError, decodeBase64 } = ui;

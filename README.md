@@ -1,16 +1,15 @@
 # Codex Companion
 
-Companion 是一个非官方的 Codex 桌面端（macOS / Linux）增强，把红果短剧、Emby、小游戏、
+Companion 是一个非官方的 Codex 桌面端（macOS / Linux）增强，把 Emby、小游戏、
 代理状态和跟踪多个会话的任务看板注入到 Codex 聊天旁。后台服务随登录启动，
 安装一次后日常只需打开 Codex，不用单独启动 Companion。
 不修改 `app.asar`、Codex 安装包或应用签名。
 
-> Codex Companion 与 OpenAI、ChatGPT、Codex、字节跳动、红果短剧及 Emby 均无隶属、
+> Codex Companion 与 OpenAI、ChatGPT、Codex 及 Emby 均无隶属、
 > 授权或背书关系；相关名称和商标归各自权利人所有。
 
 ## 功能
 
-- **红果短剧**：公开内容浏览、搜索、收藏、选集、播放和倒计时自动连播。
 - **Emby**：多服务器、媒体库、继续观看、最近添加、搜索、选季选集、选源、字幕和进度上报。
 - **小游戏**：2048、扫雷和纸牌，存档保存在本机。
 - **代理状态**：查看当前 Codex 的启动代理与本机端口连通性。
@@ -101,15 +100,6 @@ Linux 上从应用菜单打开 ChatGPT 即可：入口以 `--remote-debugging-ad
 - 设置中调整卡片开关与顺序；关闭卡片保留存档。
 - 「Codex 启动代理」保存启动偏好后，点击「保存并重启」应用。
 
-### 红果短剧
-
-卡片只读取 [hongguoduanju.com](https://hongguoduanju.com/) 公开网页中的 SSR
-数据和网页标记为可访问的集数，不使用红果 SDK、私有 API、登录态或账号权益，
-也不绕过 DRM 和访问控制。签名媒体地址过期时会重新读取对应播放页一次。
-
-官网结构、内容可用性和访问规则都可能变化。使用者应自行确认所在地法律、
-站点条款及内容权利允许相应访问；本项目不提供、托管或授权任何视频内容。
-
 ### Emby
 
 首次打开卡片时输入服务器地址、用户名和密码。数据目录中的 `emby.json`（`0600`）
@@ -166,7 +156,7 @@ npm run probe:emby -- --server https://emby.example.com --username alice --searc
 1. launchd 常驻的后台服务经原生助手观察 Codex 启动，在安全条件下以 loopback
    随机调试端口重开 Codex，再通过 CDP 注入卡片渲染器。
 2. 页面经 CDP binding 与后台 RPC 通信；各卡片共用渲染器、服务注册表与生命周期管理。
-3. 后台访问红果、Emby 和允许的媒体 CDN；页面不直接接触凭证。
+3. 后台访问 Emby 和允许的媒体 CDN；页面不直接接触凭证。
 4. 媒体经 127.0.0.1 本地代理（HLS）、CDP 媒体拦截或有界 RPC 分片 + MSE 播放；
    每次响应、后台队列、分片缓存与页面缓冲都有上限。
 5. 返回、seek、切集、登出或关闭页面会取消对应请求并回收资源；心跳超时也会触发回收。
@@ -213,7 +203,6 @@ Emby Token 只发往配置的 Emby origin，不进入 DOM、媒体 URL、FFmpeg 
 - 不支持 Emby Connect、服务器自动发现、Live TV、音频库和 DRM；不关闭 TLS 校验，
   不支持自签名 Emby HTTPS。
 - 切换到其他卡片时暂停媒体；不支持 Emby 自动连播、在线字幕搜索或字幕时间轴偏移。
-- 红果仅支持公开播放页提供的 MP4 和当前页面 / FFmpeg 可处理的编码。
 - 已经在使用、未带调试参数的 Codex 需要手动重开一次才能注入。
 - Linux 为预览：登录后会话界面中的卡片位置尚未验证；Windows 暂不支持。
 - 任务看板的状态由 Codex 本地会话记录推断，依赖其记录格式与侧栏 DOM，Codex 改版后
