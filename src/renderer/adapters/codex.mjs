@@ -636,19 +636,34 @@ export function createCodexAdapter({ host, placement = "standalone-button", onVi
   shell.addEventListener("keydown", onCompanionKeyDown);
   toolbarHost.addEventListener("keydown", onCompanionKeyDown);
 
-  // 判定与平移都复用原生 Summary，不自己定阈值：
-  // - 判定：原生 thread-summary-panel-layout-*.js 是纯函数 chunk（overlay/shift/gutter 档位、
-  //   可见面、会话平移量）。按文件名找到后动态 import，导出名经压缩会变，按行为识别。
+  // 判定与平移都复用原生 Summary，不自己定阈值。
+  // - 判定：原生是三个纯函数（overlay/shift/gutter 档位、可见面、会话平移量），导出名经压缩会变，
+  //   按行为识别（pickNativeLayout）。随 Codex 打包方式变化，按以下顺序找，诊断 layoutSource 标出来源：
+  //   1. "chunk"：Vite 打包时是独立的 thread-summary-panel-layout-*.js，按文件名找到后动态 import；
+  //   2. "runtime"：26.1103 起改为 Rspack ESM，分包是 async/<数字>.<hash>.js，文件名不再可识别，
+  //      页面 Resource Timing 也不记录 app:// 资源；但入口脚本导出 __webpack_require__。import 已执行
+  //      的入口只取命名空间，在已实例化的模块（.c）里按工厂源码特征找到布局模块，用原生实例的导出。
+  //      只读已实例化的模块，不主动执行原生工厂，避免提前触发原生副作用；
+  //   3. "builtin"：26.1027 把函数并进 Vite 主 chunk 且不导出，前两种都找不到时用照抄原生的 BUILTIN_LAYOUT。
   // - 平移：原生在 [data-request-input-activity-root] 上写 --thread-content-x，会话与输入框的
-  //   _shiftWithTranscript_* 类据此 translate 并收窄宽块。我们只覆盖这一个变量。
-  // 新版 Codex 把这几个函数并进了主 chunk（app-primary-*.js），按文件名找不到；此时用照抄原生的
-  // BUILTIN_LAYOUT，诊断里 layoutSource 标出来源。平移钩子缺失（非本地会话）时不平移，抽屉浮在会话上方。
+  //   shiftWithTranscript 类据此 translate 并收窄宽块。我们只覆盖这一个变量。
+  //   CSS Modules 命名随版本变：26.1027 及以前为 _shiftWithTranscript_<hash>，26.1103 起为
+  //   shiftWithTranscript-<hash>，只按不带分隔符的类名主体匹配。
+  //   平移钩子缺失（非本地会话）时不平移，抽屉浮在会话上方。
   const NATIVE_LAYOUT_CHUNK = /\/thread-summary-panel-layout-[\w-]+\.js(?:[?#]|$)/;
+  // 布局模块是只有三个小函数的纯模块；限制长度，排除引用它的状态模块等大工厂。
+  const isLayoutFactorySource = (source) => source.length < 2000 && source.includes("visibleSurface")
+    && source.includes("isPopoverOpen") && source.includes('"shift"') && source.includes('"gutter"');
   let nativeLayout = null;
+  let nativeLayoutSource = null;
   let nativeLayoutUrl = null;
   let nativeLayoutLoading = false;
   let nativeLayoutCheckedAt = -Infinity;
-  // 照抄 Codex 26.1027 的原生实现：留白=(会话宽-736)/2，<180 overlay，<400 shift，其余 gutter。
+  // undefined：尚未查找；null：入口不是 Rspack ESM（Vite 版本），不再查找。
+  let bundlerRuntime;
+  // 已检查过的模块 id：分包懒加载会不断新增模块，每次只看新增的部分。
+  const scannedRuntimeModules = new Set();
+  // 照抄原生实现（26.1027、26.1103 相同）：留白=(会话宽-736)/2，<180 overlay，<400 shift，其余 gutter。
   const BUILTIN_LAYOUT = Object.freeze({
     resolveMode: (width, panelWidth = 300) => {
       const gutter = (width - 736) / 2;
@@ -673,26 +688,62 @@ export function createCodexAdapter({ host, placement = "standalone-button", onVi
       && call({ displayMode: "overlay", isPinned: true, isPopoverOpen: true })?.visibleSurface === "popover");
     return resolveMode && contentOffset && visibility ? { resolveMode, contentOffset, visibility } : null;
   };
+  const findLayoutChunkUrl = () => [
+    ...Array.from(document.querySelectorAll("link[href], script[src]"), (node) => node.href || node.src),
+    ...(window.performance?.getEntriesByType?.("resource") ?? []).map((entry) => entry.name)
+  ].find((candidate) => NATIVE_LAYOUT_CHUNK.test(candidate));
+  const findBundlerRuntime = async () => {
+    for (const script of document.querySelectorAll('script[type="module"][src]')) {
+      try {
+        const runtime = (await import(script.src))?.__webpack_require__;
+        if (typeof runtime === "function" && runtime.c && runtime.m) return runtime;
+      } catch {}
+    }
+    return null;
+  };
+  const scanBundlerRuntime = (runtime) => {
+    for (const id of Object.keys(runtime.c)) {
+      if (scannedRuntimeModules.has(id)) continue;
+      scannedRuntimeModules.add(id);
+      let source;
+      try { source = Function.prototype.toString.call(runtime.m[id]); } catch { continue; }
+      if (!isLayoutFactorySource(source)) continue;
+      const layout = pickNativeLayout(runtime.c[id]?.exports);
+      if (layout) return layout;
+      reportError(new Error(`无法识别原生 Summary 布局模块 ${id} 的导出`));
+    }
+    return null;
+  };
   const loadNativeLayout = () => {
     if (nativeLayout || nativeLayoutLoading) return;
-    // 原生 chunk 随会话页懒加载；未找到时每秒最多复查一次，不在流式输出时反复扫描。
+    // 原生模块随会话页懒加载；未找到时每秒最多复查一次，不在流式输出时反复扫描。
     const now = performance.now();
     if (now - nativeLayoutCheckedAt < 1000) return;
     nativeLayoutCheckedAt = now;
-    const url = [
-      ...Array.from(document.querySelectorAll("link[href], script[src]"), (node) => node.href || node.src),
-      ...(window.performance?.getEntriesByType?.("resource") ?? []).map((entry) => entry.name)
-    ].find((candidate) => NATIVE_LAYOUT_CHUNK.test(candidate));
-    if (!url || url === nativeLayoutUrl) return;
-    nativeLayoutUrl = url;
+    const adopt = (layout, source) => {
+      if (!layout || nativeLayout || disposed) return;
+      nativeLayout = layout;
+      nativeLayoutSource = source;
+      schedulePlacement();
+    };
+    let pending = null;
+    const url = findLayoutChunkUrl();
+    if (url && url !== nativeLayoutUrl) {
+      nativeLayoutUrl = url;
+      pending = import(url).then((module) => {
+        const layout = pickNativeLayout(module);
+        if (!layout) reportError(new Error("无法识别原生 Summary 布局模块的导出"));
+        adopt(layout, "chunk");
+      });
+    } else if (bundlerRuntime !== null) {
+      pending = (bundlerRuntime ? Promise.resolve(bundlerRuntime) : findBundlerRuntime()).then((runtime) => {
+        bundlerRuntime = runtime;
+        if (runtime) adopt(scanBundlerRuntime(runtime), "runtime");
+      });
+    }
+    if (!pending) return;
     nativeLayoutLoading = true;
-    import(url).then((module) => {
-      nativeLayout = pickNativeLayout(module);
-      if (!nativeLayout) reportError(new Error("无法识别原生 Summary 布局模块的导出"));
-    }, reportError).finally(() => {
-      nativeLayoutLoading = false;
-      if (!disposed) schedulePlacement();
-    });
+    pending.catch(reportError).finally(() => { nativeLayoutLoading = false; });
   };
   // mainContentTargetWidth 的 DOM 对应：会话布局根（含输入框）的宽度。
   const measureThread = () => {
@@ -703,7 +754,7 @@ export function createCodexAdapter({ host, placement = "standalone-button", onVi
     const bounds = frame?.getBoundingClientRect() ?? null;
     return {
       bounds: bounds && bounds.width > 0 && bounds.height > 0 ? bounds : null,
-      shiftRoot: root?.querySelector('[class*="_shiftWithTranscript_"]') ? root : null
+      shiftRoot: root?.querySelector('[class*="shiftWithTranscript"]') ? root : null
     };
   };
   const isShown = (node) => {
@@ -1079,7 +1130,7 @@ export function createCodexAdapter({ host, placement = "standalone-button", onVi
     isOpen: () => !disposed && Boolean(lastVisibility?.visible),
     isPlaced: () => !disposed && (hasCards || hasSettings) && host.isConnected && placementMode !== "hidden",
     getDiagnostics: () => ({ placement, mode: placementMode, visible: !disposed && Boolean(lastVisibility?.visible), hasCards, hasSettings, disposed, fallbackActive, inlineEntryFallback, summaryUnsupported, moveFallbacks,
-      nativeLayout: Boolean(nativeLayout), layoutSource: nativeLayout ? "native" : "builtin", displayMode, drawerSurface: ownedRail.dataset.surface ?? "none", dockShift, placementStats: { ...placementStats } }),
+      nativeLayout: Boolean(nativeLayout), layoutSource: nativeLayoutSource ?? "builtin", displayMode, drawerSurface: ownedRail.dataset.surface ?? "none", dockShift, placementStats: { ...placementStats } }),
     dispose() {
       if (disposed) return;
       disposed = true;
