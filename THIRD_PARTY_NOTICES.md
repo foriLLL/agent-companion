@@ -8,10 +8,12 @@ Codex Companion 自身以 MIT License 发布。构建产物还包含以下直接
 | [hls.js](https://github.com/video-dev/hls.js) | 1.6.16 | Apache-2.0 | HLS 播放运行时 |
 | [MP4Box.js](https://github.com/gpac/mp4box.js) | 2.4.1 | BSD-3-Clause | MP4/fMP4 增量解析 |
 | [Undici](https://github.com/nodejs/undici) | 7.28.0 | MIT | Node HTTP 客户端 |
+| [openhongguo](https://github.com/beilunyang/openhongguo) | 0.3.0 | Apache-2.0 | 红果短剧非官方 SDK（Go 编译的 wasm） |
 | [Bun](https://github.com/oven-sh/bun) | 1.3.14 | MIT；运行时另含 Bun 上游列出的 LGPL/Apache/BSD 等组件 | 编译自包含的 agent |
 
 Bun 的完整上游许可及其静态链接组件清单保存在
 `packaging/licenses/BUN-LICENSE.md`，并随 `.app` 分发。
+openhongguo 的 Apache-2.0 许可文本随包复制为 Resources 下的 `openhongguo.LICENSE`。
 
 ## FFmpeg
 

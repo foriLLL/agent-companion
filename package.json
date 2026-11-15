@@ -49,6 +49,7 @@
   "dependencies": {
     "hls.js": "1.6.16",
     "mp4box": "2.4.1",
+    "openhongguo": "0.3.0",
     "undici": "7.28.0"
   },
   "devDependencies": {

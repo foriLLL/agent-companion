@@ -1,3 +1,5 @@
+import { waitForMediaSourceOpen } from "./source-open.mjs";
+
 // Emby 直连 MP4 的 MSE 管线；每次调用独占播放器状态。
 export function createDirectMp4Stream(scope, ui) {
   const { rpc, listen, unlisten, setTimeout, clearTimeout, createObjectURL, revokeObjectURL, isDisposed } = scope;
@@ -82,24 +84,6 @@ export function createDirectMp4Stream(scope, ui) {
     };
     setActivePlayer(player);
     embyVideo.src = objectUrl;
-
-    const waitForSourceOpen = () => new Promise((resolve, reject) => {
-      if (mediaSource.readyState === "open") {
-        resolve();
-        return;
-      }
-      const timeout = setTimeout(() => finish(reject, rpcError("MSE_OPEN_TIMEOUT", "MediaSource 启动超时", true)), 10_000);
-      const finish = (callback, value) => {
-        clearTimeout(timeout);
-        unlisten(mediaSource, "sourceopen", onOpen);
-        unlisten(mediaSource, "sourceclose", onClose);
-        callback(value);
-      };
-      const onOpen = () => finish(resolve);
-      const onClose = () => finish(reject, rpcError("MSE_CLOSED", "MediaSource 已关闭", true));
-      listen(mediaSource, "sourceopen", onOpen, { once: true });
-      listen(mediaSource, "sourceclose", onClose, { once: true });
-    });
 
     const waitForUpdateEnd = (sourceBuffer, operation) => new Promise((resolve, reject) => {
       if (player.destroyed) {
@@ -583,7 +567,10 @@ export function createDirectMp4Stream(scope, ui) {
     };
 
     try {
-      await waitForSourceOpen();
+      const sourceController = new AbortController();
+      player.controller = sourceController;
+      await waitForMediaSourceOpen(mediaSource, scope, { signal: sourceController.signal });
+      if (player.controller === sourceController) player.controller = null;
       // init RPC 挂到 player.controller：destroy 时统一 abort，
       // 避免 45s 长请求在播放器销毁后仍然悬着、迟到失败又触发上面的 catch。
       const initController = new AbortController();

@@ -3,7 +3,7 @@ import { SERVICE_REGISTRY } from "../../src/cards/service-registry.generated.mjs
 import { CodexCompanionService } from "../../src/codex-companion-service.mjs";
 
 // 平台隔离测试用的第二张媒体卡：只把 RPC 与清理转发给注入的 clipsService，不含业务逻辑。
-// 红果卡片下线后由它承担「另一张带服务的卡」的角色，排在 Emby 之前（与原红果顺序一致）。
+// 真实红果卡片会随构建产物演进而变，这里用固定的合成卡保证隔离测试不受业务实现影响。
 export const CLIPS_OPERATIONS = Object.freeze(["home", "playback.open", "playback.stop"]);
 
 const CLIPS_MANIFEST = Object.freeze({

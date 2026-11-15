@@ -695,3 +695,40 @@ test("FFmpeg 正常退出却没有初始化数据时立即失败，不等 40 秒
   t.after(() => session.destroy());
   await assert.rejects(session.initialize(), { code: "FFMPEG_OUTPUT_INVALID" });
 });
+
+test("解密密钥与直连 URL 作为输入选项出现在 -i 之前，不启动 RangeProxy", async (t) => {
+  const args = buildFfmpegArguments({
+    inputUrl: "https://cdn.example/media.mp4",
+    mediaSource: { MediaStreams: [{ Type: "Video", Codec: "hevc", BitRate: 1_500_000 }, { Type: "Audio", Codec: "aac" }] },
+    strategy: { hasAudio: true, copyVideo: false, copyAudio: true },
+    decryptionKey: "00112233445566778899aabbccddeeff",
+    hardwareVideo: false
+  });
+  const keyIndex = args.indexOf("-decryption_key");
+  const inputIndex = args.indexOf("-i");
+  assert.ok(keyIndex > 0 && keyIndex < inputIndex, "-decryption_key 必须在 -i 之前");
+  assert.equal(args[keyIndex + 1], "00112233445566778899aabbccddeeff");
+  assert.equal(args[inputIndex + 1], "https://cdn.example/media.mp4");
+  // HEVC 源走软件编码分支，保留可播放输出。
+  assert.ok(args.includes("libx264") || args.includes("h264_videotoolbox"));
+
+  const session = new FfmpegFmp4Session({
+    inputUrl: "https://cdn.example/media.mp4",
+    decryptionKey: "00112233445566778899aabbccddeeff",
+    mediaSource: { MediaStreams: [{ Type: "Video", Codec: "h264" }] },
+    ffmpegPathImpl: "/mock/empty-output",
+    platform: "linux",
+    spawnImpl: () => {
+      const child = new EventEmitter();
+      child.stdout = new PassThrough();
+      child.stderr = new PassThrough();
+      child.exitCode = child.signalCode = null;
+      child.kill = () => true;
+      queueMicrotask(() => { child.exitCode = 1; child.emit("exit", 1, null); });
+      return child;
+    }
+  });
+  t.after(() => session.destroy());
+  assert.equal(session.proxy, null, "直连 URL 时不创建本机 RangeProxy");
+  await assert.rejects(session.initialize());
+});

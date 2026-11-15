@@ -662,7 +662,8 @@ export function buildFfmpegArguments({
   subtitleTrack = null,
   subtitleFile = null,
   startTimeSeconds = 0,
-  hardwareVideo = false
+  hardwareVideo = false,
+  decryptionKey = null
 }) {
   const args = ["-hide_banner", "-loglevel", "error", "-nostdin"];
   const hardwareEncode = hardwareVideo && !strategy.copyVideo;
@@ -679,6 +680,9 @@ export function buildFfmpegArguments({
   // VideoToolbox 的 HEVC 解码仍由 FFmpeg 解析并附加 RPU；下载帧后保留 side data，
   // libplacebo 可正常处理 P5/P7/P8，无需为 HDR 强制软件解码。
   if (hardwareEncode) args.push("-hwaccel", "videotoolbox");
+  // 加密源（如红果的 cenc-aes-ctr）在打开输入前给出内容密钥，FFmpeg 负责解密。
+  // 这是输入选项，必须位于 -i 之前，且只作用于主输入。
+  if (decryptionKey) args.push("-decryption_key", decryptionKey);
   if (startTimeSeconds > 0) args.push("-ss", startTimeSeconds.toFixed(3));
   if (subtitleTrack && !subtitleTrack.isExternal && needsDurationFix) args.push("-fix_sub_duration");
   args.push("-i", inputUrl);
@@ -759,6 +763,11 @@ export class FfmpegFmp4Session {
   constructor({
     readRange,
     openRangeStream = null,
+    // inputUrl 给定时直接用这个地址作为 FFmpeg 输入（例如已签名、CDN 支持 Range
+    // 的直链），不再启动本机 RangeProxy。Emby 走 readRange/openRangeStream，
+    // 不传这一项，行为不变。
+    inputUrl = null,
+    decryptionKey = null,
     mediaSource,
     durationSeconds = null,
     subtitleTrack = null,
@@ -773,8 +782,8 @@ export class FfmpegFmp4Session {
     platform = process.platform,
     env = process.env
   } = {}) {
-    if (typeof readRange !== "function" && typeof openRangeStream !== "function") {
-      throw new TypeError("readRange 或 openRangeStream 必须至少提供一个");
+    if (!inputUrl && typeof readRange !== "function" && typeof openRangeStream !== "function") {
+      throw new TypeError("inputUrl 或 readRange/openRangeStream 必须至少提供一个");
     }
     if (!Number.isSafeInteger(maxBatchBytes) || maxBatchBytes <= 0
       || !Number.isSafeInteger(maxQueueBytes) || maxQueueBytes < maxBatchBytes
@@ -797,13 +806,15 @@ export class FfmpegFmp4Session {
     this.mediaSource = mediaSource;
     this.subtitleTrack = subtitleTrack;
     this.subtitleData = subtitleData;
+    this.directInputUrl = inputUrl;
+    this.decryptionKey = decryptionKey || null;
     this.strategy = ffmpegStrategy(mediaSource, subtitleTrack);
     // macOS 用 VideoToolbox 硬件编解码转码；CODEX_COMPANION_FORCE_SW_ENCODE 可强制回退软件。
     const forceSoftware = ["1", "true", "yes", "on"]
       .includes(String(env?.CODEX_COMPANION_FORCE_SW_ENCODE ?? "").trim().toLowerCase());
     this.hardwareVideo = platform === "darwin" && !forceSoftware;
     this.durationSeconds = Number.isFinite(Number(durationSeconds)) ? Number(durationSeconds) : null;
-    this.proxy = new RangeProxy({
+    this.proxy = inputUrl ? null : new RangeProxy({
       readRange,
       openRangeStream,
       randomUUIDImpl,
@@ -895,7 +906,7 @@ export class FfmpegFmp4Session {
     this.queueBytes = 0;
     this.segmentOffset = 0;
     this.#rejectWaiters(new EmbyError("PLAYBACK_NOT_FOUND", "FFmpeg 播放会话已经结束"));
-    void this.proxy.close();
+    void this.proxy?.close();
     if (this.subtitleDirectory) void rm(this.subtitleDirectory, { recursive: true, force: true });
     this.subtitleDirectory = null;
     this.subtitleFile = null;
@@ -913,7 +924,7 @@ export class FfmpegFmp4Session {
     this.failure = null;
     this.stderr = "";
     this.#rejectWaiters(cancelled());
-    const inputUrl = await this.proxy.start();
+    const inputUrl = this.directInputUrl ?? await this.proxy.start();
     this.#assertAlive();
 
     const args = buildFfmpegArguments({
@@ -923,7 +934,8 @@ export class FfmpegFmp4Session {
       subtitleTrack: this.subtitleTrack,
       subtitleFile: this.subtitleFile,
       startTimeSeconds,
-      hardwareVideo: this.hardwareVideo
+      hardwareVideo: this.hardwareVideo,
+      decryptionKey: this.decryptionKey
     });
 
     const child = this.spawnImpl(this.ffmpegPath, args, {

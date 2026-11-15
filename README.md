@@ -1,15 +1,16 @@
 # Codex Companion
 
-Companion 是一个非官方的 Codex 桌面端（macOS / Linux）增强，把 Emby、小游戏、
+Companion 是一个非官方的 Codex 桌面端（macOS / Linux）增强，把红果短剧、Emby、小游戏、
 代理状态和跟踪多个会话的任务看板注入到 Codex 聊天旁。后台服务随登录启动，
 安装一次后日常只需打开 Codex，不用单独启动 Companion。
 不修改 `app.asar`、Codex 安装包或应用签名。
 
-> Codex Companion 与 OpenAI、ChatGPT、Codex 及 Emby 均无隶属、
+> Codex Companion 与 OpenAI、ChatGPT、Codex、字节跳动、红果短剧及 Emby 均无隶属、
 > 授权或背书关系；相关名称和商标归各自权利人所有。
 
 ## 功能
 
+- **红果短剧**：浏览、搜索、收藏、选集、播放和自动连播。
 - **Emby**：多服务器、媒体库、继续观看、最近添加、搜索、选季选集、选源、字幕和进度上报。
 - **小游戏**：2048、扫雷和纸牌，存档保存在本机。
 - **代理状态**：查看当前 Codex 的启动代理与本机端口连通性。
@@ -124,6 +125,27 @@ WebVTT），不会仅为显示文字而重新编码视频；PGS、VobSub、DVB �
 npm run probe:emby -- --server https://emby.example.com --username alice --search 三体
 ```
 
+### 红果短剧
+
+卡片通过 [openhongguo](https://github.com/beilunyang/openhongguo) 这个非官方 SDK 读取
+红果的公开目录与播放地址；SDK 以 wasm 形式随应用分发，不需要另外安装。SDK 用本机生成的
+匿名设备档案请求内容，不接受登录态，也不绕过 DRM。
+
+播放时后台把签名 URL 直接交给本机 FFmpeg（需要自行安装），以 `-decryption_key`
+解出受内容密钥保护的流，转成 H.264/AAC fMP4 后经有界 RPC 分片交给页面 MSE 播放；
+源编码是 HEVC 时统一转码，避免 Chromium 解码不稳定。
+
+搜索限定「剧集」分类并支持继续分页，缺失的封面由 SDK 批量详情补齐；多季作品的选集页可切换季。
+本集结束后立即自动播放下一集，不再显示 5 秒倒计时；最后一集保留重播入口。
+推荐加载失败只显示局部提示，不阻止搜索或片单播放；离开首页后推荐请求与后台重试会取消。
+Codex 窗口隐藏时不计 MediaSource 启动超时，回到窗口后继续启动；取消播放仍立即释放等待资源。
+
+红果只按匿名设备放行播放，请求被限流时会自动更换设备重试，因此播放额度按设备计算。
+卡片只显示 SDK 能拿到地址的剧集；内容下架、需要登录或要求验证时会直接报错。
+
+内容与访问规则可能随时变化。使用者应自行确认所在地法律、站点条款及内容权利允许
+相应访问；本项目不提供、托管或授权任何视频内容。
+
 ### 小游戏
 
 「摸鱼」卡片包含本地实现的 2048、9×9 扫雷（首击安全）和经典接龙，支持最多 30 步
@@ -156,7 +178,7 @@ npm run probe:emby -- --server https://emby.example.com --username alice --searc
 1. launchd 常驻的后台服务经原生助手观察 Codex 启动，在安全条件下以 loopback
    随机调试端口重开 Codex，再通过 CDP 注入卡片渲染器。
 2. 页面经 CDP binding 与后台 RPC 通信；各卡片共用渲染器、服务注册表与生命周期管理。
-3. 后台访问 Emby 和允许的媒体 CDN；页面不直接接触凭证。
+3. 后台访问红果、Emby 和允许的媒体 CDN；页面不直接接触凭证。
 4. 媒体经 127.0.0.1 本地代理（HLS）、CDP 媒体拦截或有界 RPC 分片 + MSE 播放；
    每次响应、后台队列、分片缓存与页面缓冲都有上限。
 5. 返回、seek、切集、登出或关闭页面会取消对应请求并回收资源；心跳超时也会触发回收。
@@ -190,6 +212,10 @@ Emby Token 只发往配置的 Emby origin，不进入 DOM、媒体 URL、FFmpeg 
 跨源媒体 CDN 必须使用 HTTPS，并经过地址、DNS 和公网 IP 校验。依赖版本由
 `package-lock.json` 固定，运行时不加载 CDN 脚本。
 
+红果匿名设备档案保存在数据目录的 `hongguo/anonymous.json`，供后续请求复用。
+封面只允许已加载内容中的红果 CDN HTTPS 地址，每次连接校验并固定公网 IP，
+重定向逐跳验证；片单输入不能添加未知封面地址。
+
 任务看板只读本机 Codex 数据目录（`~/.codex`，或 `CODEX_HOME`）下的会话记录、
 `session_index.jsonl` 与 `.codex-global-state.json`，不上传；唯一的写入是你打开
 「长任务先列计划」后对 `AGENTS.md` 那一段带标记的提示。看板自身的任务列表保存在
@@ -203,6 +229,8 @@ Emby Token 只发往配置的 Emby origin，不进入 DOM、媒体 URL、FFmpeg 
 - 不支持 Emby Connect、服务器自动发现、Live TV、音频库和 DRM；不关闭 TLS 校验，
   不支持自签名 Emby HTTPS。
 - 切换到其他卡片时暂停媒体；不支持 Emby 自动连播、在线字幕搜索或字幕时间轴偏移。
+- 红果依赖本机 FFmpeg 与 SDK 的匿名设备额度；被限流时首次播放可能重试数秒，
+  播放失败需要重新选集。
 - 已经在使用、未带调试参数的 Codex 需要手动重开一次才能注入。
 - Linux 为预览：登录后会话界面中的卡片位置尚未验证；Windows 暂不支持。
 - 任务看板的状态由 Codex 本地会话记录推断，依赖其记录格式与侧栏 DOM，Codex 改版后

@@ -141,12 +141,18 @@ async function main() {
 
   // 2. 随应用附带项目及所有直接打包依赖的许可说明。
   // FFmpeg 不再进入分发物；需要本机转码时只解析用户自行安装的 ffmpeg。
+  // 红果 SDK 是 wasm 包，无法塞进 bun 单文件二进制，整包原样放到 Resources/openhongguo，
+  // 运行时由 src/hongguo-sdk-client.mjs 从这里动态 import。
+  const hongguoRuntime = join(resources, "openhongguo");
+  await rm(hongguoRuntime, { recursive: true, force: true });
+  await cp(join(repoRoot, "node_modules", "openhongguo"), hongguoRuntime, { recursive: true });
   const licenses = [
     [join(repoRoot, "LICENSE"), "LICENSE"],
     [join(repoRoot, "THIRD_PARTY_NOTICES.md"), "THIRD_PARTY_NOTICES.md"],
     [join(repoRoot, "node_modules", "hls.js", "LICENSE"), "hls.js.LICENSE"],
     [join(repoRoot, "node_modules", "mp4box", "LICENSE"), "mp4box.LICENSE"],
     [join(repoRoot, "node_modules", "undici", "LICENSE"), "undici.LICENSE"],
+    [join(repoRoot, "node_modules", "openhongguo", "LICENSE"), "openhongguo.LICENSE"],
     [join(repoRoot, "packaging", "licenses", "BUN-LICENSE.md"), "BUN-LICENSE.md"]
   ];
   for (const [source, destination] of licenses) {

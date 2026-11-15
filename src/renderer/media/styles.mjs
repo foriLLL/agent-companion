@@ -192,6 +192,8 @@ export const mediaStyles = `
         .hg-detail-copy { min-width: 0; flex: 1; }
         .hg-detail-title { margin: 2px 0 4px; font-size: 14px; font-weight: 650; line-height: 19px; }
         .hg-detail-description { display: -webkit-box; overflow: hidden; margin-top: 6px; -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
+        .hg-season-picker { display: flex; align-items: center; gap: 8px; padding: 12px 14px 0; font-size: 11px; }
+        .hg-season-select { min-width: 0; flex: 1; }
         .hg-episode-grid { display: grid; grid-template-columns: repeat(5, minmax(0,1fr)); gap: 7px; padding: 11px 14px 14px; }
         .hg-episode { height: 32px; padding: 0; border-radius: 9px; background: var(--hg-hover-bg, rgba(127,127,127,.075)); font-size: 11px; }
         .hg-playback { position: relative; width: 100%; height: 100%; overflow: hidden; outline: none; background: #000; }

@@ -48,7 +48,11 @@ function bootstrap({ action = "mount", config = {}, artifactHash, version } = {}
       return runtime.dispose();
     },
     // 旧调试脚本的窄兼容入口；RPC 投递与运行时不再依赖具体业务卡。
-    get emby() { return { receiveRpc: runtime.receiveRpc, ...runtime.getCardApi("emby") }; }
+    get emby() { return { receiveRpc: runtime.receiveRpc, ...runtime.getCardApi("emby") }; },
+    get hongguo() { return runtime.getCardApi("hongguo"); },
+    setVideoSource: (...args) => runtime.getCardApi("hongguo")?.setVideoSource?.(...args),
+    setVideoFile: (...args) => runtime.getCardApi("hongguo")?.setVideoFile?.(...args),
+    clearVideo: (...args) => runtime.getCardApi("hongguo")?.clearVideo?.(...args)
   };
   globalThis[BRIDGE_KEY] = bridge;
   return { status: config.enabled === false || runtime.getDiagnostics().shell.count === 0 ? "cards-disabled" : "mounted", placement: runtime.getPlacement(), version };

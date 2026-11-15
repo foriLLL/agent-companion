@@ -58,12 +58,15 @@ async function main() {
   await chmod(binaryOut, 0o755);
 
   // 与 macOS 包一致：附带项目及打包依赖的许可说明；FFmpeg 不进入分发物。
+  // 红果 SDK 是 wasm 包，整包放在二进制同级的 openhongguo 目录，运行时动态 import。
+  await cp(join(repoRoot, "node_modules", "openhongguo"), join(root, "openhongguo"), { recursive: true });
   const licenses = [
     [join(repoRoot, "LICENSE"), "LICENSE"],
     [join(repoRoot, "THIRD_PARTY_NOTICES.md"), "THIRD_PARTY_NOTICES.md"],
     [join(repoRoot, "node_modules", "hls.js", "LICENSE"), "hls.js.LICENSE"],
     [join(repoRoot, "node_modules", "mp4box", "LICENSE"), "mp4box.LICENSE"],
     [join(repoRoot, "node_modules", "undici", "LICENSE"), "undici.LICENSE"],
+    [join(repoRoot, "node_modules", "openhongguo", "LICENSE"), "openhongguo.LICENSE"],
     [join(repoRoot, "packaging", "licenses", "BUN-LICENSE.md"), "BUN-LICENSE.md"]
   ];
   for (const [source, destination] of licenses) {
