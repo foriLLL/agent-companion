@@ -170,13 +170,15 @@ to BT.709 SDR using the RPU, and HDR10/HLG is tone-mapped. This is not native HD
 
 ```sh
 brew tap foriLLL/codex-companion https://github.com/foriLLL/codex_companion
+brew trust --formula foriLLL/codex-companion/codex-companion
 brew install --HEAD codex-companion
 codex-companion agent install
 ```
 
-Homebrew installs Node.js and FFmpeg, generates the card renderer, and compiles the native helper on your
-machine; the last command registers the background service that starts at login. Reopen Codex afterwards to
-see the cards.
+Since Homebrew 7, formulae from third-party taps must be trusted before they load; the second command
+trusts only this formula. Homebrew installs Node.js and FFmpeg, generates the card renderer, and compiles
+the native helper on your machine; the last command registers the background service that starts at login.
+Reopen Codex afterwards to see the cards.
 
 There is no version tag yet, so `--HEAD` is required and you get the latest code on `main`. To update:
 

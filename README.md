@@ -147,10 +147,12 @@ P5/P8 使用 RPU 映射到 BT.709 SDR，HDR10/HLG 做色调映射，这不是原
 
 ```sh
 brew tap foriLLL/codex-companion https://github.com/foriLLL/codex_companion
+brew trust --formula foriLLL/codex-companion/codex-companion
 brew install --HEAD codex-companion
 codex-companion agent install
 ```
 
+Homebrew 7 起第三方 tap 里的 Formula 要先信任才会加载，第二条命令只信任这一个 Formula。
 Homebrew 自动装好 Node.js 与 FFmpeg，在本机生成卡片渲染器并编译原生助手；最后一条命令注册登录后自动启动的
 后台服务。装好后重新打开 Codex 即可看到卡片。
 

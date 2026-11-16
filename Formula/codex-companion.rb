@@ -1,5 +1,6 @@
 # Homebrew 安装（仓库本身就是 tap）：
 #   brew tap foriLLL/codex-companion https://github.com/foriLLL/codex_companion
+#   brew trust --formula foriLLL/codex-companion/codex-companion   # Homebrew 7 起需要
 #   brew install --HEAD codex-companion
 #   codex-companion agent install
 # 还没有打版本 tag，只能装 main 上的最新代码（--HEAD）；有了 Release 后再补 url / sha256。
