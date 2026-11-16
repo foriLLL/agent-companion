@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "license": "MIT",
-  "description": "在 Codex 桌面端（macOS；Linux 预览）注入红果短剧、Emby、小游戏、代理状态与任务看板卡片",
+  "description": "在 Codex 桌面端（macOS；Linux 预览）注入红果短剧、Emby、代理状态与任务看板卡片",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/foriLLL/codex_companion.git"

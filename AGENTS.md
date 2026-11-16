@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Codex Companion — 在 Codex 桌面端（macOS；Linux 预览）中注入红果短剧、Emby、小游戏、代理状态与任务看板。
+Codex Companion — 在 Codex 桌面端（macOS；Linux 预览）中注入红果短剧、Emby、代理状态与任务看板。
 不修改 app.asar 或应用签名：launchd 常驻 agent 监听 Codex 启动，刚打开且未带调试参数的 Codex
 在安全条件下被正常退出、以 loopback 随机端口重开，再经 CDP 注入卡片；设置页在 Codex 内（卡片区齿轮）。
 Linux 不自动重开：用户级 `chatgpt.desktop` 覆盖菜单入口（`open-codex` 带调试参数启动），
