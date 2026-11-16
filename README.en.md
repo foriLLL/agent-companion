@@ -151,7 +151,8 @@ card placement in the signed-in session view has not been verified on Linux. Win
 
 - The Codex desktop app on macOS, or the official ChatGPT desktop app installed from deb / rpm on Linux
   (`/usr/lib/chatgpt/ChatGPT`; use `CODEX_COMPANION_CODEX_EXECUTABLE` for other locations).
-- git, Node.js 22+, and npm (installing dependencies provides a pinned version of Bun).
+- For a source installation: git, Node.js 22+, and npm (installing dependencies provides a pinned version of
+  Bun). A Homebrew installation only needs Homebrew, which installs Node.js and FFmpeg.
 - On macOS, Xcode Command Line Tools (`xcode-select --install`), used to compile the native helper that
   detects and reopens Codex.
 - On Linux, systemd user services (`systemctl --user`). Optional: `notify-send` (libnotify) for reopen
@@ -164,6 +165,29 @@ card placement in the signed-in session view has not been verified on Linux. Win
 
 Local Dolby Vision / HDR playback on macOS requires `brew install ffmpeg-full molten-vk`. P5/P8 is mapped
 to BT.709 SDR using the RPU, and HDR10/HLG is tone-mapped. This is not native HDR output.
+
+### Install with Homebrew (macOS)
+
+```sh
+brew tap foriLLL/codex-companion https://github.com/foriLLL/codex_companion
+brew install --HEAD codex-companion
+codex-companion agent install
+```
+
+Homebrew installs Node.js and FFmpeg, generates the card renderer, and compiles the native helper on your
+machine; the last command registers the background service that starts at login. Reopen Codex afterwards to
+see the cards.
+
+There is no version tag yet, so `--HEAD` is required and you get the latest code on `main`. To update:
+
+```sh
+brew upgrade --fetch-HEAD codex-companion && codex-companion agent install
+```
+
+The background service points at Homebrew's stable paths, so Homebrew upgrading Node.js does not break it;
+after upgrading Companion, the second command switches the service to the new version. Homebrew and source
+installations share the same background service and data directory, so install only one; whichever ran
+`agent install` last is the one in use.
 
 ### Install from source
 
@@ -194,8 +218,9 @@ npm start
    Linux: a systemd user service plus the menu entry override).
 
 Reopen Codex after installation to see the cards. The background service runs your current Node and the
-repository source directly: to update, run `git pull && npm ci && npm start` in the repository. Run
-`npm start` again after switching Node versions or moving the repository.
+source in this repository directory, so **do not delete or move the repository after installing** (run
+`npm start` again if you move it). To update, run `git pull && npm ci && npm start` in the repository; also
+run `npm start` again after switching Node versions with nvm, fnm, or similar tools.
 
 ### Release builds (not published yet)
 
@@ -452,6 +477,9 @@ npm run start:legacy                            # legacy one-shot CDP launch and
 Development conventions are in [AGENTS.md](AGENTS.md) and [CONTRIBUTING.md](CONTRIBUTING.md) (both in Chinese).
 
 ## Uninstalling
+
+For a Homebrew installation, run `codex-companion agent uninstall` to stop the background service, then
+`brew uninstall codex-companion && brew untap foriLLL/codex-companion`.
 
 For a source installation, run `node src/cli.mjs agent uninstall` in the repository (this stops the
 background service; on Linux it also removes the menu entry created by Companion, which restores the

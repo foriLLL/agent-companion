@@ -131,7 +131,8 @@ Linux 版为预览：已验证安装、启动、连接、注入与 RPC，登录�
 
 - macOS 上的 Codex 桌面端，或 Linux 上官方 deb / rpm 安装的 ChatGPT 桌面版
   （`/usr/lib/chatgpt/ChatGPT`，其它位置用 `CODEX_COMPANION_CODEX_EXECUTABLE` 指定）。
-- git、Node.js 22+ 与 npm（依赖安装会提供固定版本的 Bun）。
+- 从源码安装需要 git、Node.js 22+ 与 npm（依赖安装会提供固定版本的 Bun）；用 Homebrew 安装只需要
+  Homebrew，Node.js 与 FFmpeg 由它装上。
 - macOS 需要 Xcode Command Line Tools（`xcode-select --install`），用来编译识别并重开 Codex 的原生助手。
 - Linux 需要 systemd 用户服务（`systemctl --user`）；可选 `notify-send`（libnotify）用于提示重开，
   `secret-tool`（libsecret）用于保存 Emby Token，缺少时 Token 存到数据目录下 `0600` 的文件。
@@ -141,6 +142,26 @@ Linux 版为预览：已验证安装、启动、连接、注入与 RPC，登录�
 
 macOS 上的杜比视界 / HDR 本机播放需要 `brew install ffmpeg-full molten-vk`；
 P5/P8 使用 RPU 映射到 BT.709 SDR，HDR10/HLG 做色调映射，这不是原生 HDR 输出。
+
+### 用 Homebrew 安装（macOS）
+
+```sh
+brew tap foriLLL/codex-companion https://github.com/foriLLL/codex_companion
+brew install --HEAD codex-companion
+codex-companion agent install
+```
+
+Homebrew 自动装好 Node.js 与 FFmpeg，在本机生成卡片渲染器并编译原生助手；最后一条命令注册登录后自动启动的
+后台服务。装好后重新打开 Codex 即可看到卡片。
+
+仓库还没有打版本 tag，所以要加 `--HEAD`，装的是 main 分支的最新代码。更新：
+
+```sh
+brew upgrade --fetch-HEAD codex-companion && codex-companion agent install
+```
+
+后台服务记的是 Homebrew 的固定路径，Homebrew 升级 Node.js 不影响它；升级 Companion 后由第二条命令换上新版本。
+Homebrew 安装与源码安装共用同一个后台服务和数据目录，二者装一个即可，以最后执行 `agent install` 的为准。
 
 ### 从源码安装
 
@@ -167,8 +188,9 @@ npm start
    FFmpeg 可以之后再补装，不用重新安装 Companion。
 4. 以当前源码注册登录后自动启动的后台服务（macOS：launchd；Linux：systemd 用户服务并覆盖菜单入口）。
 
-装好后重新打开 Codex 即可看到卡片。后台服务直接运行当前 Node 与仓库源码：更新时在仓库里执行
-`git pull && npm ci && npm start`；更换 Node 版本或移动仓库后也要重新执行 `npm start`。
+装好后重新打开 Codex 即可看到卡片。后台服务直接运行当前 Node 与这个仓库目录里的源码，**装好后不要删除或移动
+仓库**（移动后要重新执行 `npm start`）。更新时在仓库里执行 `git pull && npm ci && npm start`；用 nvm、fnm 等
+切换 Node 版本后也要重新执行 `npm start`。
 
 ### 发布版（尚未发布）
 
@@ -367,6 +389,9 @@ npm run start:legacy                            # 旧一次性 CDP 启动与注�
 开发约定见 [AGENTS.md](AGENTS.md) 与 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
 ## 卸载
+
+用 Homebrew 安装的，先运行 `codex-companion agent uninstall` 停用后台服务，再执行
+`brew uninstall codex-companion && brew untap foriLLL/codex-companion`。
 
 从源码安装的，在仓库里运行 `node src/cli.mjs agent uninstall`（停用后台服务；Linux 同时删除 Companion
 生成的菜单入口，系统原有入口随之恢复），再删除仓库目录。发布版在 `Codex Companion.app` 中点击

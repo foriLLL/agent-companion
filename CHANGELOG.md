@@ -74,6 +74,10 @@
   改存到 `electron-owner-atoms:<hash>` 下，看板现在在各命名空间里查找绑定。
 - 修复回合中途提问（`request_user_input`）时看板不标未读、看视频时也不弹提醒：未读按回合开始时间判断，
   加入看板或看过会话之后的新提问一直算「已看过」。现在回合中途有待回答的提问时，以最近一次提问的时间为准。
+- 新增 Homebrew 安装（macOS）：仓库自带 Formula，`brew install --HEAD` 自动装好 Node.js 与 FFmpeg；
+  启动脚本通过 `CODEX_COMPANION_AGENT_PROGRAM` 让后台服务记 Homebrew 的固定入口，升级 Node.js 后不失效。
+- 修复重新注册后台服务（再次 `npm start` 或 `agent install`）时偶尔失败、服务随之停掉：旧进程还没退完时
+  `launchctl bootstrap` 返回 5，现在稍等重试。
 
 ## 0.0.1 - 2026-07-30
 

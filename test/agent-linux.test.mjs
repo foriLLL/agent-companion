@@ -151,6 +151,8 @@ test("未安装 ChatGPT 时 Linux install 失败且不注册服务", async (t) =
 test("菜单入口与 agent 同一程序，子命令为 open-codex；参数原样透传不解析", () => {
   assert.deepEqual(launcherProgramArguments({ execPath: "/n", cliPath: "/c.mjs", isBun: false }), ["/n", "/c.mjs", "open-codex"]);
   assert.deepEqual(launcherProgramArguments({ execPath: "/opt/companion", isBun: true }), ["/opt/companion", "open-codex"]);
+  assert.deepEqual(launcherProgramArguments({ execPath: "/n", cliPath: "/c.mjs", isBun: false, program: "/bin/codex-companion" }),
+    ["/bin/codex-companion", "open-codex"]);
   assert.deepEqual(parseArgs(["open-codex", "--new-window", "codex://x", "--port"]).passthrough, ["--new-window", "codex://x", "--port"]);
 });
 

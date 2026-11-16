@@ -19,7 +19,9 @@ export const AGENT_LABEL = "com.codexcompanion.agent";
 export const AGENT_PATH = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin";
 
 export function agentProgramArguments({ execPath = process.execPath,
-  cliPath = fileURLToPath(new URL("../cli.mjs", import.meta.url)), isBun = typeof Bun !== "undefined" } = {}) {
+  cliPath = fileURLToPath(new URL("../cli.mjs", import.meta.url)), isBun = typeof Bun !== "undefined", program } = {}) {
+  // Homebrew 等包管理器安装时，由启动脚本给出固定入口：node 与源码的真实路径带版本号，升级后会失效。
+  if (program) return [resolve(program), "agent"];
   const compiled = isBun && !/^(?:node|nodejs|bun)(?:\.exe)?$/.test(basename(execPath));
   return compiled ? [resolve(execPath), "agent"] : [resolve(execPath), resolve(cliPath), "agent"];
 }
@@ -71,7 +73,27 @@ async function bootoutAgent(options, { uid, label }) {
   }
 }
 
+// 启动脚本用 CODEX_COMPANION_AGENT_PROGRAM 声明后台服务该运行的固定入口。
+function withProgram(options, env) {
+  const program = options.program ?? env.CODEX_COMPANION_AGENT_PROGRAM;
+  return program ? { ...options, program } : options;
+}
+
+// bootout 返回时旧进程可能还没退完，这时 bootstrap 会失败并返回 5（Input/output error）；稍等重试，最多约 10 秒。
+async function bootstrapAgent(options, { uid, plistPath }) {
+  const sleep = options.sleepImpl ?? (ms => new Promise(resolveSleep => setTimeout(resolveSleep, ms)));
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await (options.execFileImpl ?? execFileAsync)(options.launchctlPath ?? "/bin/launchctl", ["bootstrap", `gui/${uid}`, plistPath]);
+    } catch (error) {
+      if (Number(error.code) !== 5 || attempt >= 40) throw error;
+      await sleep(250);
+    }
+  }
+}
+
 export async function installAgent(options = {}) {
+  options = withProgram(options, options.env ?? process.env);
   if ((options.hostPlatform ?? process.platform) === "linux") {
     const env = options.env ?? process.env;
     const environment = linuxEnvironment(options, env);
@@ -101,7 +123,7 @@ export async function installAgent(options = {}) {
     await rename(temporary, plistPath);
     await chmod(plistPath, 0o600);
   } finally { await unlink(temporary).catch(error => { if (error.code !== "ENOENT") throw error; }); }
-  await (options.execFileImpl ?? execFileAsync)(options.launchctlPath ?? "/bin/launchctl", ["bootstrap", `gui/${uid}`, plistPath]);
+  await bootstrapAgent(options, { uid, plistPath });
   return { installed: true, label, plistPath };
 }
 

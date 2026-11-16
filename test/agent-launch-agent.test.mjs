@@ -25,6 +25,18 @@ test("ProgramArguments 区分 Bun 编译产物、Node、Bun 解释器", () => {
   assert.deepEqual(agentProgramArguments({ execPath: "/test/node", cliPath: "/repo/cli.mjs", isBun: false }), ["/test/node", "/repo/cli.mjs", "agent"]);
 });
 
+test("install 使用启动脚本声明的固定入口，不记带版本号的 node 与源码路径", macOnly, async t => {
+  const home = await temporary(t);
+  const program = "/opt/homebrew/opt/codex-companion/bin/codex-companion";
+  const result = await installMac({ home, helperPath: null, uid: 501, execPath: "/opt/homebrew/Cellar/node/24.2.0/bin/node",
+    cliPath: "/opt/homebrew/Cellar/codex-companion/HEAD-1234567/libexec/src/cli.mjs", isBun: false,
+    env: { CODEX_COMPANION_AGENT_PROGRAM: program }, execFileImpl: async () => ({ stdout: "" }) });
+  const { stdout } = await validatePlist("/usr/bin/plutil", ["-convert", "json", "-o", "-", result.plistPath]);
+  const plist = JSON.parse(stdout);
+  assert.deepEqual(plist.ProgramArguments, [program, "agent"]);
+  assert.equal(plist.EnvironmentVariables.CODEX_COMPANION_AGENT_PROGRAM, undefined);
+});
+
 test("install 在临时目录生成有效 plist，绝对助手路径/PATH，无代理变量；只调用假 launchctl", macOnly, async t => {
   const home = await temporary(t);
   const calls = [];
@@ -53,6 +65,34 @@ test("install 在临时目录生成有效 plist，绝对助手路径/PATH，无�
     CODEX_COMPANION_CODEX_APP: "/test/Dummy.app", CODEX_COMPANION_CONFIG_PATH: join(home, "config.json") });
   assert.deepEqual(calls, [["/bin/launchctl", ["bootout", "gui/501/local.test.agent"]],
     ["/bin/launchctl", ["bootstrap", "gui/501", result.plistPath]]]);
+});
+
+test("install 遇到旧进程还没退完（bootstrap 返回 5）时稍等重试；其它错误直接失败", macOnly, async t => {
+  const home = await temporary(t);
+  const run = async (failures, code) => {
+    const calls = [];
+    const sleeps = [];
+    const result = installMac({ home, helperPath: null, env: {}, uid: 501, execPath: "/fake/node", cliPath: "/repo/cli.mjs", isBun: false,
+      sleepImpl: async ms => { sleeps.push(ms); },
+      execFileImpl: async (file, args) => {
+        calls.push(args[0]);
+        if (args[0] === "bootstrap" && calls.filter(name => name === "bootstrap").length <= failures) {
+          throw Object.assign(new Error(`Bootstrap failed: ${code}`), { code });
+        }
+        return { stdout: "" };
+      } });
+    return { result, calls, sleeps };
+  };
+  const retried = await run(2, 5);
+  assert.equal((await retried.result).installed, true);
+  assert.deepEqual(retried.calls, ["bootout", "bootstrap", "bootstrap", "bootstrap"]);
+  assert.deepEqual(retried.sleeps, [250, 250]);
+  const other = await run(1, 37);
+  await assert.rejects(other.result, { code: 37 });
+  assert.deepEqual(other.calls, ["bootout", "bootstrap"]);
+  const stuck = await run(Infinity, 5);
+  await assert.rejects(stuck.result, { code: 5 });
+  assert.equal(stuck.calls.filter(name => name === "bootstrap").length, 40);
 });
 
 test("install Bun 编译产物不携带脚本路径，缺少助手也可安装", macOnly, async t => {
