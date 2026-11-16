@@ -421,7 +421,7 @@ export function createCodexAdapter({ host, placement = "standalone-button", onVi
         box-shadow:0 2px 8px #0001;
       }
       button:hover { color:var(--color-token-text-primary, #1a1c1f); }
-      svg { width:16px; height:16px; fill:none; stroke:currentColor; stroke-width:1.1; stroke-linejoin:round; }
+      svg { width:16px; height:16px; fill:none; stroke:currentColor; stroke-width:1.3; stroke-linejoin:round; }
       button[hidden] { display:none; }
       button[aria-expanded="true"] { outline:2px solid #8888; }
       button:focus-visible { outline:2px solid #4b91e2; outline-offset:2px; }
@@ -497,16 +497,27 @@ export function createCodexAdapter({ host, placement = "standalone-button", onVi
     <style>
       button { display:flex;align-items:center;justify-content:center;width:28px;height:28px;
         padding:0;border:0;border-radius:12.5px;background:transparent;cursor:pointer;
-        color:var(--color-token-text-tertiary, #888);pointer-events:auto;-webkit-app-region:no-drag; }
-      button:hover, button[aria-expanded="true"] { background:var(--color-token-list-hover-background, rgba(127,127,127,.12));color:var(--color-token-text-secondary, #555); }
+        color:var(--cc-entry-color, var(--color-token-text-primary, #1a1c1f));pointer-events:auto;-webkit-app-region:no-drag; }
+      button:hover, button[aria-expanded="true"] { background:var(--color-token-list-hover-background, rgba(127,127,127,.12)); }
       button:focus-visible { outline:2px solid #4b91e2;outline-offset:1px; }
-      svg { width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.1;stroke-linejoin:round; }
+      /* 线宽按 4 倍截图与原生填充图标对齐 */
+      svg { width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.3;stroke-linejoin:round; }
     </style>
     <button type="button" aria-label="Companion 卡片" title="Companion" aria-expanded="false">${ENTRY_ICON}</button>
   `;
   const toolbarButton = toolbarShadow.querySelector("button");
   // 诊断：入口落在哪一级锚点上（summary / share / trailing / floating）。
   let entryAnchor = null;
+  // 图标颜色照抄同组的原生图标按钮（只含图标、无文字），不写死主题 token：
+  // Codex 换过顶栏图标的颜色档位，明暗主题也不同；找不到时用主文字色。
+  const syncEntryColor = (group) => {
+    const native = Array.from(group.querySelectorAll("button"))
+      .find((button) => button.querySelector("svg") && !button.textContent.trim() && !button.disabled && button.getAttribute("aria-disabled") !== "true");
+    const color = native ? getComputedStyle(native).color : "";
+    if (color) {
+      if (toolbarHost.style.getPropertyValue("--cc-entry-color") !== color) toolbarHost.style.setProperty("--cc-entry-color", color);
+    } else toolbarHost.style.removeProperty("--cc-entry-color");
+  };
   const placeToolbarEntry = () => {
     // Summary 优先；按钮改名或移走时仍可放在 Share 后面。只借位置，不驱动原生按钮。
     // 容器由实际 flex 布局确定，不依赖类名、固定祖先层数或一定存在 header 标签。
@@ -550,6 +561,7 @@ export function createCodexAdapter({ host, placement = "standalone-button", onVi
       const hit = document.elementFromPoint(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
       if (bounds.width > 0 && bounds.height > 0 && bounds.left >= 0 && bounds.right <= window.innerWidth && hit === toolbarHost) {
         syncResizeObservation(header, group);
+        syncEntryColor(group);
         entryAnchor = kind;
         return true;
       }

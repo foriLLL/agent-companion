@@ -276,15 +276,16 @@ try {
   // 入口仍进顶栏、紧贴 Summary 开关左侧；整页的横向布局不是标题栏，不能把入口塞进去。
   await evaluate(`(() => {
     document.body.innerHTML='<div style="display:flex;height:100%"><div style="flex:1"><div style="height:44px;display:flex"><div style="margin-left:auto;display:flex;gap:6px;align-items:center">'
-      + '<button aria-label="Zzz" style="width:28px;height:28px">S</button><button id="attr-toggle" data-thread-summary-panel-toggle="true" aria-label="Qqq" aria-pressed="false" style="width:28px;height:28px">T</button></div></div>'
+      + '<button aria-label="Zzz" style="width:28px;height:28px">S</button><button id="attr-toggle" data-thread-summary-panel-toggle="true" aria-label="Qqq" aria-pressed="false" style="width:28px;height:28px;color:rgb(1, 2, 3)"><svg width="16" height="16"></svg></button></div></div>'
       + '<button style="width:28px;height:28px">body</button></div></div>';
     globalThis.semanticAdapter=createCodexAdapter({host,onError:error=>errors.push(error.message)});
   })()`);
   assert.deepEqual(await evaluate(`(() => {
     const entry=document.getElementById('codex-companion-root-toolbar'), toggle=document.getElementById('attr-toggle');
     return {entry:semanticAdapter.getDiagnostics().entry, beforeToggle:entry?.nextElementSibling===toggle,
-      sameRow:Math.round(entry?.getBoundingClientRect().top)===Math.round(toggle.getBoundingClientRect().top)};
-  })()`), { entry: "summary", beforeToggle: true, sameRow: true }, "按自动化属性和位置定位顶栏入口");
+      sameRow:Math.round(entry?.getBoundingClientRect().top)===Math.round(toggle.getBoundingClientRect().top),
+      color:getComputedStyle(entry.shadowRoot.querySelector('button')).color};
+  })()`), { entry: "summary", beforeToggle: true, sameRow: true, color: "rgb(1, 2, 3)" }, "按自动化属性和位置定位顶栏入口，图标颜色照抄同组原生图标按钮");
   await evaluate(`document.getElementById('attr-toggle').parentElement.parentElement.remove()`);
   await waitFor(`semanticAdapter.getDiagnostics().entry === 'floating'`, "标题栏消失后退回悬浮入口");
   assert.equal(await evaluate(`!document.getElementById('codex-companion-root-toolbar') && document.getElementById('codex-companion-root-shell').shadowRoot.querySelector('button').hidden === false`), true, "不把入口放进页面正文");
