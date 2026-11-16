@@ -339,6 +339,9 @@ npm run probe:emby -- --server https://emby.example.com --username alice --searc
 - Linux 为预览：登录后会话界面中的卡片位置尚未验证；Windows 暂不支持。
 - 任务看板的状态由 Codex 本地会话记录推断，依赖其记录格式与侧栏 DOM，Codex 改版后
   可能需要更新。
+- 卡片抽屉推开对话流的方式优先复用 Codex 原生 Summary 的布局；Codex 升级改掉内部结构后会自动换成
+  不依赖内部命名的方式（观感接近，但不保证与 Summary 完全一致）。升级后可运行 `npm run check:host`
+  查看是否降级。
 - 界面目前只有中文。
 
 ## 开发
@@ -346,6 +349,7 @@ npm run probe:emby -- --server https://emby.example.com --username alice --searc
 ```sh
 npm test                                        # 必须使用 Node 内置测试运行器
 npm run smoke                                   # Chromium 冒烟
+npm run check:host                              # Codex 升级后自检：各项适配是否降级（只读）
 node scripts/smoke-plan-messages.mjs             # 无计划工具的动态进度与 Trace 冒烟
 npm run card:create -- my-card --title 我的卡片  # 新建卡片骨架
 node src/cli.mjs agent                          # 前台运行后台服务

@@ -119,13 +119,18 @@ try {
   await waitFor(`adapter.isOpen()`, "独立面板未打开");
   await waitFor(`video.currentTime > .1`, "测试媒体未播放");
   assert.equal(await evaluate(`getComputedStyle(document.getElementById('frame')).transform`), "matrix(1, 0, 0, 1, -80, 0)", "不改写原生自己的平移");
-  assert.equal(await evaluate(`document.querySelector('.thread-scroll-container').getBoundingClientRect().width === innerWidth && adapter.getDiagnostics().drawerSurface`), "inline", "没有平移钩子时按内置公式判档，不收窄会话");
+  // 没有原生平移钩子（也没有输入框）：按内置公式判档，改为限制会话面板宽度来让位，抽屉不压会话。
+  const drawerLeft = `document.getElementById('codex-companion-root-shell').shadowRoot.querySelector('.drawer').getBoundingClientRect().left`;
+  await waitFor(`adapter.getDiagnostics().room === 'clamp' && document.querySelector('.thread-scroll-container').getBoundingClientRect().right <= innerWidth - 324 + 1`, "没有平移钩子时应收窄会话面板让位");
+  assert.deepEqual(await evaluate(`(() => { const {drawerSurface, thread, entry} = adapter.getDiagnostics(); return {drawerSurface, thread, entry}; })()`),
+    { drawerSurface: "inline", thread: "hooks", entry: "summary" });
   const beforeHide = await evaluate(`video.currentTime`);
   await evaluate(`adapter.setOpen(false)`);
   await waitFor(`!adapter.isOpen() && document.getElementById('codex-companion-root-shell').shadowRoot.querySelector('.drawer').hidden`, "关闭动画未结束");
   await waitFor(`video.currentTime > ${beforeHide} + .2`, "收起必须继续播放");
   assert.equal(await evaluate(`host.isConnected && video === host.shadowRoot.querySelector('video') && !video.paused`), true);
-  assert.equal(await evaluate(`document.querySelector('[data-companion-dock]') === null`), true);
+  await waitFor(`document.querySelector('[data-companion-dock]') === null`, "关闭后撤销让位标记");
+  assert.equal(await evaluate(`document.querySelector('.thread-scroll-container').getBoundingClientRect().width === innerWidth && adapter.getDiagnostics().room`), null, "关闭后会话面板恢复原宽");
   await evaluate(`adapter.setOpen(true);adapter.setOpen(false);adapter.setOpen(true)`);
   await waitFor(`adapter.isOpen() && document.getElementById('codex-companion-root-shell').shadowRoot.querySelector('.drawer').dataset.state === 'open'`, "快速反向动画");
   await evaluate(`toggle.click()`);
@@ -261,6 +266,23 @@ try {
   await waitFor(`titlebarAdapter.isOpen()`, "顶栏入口打开");
   await evaluate(`titlebarAdapter.dispose()`);
   assert.equal(await evaluate(`!!document.getElementById('codex-companion-root-toolbar')`), false, "dispose 移除顶栏入口");
+  // 宿主改版保障：标题栏不再是 header / toolbar，Summary 开关的文案也认不出，只剩自动化属性和位置。
+  // 入口仍进顶栏、紧贴 Summary 开关左侧；整页的横向布局不是标题栏，不能把入口塞进去。
+  await evaluate(`(() => {
+    document.body.innerHTML='<div style="display:flex;height:100%"><div style="flex:1"><div style="height:44px;display:flex"><div style="margin-left:auto;display:flex;gap:6px;align-items:center">'
+      + '<button aria-label="Zzz" style="width:28px;height:28px">S</button><button id="attr-toggle" data-thread-summary-panel-toggle="true" aria-label="Qqq" aria-pressed="false" style="width:28px;height:28px">T</button></div></div>'
+      + '<button style="width:28px;height:28px">body</button></div></div>';
+    globalThis.semanticAdapter=createCodexAdapter({host,onError:error=>errors.push(error.message)});
+  })()`);
+  assert.deepEqual(await evaluate(`(() => {
+    const entry=document.getElementById('codex-companion-root-toolbar'), toggle=document.getElementById('attr-toggle');
+    return {entry:semanticAdapter.getDiagnostics().entry, beforeToggle:entry?.nextElementSibling===toggle,
+      sameRow:Math.round(entry?.getBoundingClientRect().top)===Math.round(toggle.getBoundingClientRect().top)};
+  })()`), { entry: "summary", beforeToggle: true, sameRow: true }, "按自动化属性和位置定位顶栏入口");
+  await evaluate(`document.getElementById('attr-toggle').parentElement.parentElement.remove()`);
+  await waitFor(`semanticAdapter.getDiagnostics().entry === 'floating'`, "标题栏消失后退回悬浮入口");
+  assert.equal(await evaluate(`!document.getElementById('codex-companion-root-toolbar') && document.getElementById('codex-companion-root-shell').shadowRoot.querySelector('button').hidden === false`), true, "不把入口放进页面正文");
+  await evaluate(`semanticAdapter.dispose()`);
   assert.deepEqual(await evaluate(`errors`), []);
 
   // 原生 Summary 布局：判定来自原生 layout chunk（这里用导出名打乱的同构替身），
@@ -360,6 +382,23 @@ try {
   await evaluate(`runtimeAdapter.dispose()`);
   assert.deepEqual(await evaluate(`errors`), []);
 
+  // 宿主改版保障：钩子都在，但原生样式不再消费 --thread-content-x（平移实测不生效）→ 不能假装已让位，
+  // 自动换成限制面板宽度；会话列仍在抽屉左侧，关闭后原样恢复。
+  await evaluate(`(() => {
+    document.querySelector('style').remove();
+    document.getElementById('layout-root').style.width='1280px';
+    globalThis.ignoredAdapter=createCodexAdapter({host,onError:error=>errors.push(error.message)});
+  })()`);
+  await evaluate(`ignoredAdapter.setOpen(true)`);
+  await waitFor(`ignoredAdapter.isOpen() && drawerOf().dataset.state === 'open' && ignoredAdapter.getDiagnostics().room === 'clamp' && ignoredAdapter.getDiagnostics().dockShift === 324`, "平移不生效时改用限制面板宽度");
+  await waitFor(`document.querySelector('[data-thread-user-message-navigation-content]').getBoundingClientRect().right <= drawerOf().getBoundingClientRect().left + 1`, "会话列不被抽屉压住");
+  assert.deepEqual(await evaluate(`(() => { const {displayMode, drawerSurface, roomFallbacks} = ignoredAdapter.getDiagnostics(); return {displayMode, drawerSurface, roomFallbacks, drawerRight: Math.round(innerWidth - drawerOf().getBoundingClientRect().right)}; })()`),
+    { displayMode: "shift", drawerSurface: "inline", roomFallbacks: 1, drawerRight: 0 }, "判档与抽屉位置仍按让位前的会话宽度");
+  await evaluate(`ignoredAdapter.setOpen(false)`);
+  await waitFor(`drawerOf().dataset.state === 'closed' && !document.querySelector('[data-companion-dock]') && document.getElementById('layout-root').getBoundingClientRect().width === 1280`, "关闭后面板恢复原宽");
+  await evaluate(`ignoredAdapter.dispose()`);
+  assert.deepEqual(await evaluate(`errors`), []);
+
   // 侧聊关闭确认等 Codex 模态弹窗：遮罩（z-50）与确认框必须盖过已打开的抽屉，关闭后抽屉恢复置顶。
   await evaluate(`(() => {
     document.body.innerHTML='<header class="toolbar" style="display:flex;justify-content:flex-end;height:40px"><div><button aria-label="Share">S</button></div></header>'
@@ -382,6 +421,16 @@ try {
   await waitFor(`${drawerHit}?.id === 'modal-overlay'`, "模态遮罩必须盖过抽屉");
   await evaluate(`document.getElementById('modal-overlay').remove()`);
   await waitFor(`${drawerHit}?.id === 'codex-companion-root-shell'`, "弹窗关闭后抽屉恢复置顶");
+  // 遮罩类名改掉后，凭 aria-modal 仍能识别模态弹窗。
+  await evaluate(`(() => {
+    const dialog=document.createElement('div');
+    dialog.id='aria-modal';dialog.setAttribute('role','dialog');dialog.setAttribute('aria-modal','true');
+    dialog.style.cssText='position:fixed;inset:0;z-index:50;pointer-events:auto';
+    document.body.append(dialog);
+  })()`);
+  await waitFor(`${drawerHit}?.id === 'aria-modal'`, "只有 ARIA 语义的模态弹窗也必须盖过抽屉");
+  await evaluate(`document.getElementById('aria-modal').remove()`);
+  await waitFor(`${drawerHit}?.id === 'codex-companion-root-shell'`, "ARIA 弹窗关闭后抽屉恢复置顶");
   await evaluate(`modalAdapter.dispose()`);
   assert.deepEqual(await evaluate(`errors`), []);
 
@@ -416,19 +465,40 @@ try {
   await evaluate(`dotAdapter.dispose()`);
   assert.deepEqual(await evaluate(`errors`), []);
 
-  // 宿主改版保障：认不出会话结构 → 抽屉浮在会话上方（floating）、不打平移标记；滚动内容里的按钮不推低抽屉。
+  // 宿主改版保障：Codex 的具名钩子一个都没有 → 按输入框找到主面板，判档照旧；给面板加右侧留白让位，
+  // 会话与输入框由页面自己的布局重新居中，不被抽屉压住；滚动内容里的按钮不推低抽屉。
   await evaluate(`(() => {
     document.body.innerHTML='<header style="position:fixed;top:0;left:0;right:0;height:44px;display:flex"><div style="margin-left:auto;display:flex;gap:6px"><div><button aria-label="New tab" style="width:28px;height:28px">+</button></div></div></header>'
-      + '<main style="position:absolute;inset:44px 0 0;display:flex;flex-direction:column"><div style="flex:1;overflow:auto"><div style="max-width:600px;margin:0 auto">Unknown<button id="scrolling-action" style="position:absolute;right:20px;top:20px;width:28px;height:28px">R</button></div></div>'
-      + '<div contenteditable="true" style="height:40px;max-width:600px;margin:0 auto 16px;width:100%">Input</div></main>';
+      + '<main style="position:absolute;inset:44px 0 0;display:flex;flex-direction:column"><div style="flex:1;overflow:auto"><div style="max-width:736px;margin:0 auto">Unknown<button id="scrolling-action" style="position:absolute;right:20px;top:20px;width:28px;height:28px">R</button></div></div>'
+      + '<div contenteditable="true" style="height:40px;max-width:736px;margin:0 auto 16px;width:100%">Input</div></main>';
     globalThis.unknownAdapter=createCodexAdapter({host,onError:error=>errors.push(error.message)});
   })()`);
+  assert.equal(await evaluate(`(() => { const input=document.querySelector('[contenteditable]').getBoundingClientRect(); return input.right > innerWidth - 324; })()`), true, "夹具：让位前输入框伸到抽屉位置下面");
   await evaluate(`unknownAdapter.setOpen(true)`);
-  await waitFor(`unknownAdapter.isOpen() && unknownAdapter.getDiagnostics().drawerSurface === 'floating'`, "未知结构应浮在会话上方");
+  await waitFor(`unknownAdapter.isOpen() && drawerOf().dataset.state === 'open' && unknownAdapter.getDiagnostics().dockShift === 324 && document.querySelector('main').getAnimations().length === 0`, "未知结构应按输入框让位");
   assert.deepEqual(await evaluate(`(() => {
-    const drawer=document.getElementById('codex-companion-root-shell').shadowRoot.querySelector('.drawer');
-    return {marks:document.querySelectorAll('[data-companion-dock]').length,top:drawer.style.top};
-  })()`), { marks: 0, top: "48px" }, "未知结构不移动原生节点，滚动区按钮不推低抽屉");
+    const drawer=drawerOf(), {thread, room, displayMode, drawerSurface, roomFallbacks}=unknownAdapter.getDiagnostics();
+    const left=drawer.getBoundingClientRect().left;
+    return {thread, room, displayMode, drawerSurface, roomFallbacks, top:drawer.style.top,
+      inputClear:document.querySelector('[contenteditable]').getBoundingClientRect().right <= left + 1,
+      textClear:document.querySelector('main > div > div').getBoundingClientRect().right <= left + 1,
+      paneWidth:Math.round(document.querySelector('main').getBoundingClientRect().width)};
+  })()`), { thread: "composer", room: "pad", displayMode: "shift", drawerSurface: "inline", roomFallbacks: 0, top: "48px", inputClear: true, textClear: true, paneWidth: 1280 },
+  "不依赖具名钩子让位：面板自身不变，内容让到抽屉左侧");
+  // 拖窄到 overlay 档：与原生一样常驻抽屉消失、留白撤销；拖回后恢复。
+  await connection.send("Emulation.setDeviceMetricsOverride", { width: 1000, height: 900, deviceScaleFactor: 1, mobile: false });
+  await waitFor(`unknownAdapter.getDiagnostics().displayMode === 'overlay' && drawerOf().dataset.state === 'closed' && !document.querySelector('[data-companion-dock]')`, "未知结构下 overlay 档同样收起");
+  assert.equal(await evaluate(`getComputedStyle(document.querySelector('main')).paddingRight`), "0px", "收起后撤销留白");
+  await connection.send("Emulation.clearDeviceMetricsOverride");
+  await waitFor(`unknownAdapter.isOpen() && unknownAdapter.getDiagnostics().room === 'pad'`, "回到宽窗后重新让位");
+  await evaluate(`unknownAdapter.setOpen(false)`);
+  await waitFor(`drawerOf().dataset.state === 'closed' && !document.querySelector('[data-companion-dock]') && getComputedStyle(document.querySelector('main')).paddingRight === '0px'`, "关闭后撤销留白");
+  // 输入框所在面板写死了宽度、留白与限宽都挪不动它：实测不生效就放弃，抽屉浮在上方，不留下任何改动。
+  await evaluate(`(() => { const input=document.querySelector('[contenteditable]'); input.style.cssText='position:fixed;left:500px;bottom:16px;width:600px;height:40px'; })()`);
+  await evaluate(`unknownAdapter.setOpen(true)`);
+  await waitFor(`unknownAdapter.isOpen() && drawerOf().dataset.state === 'open'`, "让位失败时抽屉仍可打开");
+  assert.deepEqual(await evaluate(`(() => { const {room, roomFallbacks, drawerSurface}=unknownAdapter.getDiagnostics(); return {room, roomFallbacks, drawerSurface, marks:document.querySelectorAll('[data-companion-dock],[data-companion-dock-probe]').length, padding:getComputedStyle(document.querySelector('main')).paddingRight, probe:!!document.getElementById('codex-companion-root-dock-probe')}; })()`),
+    { room: null, roomFallbacks: 2, drawerSurface: "inline", marks: 0, padding: "0px", probe: false }, "两种让位都不生效时不改动页面");
   await evaluate(`unknownAdapter.dispose()`);
   assert.deepEqual(await evaluate(`errors`), []);
 

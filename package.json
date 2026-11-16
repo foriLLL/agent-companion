@@ -29,6 +29,7 @@
     "unmount": "node src/cli.mjs unmount",
     "smoke": "node scripts/smoke-chromium.mjs",
     "smoke:placement": "node scripts/smoke-placement.mjs",
+    "check:host": "node scripts/check-host.mjs",
     "probe:emby": "node scripts/probe-emby.mjs",
     "build:app": "node scripts/build-app.mjs",
     "build:linux": "node scripts/build-linux.mjs",

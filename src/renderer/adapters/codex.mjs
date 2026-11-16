@@ -186,7 +186,10 @@ export function createCodexAdapter({ host, placement = "standalone-button", onVi
   ];
   const labelText = (element) =>
     `${element.getAttribute("aria-label") || ""} ${element.getAttribute("title") || ""}`.toLowerCase();
+  // Codex 给 Summary 开关打的自动化属性，不随界面语言和文案变化；有它就不必依赖文案。
+  const SUMMARY_TOGGLE_ATTRIBUTE = "data-thread-summary-panel-toggle";
   const matchesSummaryLabel = (element) => {
+    if (element.hasAttribute(SUMMARY_TOGGLE_ATTRIBUTE)) return true;
     const label = labelText(element);
     return SUMMARY_LABEL_HINTS.some((hint) => label.includes(hint));
   };
@@ -398,7 +401,8 @@ export function createCodexAdapter({ host, placement = "standalone-button", onVi
   // 弹窗期间 shell 降为 z-index:auto：仍盖在会话内容上，但让出遮罩与确认框，避免挡住按钮。
   const SHELL_TOP_LAYER = "2147483646";
   const syncShellLayer = () => {
-    const layer = document.querySelector(".codex-dialog-overlay") ? "auto" : SHELL_TOP_LAYER;
+    // 类名之外再认 ARIA 语义，遮罩改名后模态弹窗仍能盖过抽屉。
+    const layer = document.querySelector('.codex-dialog-overlay, [aria-modal="true"], dialog[open]') ? "auto" : SHELL_TOP_LAYER;
     if (shell.style.getPropertyValue("z-index") !== layer) shell.style.setProperty("z-index", layer, "important");
   };
   const shellShadow = shell.attachShadow({ mode: "open" });
@@ -499,10 +503,15 @@ export function createCodexAdapter({ host, placement = "standalone-button", onVi
     <button type="button" aria-label="Companion 卡片" title="Companion" aria-expanded="false">${ENTRY_ICON}</button>
   `;
   const toolbarButton = toolbarShadow.querySelector("button");
+  // 诊断：入口落在哪一级锚点上（summary / share / trailing / floating）。
+  let entryAnchor = null;
   const placeToolbarEntry = () => {
     // Summary 优先；按钮改名或移走时仍可放在 Share 后面。只借位置，不驱动原生按钮。
     // 容器由实际 flex 布局确定，不依赖类名、固定祖先层数或一定存在 header 标签。
-    const candidates = Array.from(document.querySelectorAll('header button, [role="toolbar"] button'));
+    const inTitlebar = (rect) => rect.width > 0 && rect.height > 0 && rect.top >= 0 && rect.bottom <= 64 && rect.left >= window.innerWidth / 2;
+    let candidates = Array.from(document.querySelectorAll('header button, [role="toolbar"] button'));
+    // 标题栏不再用 header / toolbar 标签时，只按位置取窗口顶部右半边的按钮。
+    if (!candidates.length) candidates = Array.from(document.querySelectorAll("button")).filter((button) => inTitlebar(button.getBoundingClientRect()));
     const shareLabel = /^(?:share|分享|共享|共有|공유|compartir|partager|teilen)$/i;
     const isShare = (button) => [button.getAttribute("aria-label"), button.getAttribute("title"), button.textContent]
       .some((text) => shareLabel.test((text ?? "").trim()));
@@ -510,16 +519,15 @@ export function createCodexAdapter({ host, placement = "standalone-button", onVi
     // 兜底放在最右侧按钮的左边，不按文案匹配，原生按钮仍贴窗口边缘。
     const trailing = candidates
       .map((trigger) => ({ trigger, rect: trigger.getBoundingClientRect() }))
-      .filter(({ rect }) => rect.width > 0 && rect.height > 0 && rect.top >= 0 && rect.bottom <= 64 && rect.left >= window.innerWidth / 2)
+      .filter(({ rect }) => inTitlebar(rect))
       .sort((a, b) => b.rect.right - a.rect.right)[0]?.trigger;
     const anchors = [
-      ...candidates.filter(matchesSummaryLabel).map((trigger) => ({ trigger, after: false, minButtons: 2 })),
-      ...candidates.filter(isShare).map((trigger) => ({ trigger, after: true, minButtons: 2 })),
-      ...(trailing ? [{ trigger: trailing, after: false, minButtons: 1 }] : [])
+      ...candidates.filter(matchesSummaryLabel).map((trigger) => ({ trigger, after: false, minButtons: 2, kind: "summary" })),
+      ...candidates.filter(isShare).map((trigger) => ({ trigger, after: true, minButtons: 2, kind: "share" })),
+      ...(trailing ? [{ trigger: trailing, after: false, minButtons: 1, kind: "trailing" }] : [])
     ];
-    for (const { trigger, after, minButtons } of anchors) {
-      const rect = trigger.getBoundingClientRect();
-      if (rect.width <= 0 || rect.height <= 0 || rect.top < 0 || rect.bottom > 64 || rect.left < window.innerWidth / 2) continue;
+    for (const { trigger, after, minButtons, kind } of anchors) {
+      if (!inTitlebar(trigger.getBoundingClientRect())) continue;
       const header = trigger.closest('header, [role="toolbar"]');
       let anchor = trigger;
       let group = anchor.parentElement;
@@ -527,7 +535,8 @@ export function createCodexAdapter({ host, placement = "standalone-button", onVi
         const style = getComputedStyle(group);
         if ((style.display === "flex" || style.display === "inline-flex")
           && style.flexDirection === "row" && group.querySelectorAll("button").length >= minButtons) break;
-        if (group === header) { group = null; break; }
+        // 没有 header 作边界时，不能一路爬到整页的横向布局里去。
+        if (group === header || (!header && group.getBoundingClientRect().height > 64)) { group = null; break; }
         anchor = group;
         group = group.parentElement;
       }
@@ -539,11 +548,13 @@ export function createCodexAdapter({ host, placement = "standalone-button", onVi
       const hit = document.elementFromPoint(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
       if (bounds.width > 0 && bounds.height > 0 && bounds.left >= 0 && bounds.right <= window.innerWidth && hit === toolbarHost) {
         syncResizeObservation(header, group);
+        entryAnchor = kind;
         return true;
       }
     }
     toolbarHost.remove();
     syncResizeObservation();
+    entryAnchor = "floating";
     return false;
   };
   // 与原生 Summary 相同的两层意图：pinned 是常驻开关，popover 只在 overlay 档临时浮出。
@@ -585,7 +596,10 @@ export function createCodexAdapter({ host, placement = "standalone-button", onVi
       schedulePlacement();
       return;
     }
-    if (open) returnFocus = document.activeElement;
+    if (open) {
+      returnFocus = document.activeElement;
+      failedRoom = new WeakMap();
+    }
     // 同原生 toggle：overlay 档只开合浮层，其余档位改常驻开关。
     if (everywhere) pinned = popoverOpen = open;
     else if (displayMode === "overlay") popoverOpen = open;
@@ -649,7 +663,7 @@ export function createCodexAdapter({ host, placement = "standalone-button", onVi
   //   shiftWithTranscript 类据此 translate 并收窄宽块。我们只覆盖这一个变量。
   //   CSS Modules 命名随版本变：26.1027 及以前为 _shiftWithTranscript_<hash>，26.1103 起为
   //   shiftWithTranscript-<hash>，只按不带分隔符的类名主体匹配。
-  //   平移钩子缺失（非本地会话）时不平移，抽屉浮在会话上方。
+  //   平移钩子缺失或实测不生效时改用不依赖内部命名的让位方式（见 ROOM_DECLARATIONS）。
   const NATIVE_LAYOUT_CHUNK = /\/thread-summary-panel-layout-[\w-]+\.js(?:[?#]|$)/;
   // 布局模块是只有三个小函数的纯模块；限制长度，排除引用它的状态模块等大工厂。
   const isLayoutFactorySource = (source) => source.length < 2000 && source.includes("visibleSurface")
@@ -745,23 +759,55 @@ export function createCodexAdapter({ host, placement = "standalone-button", onVi
     nativeLayoutLoading = true;
     pending.catch(reportError).finally(() => { nativeLayoutLoading = false; });
   };
-  // mainContentTargetWidth 的 DOM 对应：会话布局根（含输入框）的宽度。
-  const measureThread = () => {
+  // mainContentTargetWidth 的 DOM 对应：会话布局根（含输入框）的宽度。只认 Codex 的具名钩子。
+  const SHIFT_HOOK = '[class*="shiftWithTranscript"]';
+  const measureHooks = () => {
     const content = Array.from(document.querySelectorAll("[data-thread-user-message-navigation-content]"))
       .find((node) => node.getBoundingClientRect().width > 0);
     const root = content?.closest("[data-request-input-activity-root]") ?? null;
     const frame = root ?? content?.closest(".thread-scroll-container") ?? null;
     const bounds = frame?.getBoundingClientRect() ?? null;
-    return {
-      bounds: bounds && bounds.width > 0 && bounds.height > 0 ? bounds : null,
-      shiftRoot: root?.querySelector('[class*="shiftWithTranscript"]') ? root : null
-    };
+    return bounds && bounds.width > 0 && bounds.height > 0
+      ? { bounds, frame, shiftRoot: root?.querySelector(SHIFT_HOOK) ? root : null, source: "hooks" }
+      : { bounds: null, frame: null, shiftRoot: null, source: null };
+  };
+  // 宿主改版保障：上面的钩子都是 Codex 的内部命名，改版后可能一个也找不到。
+  // 输入框（textarea / contenteditable / role=textbox）是聊天界面一定有的语义元素；
+  // 它所在的主面板就是会话区，宽度与原生布局根一致，判档照常用原生公式。
+  const findComposer = () => {
+    let composer = null;
+    let widest = 0;
+    for (const node of document.querySelectorAll('textarea, [contenteditable="true"], [contenteditable="plaintext-only"], [role="textbox"]')) {
+      const rect = node.getBoundingClientRect();
+      if (rect.height > 0 && rect.width > widest) { composer = node; widest = rect.width; }
+    }
+    return composer;
+  };
+  // 主面板：包住 start 的、占据窗口大半高度的最外层祖先。优先取标题栏以下的（不动标题栏），
+  // 其次取不占满整窗的（不含左侧栏），都没有时才是整个应用。
+  const findThreadPane = (start) => {
+    const tall = [];
+    for (let node = start; node && node !== document.body && node !== document.documentElement; node = node.parentElement) {
+      const rect = node.getBoundingClientRect();
+      if (rect.width > 0 && rect.height >= window.innerHeight / 2) tall.push({ node, rect });
+    }
+    return (tall.findLast(({ rect }) => rect.top >= 24) ?? tall.findLast(({ rect }) => rect.width < window.innerWidth - 8) ?? tall.at(-1))?.node ?? null;
+  };
+  const measureThread = () => {
+    const hooks = measureHooks();
+    if (hooks.bounds) return hooks;
+    const composer = findComposer();
+    const pane = composer ? findThreadPane(composer) : null;
+    return pane
+      ? { bounds: pane.getBoundingClientRect(), frame: pane, shiftRoot: null, composer, source: "composer" }
+      : hooks;
   };
   const isShown = (node) => {
     const bounds = node.getBoundingClientRect();
     return bounds.width > 0 && bounds.height > 0;
   };
-  const onDotPage = () => !measureThread().bounds
+  // Dot 页也有输入框，这里只按具名钩子判断「不是普通会话」。
+  const onDotPage = () => !measureHooks().bounds
     && Array.from(document.querySelectorAll(".messaging-root")).some(isShown);
   const layoutResizeObserver = new ResizeObserver(() => schedulePlacement());
   let layoutObserved = null;
@@ -788,8 +834,12 @@ export function createCodexAdapter({ host, placement = "standalone-button", onVi
   const dockStyle = document.createElement("style");
   dockStyle.id = `${hostId}-dock-style`;
   let dockRoot = null;
+  let dockKind = null;
+  let dockBase = 0;
   let dockShift = 0;
   let dockAnimation = null;
+  let threadSource = null;
+  let roomFallbacks = 0;
   const stopDockAnimation = () => {
     const animation = dockAnimation;
     dockAnimation = null;
@@ -801,21 +851,90 @@ export function createCodexAdapter({ host, placement = "standalone-button", onVi
     dockStyle.remove();
     if (dockRoot) restoreNativeAttribute(dockRoot, "data-companion-dock");
     dockRoot = null;
+    dockKind = null;
+    dockBase = 0;
   };
   // 当前实际平移量（含进行中的动画），中途反向时从当前帧继续。
   const renderedDockShift = () => {
     const value = dockRoot ? parseFloat(getComputedStyle(dockRoot).getPropertyValue(DOCK_SHIFT)) : 0;
     return Number.isFinite(value) ? value : 0;
   };
-  const dockConversation = (target, { root, visible, animate }) => {
-    // 抽屉已隐藏、原生 Summary 接管或没有原生平移钩子：立即交还，不与原生动画叠加。
-    if (!visible || !root) { clearConversationDock(); return; }
+  // 让位方式，按顺序尝试，前一种不可用或实测不生效才用后一种：
+  // - native：覆盖原生的 --thread-content-x，与 Summary 完全一致；依赖 Codex 的内部钩子；
+  // - pad：给主面板加右侧留白，会话与输入框由原生布局自己重新居中；不依赖任何内部命名；
+  // - clamp：留白对该面板不起作用（如写死宽度）时，直接限制面板宽度。
+  // 每种方式启用前先实测（probeRoom）：写入样式、同步读回位置、撤销，同一帧内完成，不会闪。
+  // 不生效的记在节点上，本次打开期间不再尝试（避免每帧重复实测）；用户下次打开抽屉时重新实测。
+  // 全部不行时抽屉浮在会话上方，与此前行为一致。
+  const ROOM_WIDTH = PANEL_WIDTH + 24; // 抽屉宽度
+  const ROOM_DECLARATIONS = {
+    native: () => `--thread-content-x:calc(var(${DOCK_SHIFT}) * -1) !important;`,
+    pad: (base) => `padding-right:calc(${base}px + var(${DOCK_SHIFT})) !important;`,
+    // base 是面板右缘到窗口右缘的距离（启用前量得），窗口缩放后宽度上限随之重算。
+    clamp: (base, root) => `max-width:calc(${Math.round(window.innerWidth - base - root.getBoundingClientRect().left)}px - var(${DOCK_SHIFT})) !important;`
+  };
+  let failedRoom = new WeakMap();
+  const roomFailed = (node, kind) => failedRoom.get(node)?.has(kind) === true;
+  const markRoomFailed = (node, kind) => {
+    if (!failedRoom.has(node)) failedRoom.set(node, new Set());
+    failedRoom.get(node).add(kind);
+    roomFallbacks += 1;
+  };
+  const probeStyle = document.createElement("style");
+  probeStyle.id = `${hostId}-dock-probe`;
+  const probeRoom = (plan) => {
+    markNative(plan.root, "data-companion-dock-probe", "root");
+    probeStyle.textContent = `[data-companion-dock-probe="root"] { ${DOCK_SHIFT}:${plan.shift}px; ${ROOM_DECLARATIONS[plan.kind](plan.base, plan.root)} }`;
+    document.documentElement.append(probeStyle);
+    try { return plan.works(); } catch { return false; } finally {
+      probeStyle.remove();
+      restoreNativeAttribute(plan.root, "data-companion-dock-probe");
+    }
+  };
+  // limit：让位后会话内容右缘不得超过的位置（抽屉左缘）。
+  const roomPlans = function* ({ shiftRoot, frame, composer, target, limit }) {
+    if (shiftRoot) {
+      yield { kind: "native", root: shiftRoot, shift: target, base: 0, works: () => {
+        // 原生样式把变量用作 translate；读回的位移与写入值一致才算生效。
+        const moved = Number.parseFloat(getComputedStyle(shiftRoot.querySelector(SHIFT_HOOK)).translate);
+        return Math.abs(moved + target) <= 1;
+      } };
+    }
+    const input = composer ?? findComposer();
+    const pane = findThreadPane(frame ?? input);
+    if (!pane) return;
+    const clear = (nodes) => nodes.length > 0 && nodes.every((node) => node.getBoundingClientRect().right <= limit + 1);
+    const active = (kind) => dockRoot === pane && dockKind === kind;
+    const inside = [frame, input].filter((node) => node && node !== pane && pane.contains(node));
+    // 留白不改变面板自身的右缘，只能靠面板里的会话区或输入框来确认是否生效。
+    if (inside.length) {
+      yield { kind: "pad", root: pane, shift: ROOM_WIDTH, works: () => clear(inside),
+        base: active("pad") ? dockBase : Number.parseFloat(getComputedStyle(pane).paddingRight) || 0 };
+    }
+    yield { kind: "clamp", root: pane, shift: ROOM_WIDTH, works: () => clear([pane, ...inside]),
+      base: active("clamp") ? dockBase : Math.max(0, Math.round(window.innerWidth - pane.getBoundingClientRect().right)) };
+  };
+  const planRoom = (context) => {
+    for (const plan of roomPlans(context)) {
+      if (roomFailed(plan.root, plan.kind)) continue;
+      // 正在使用的方式启用时已实测过。
+      if ((plan.root === dockRoot && plan.kind === dockKind) || probeRoom(plan)) return plan;
+      markRoomFailed(plan.root, plan.kind);
+    }
+    return null;
+  };
+  const dockConversation = (plan, { visible, animate }) => {
+    // 抽屉已隐藏、原生 Summary 接管或没有可用的让位方式：立即交还，不与原生动画叠加。
+    if (!visible || !plan) { clearConversationDock(); return; }
+    const { root, kind, shift: target } = plan;
     const from = renderedDockShift();
-    const sameRoot = root === dockRoot;
+    const sameRoot = root === dockRoot && kind === dockKind;
     if (!sameRoot) {
-      // 原生替换了节点：旧节点上的动画作废，在新节点上直接到位。
+      // 原生替换了节点或换了让位方式：旧节点上的动画作废，在新节点上直接到位。
       clearConversationDock();
       dockRoot = root;
+      dockKind = kind;
+      dockBase = plan.base;
       markNative(root, "data-companion-dock", "root");
     }
     if (target !== dockShift) {
@@ -836,7 +955,7 @@ export function createCodexAdapter({ host, placement = "standalone-button", onVi
       dockShift = target;
     }
     if (target === 0 && !dockAnimation) { clearConversationDock(); return; }
-    const css = `[data-companion-dock="root"] { ${DOCK_SHIFT}:${target}px; --thread-content-x:calc(var(${DOCK_SHIFT}) * -1) !important; }`;
+    const css = `[data-companion-dock="root"] { ${DOCK_SHIFT}:${target}px; ${ROOM_DECLARATIONS[kind](dockBase, root)} }`;
     if (dockStyle.textContent !== css) dockStyle.textContent = css;
     if (!dockStyle.isConnected) document.documentElement.append(dockStyle);
   };
@@ -876,10 +995,15 @@ export function createCodexAdapter({ host, placement = "standalone-button", onVi
     if (closingSummary && !nativeOpen) clearSummaryClose();
     if (wantsOpen() && nativeOpen && !closingSummary) setCompanionOpen(false, { everywhere: true });
     loadNativeLayout();
-    const { bounds, shiftRoot } = measureThread();
-    observeLayout(shiftRoot);
+    const { bounds, frame, shiftRoot, composer, source } = measureThread();
+    threadSource = source;
+    observeLayout(shiftRoot ?? frame);
     const layout = nativeLayout ?? BUILTIN_LAYOUT;
-    const nextMode = bounds ? layout.resolveMode(bounds.width, PANEL_WIDTH) : null;
+    // pad / clamp 让位会收窄会话区；判档与抽屉定位都按让位前的尺寸算，否则会在两档之间来回跳。
+    const narrows = dockRoot && dockKind !== "native" && frame
+      && (dockRoot === frame ? dockKind === "clamp" : dockRoot.contains(frame));
+    const narrowedBy = narrows ? renderedDockShift() : 0;
+    const nextMode = bounds ? layout.resolveMode(bounds.width + narrowedBy, PANEL_WIDTH) : null;
     const modeChanged = nextMode !== displayMode;
     // 同原生：离开 overlay 档即收起浮层，常驻开关保留。
     if (modeChanged && nextMode !== "overlay") popoverOpen = false;
@@ -889,14 +1013,19 @@ export function createCodexAdapter({ host, placement = "standalone-button", onVi
         : (wantsOpen() ? "floating" : null);
     const open = surface !== null;
     ownedRail.dataset.surface = surface ?? "none";
-    ownedRail.style.right = `${bounds ? Math.max(0, window.innerWidth - bounds.right) : 0}px`;
+    const drawerRight = bounds ? Math.max(0, window.innerWidth - bounds.right - narrowedBy) : 0;
+    ownedRail.style.right = `${drawerRight}px`;
     toolbarButton.setAttribute("aria-expanded", String(open));
     setDrawerVisible(open);
     // 收起时会话与抽屉同时回位；关闭期间抽屉仍可见。
     const target = surface === "inline"
       ? Math.round(-layout.contentOffset({ displayMode: nextMode, isPinned: true, panelWidth: PANEL_WIDTH }))
       : 0;
-    dockConversation(target, { root: nativeOpen ? null : shiftRoot, visible: !ownedRail.hidden, animate: !modeChanged });
+    // 收起时沿用当前方式回到 0；需要让位时按 native → pad → clamp 选第一个实测生效的。
+    const plan = nativeOpen ? null
+      : target > 0 ? planRoom({ shiftRoot, frame, composer, target, limit: window.innerWidth - drawerRight - ROOM_WIDTH })
+        : dockRoot?.isConnected ? { kind: dockKind, root: dockRoot, shift: 0, base: dockBase } : null;
+    dockConversation(plan, { visible: !ownedRail.hidden, animate: !modeChanged });
     companionButton.setAttribute("aria-expanded", String(open));
     syncNativeStyles(null);
     placementMode = open ? "standalone" : "hidden";
@@ -1130,7 +1259,10 @@ export function createCodexAdapter({ host, placement = "standalone-button", onVi
     isOpen: () => !disposed && Boolean(lastVisibility?.visible),
     isPlaced: () => !disposed && (hasCards || hasSettings) && host.isConnected && placementMode !== "hidden",
     getDiagnostics: () => ({ placement, mode: placementMode, visible: !disposed && Boolean(lastVisibility?.visible), hasCards, hasSettings, disposed, fallbackActive, inlineEntryFallback, summaryUnsupported, moveFallbacks,
-      nativeLayout: Boolean(nativeLayout), layoutSource: nativeLayoutSource ?? "builtin", displayMode, drawerSurface: ownedRail.dataset.surface ?? "none", dockShift, placementStats: { ...placementStats } }),
+      nativeLayout: Boolean(nativeLayout), layoutSource: nativeLayoutSource ?? "builtin", displayMode, drawerSurface: ownedRail.dataset.surface ?? "none", dockShift,
+      // 宿主适配落在哪一级：entry 入口锚点，thread 会话区来源（hooks 具名钩子 / composer 按输入框），
+      // room 当前让位方式（native / pad / clamp），roomFallbacks 实测不生效而降级的次数。
+      entry: entryAnchor, thread: threadSource, room: dockKind, roomFallbacks, placementStats: { ...placementStats } }),
     dispose() {
       if (disposed) return;
       disposed = true;

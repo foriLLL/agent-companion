@@ -418,6 +418,10 @@ server addresses, raw logs, or other private information in public issues.
   supported yet.
 - Task board status is inferred from Codex's local session records and depends on their format and on the
   sidebar DOM, so it may need updating when Codex changes.
+- The card drawer pushes the conversation aside by reusing the layout of Codex's native Summary panel. When
+  a Codex update changes its internal structure, the drawer switches to a method that does not depend on
+  internal names (close in appearance, but not guaranteed to match Summary exactly). Run
+  `npm run check:host` after an update to see whether anything has been degraded.
 - The user interface is currently available in Chinese only.
 
 ## Development
@@ -425,6 +429,7 @@ server addresses, raw logs, or other private information in public issues.
 ```sh
 npm test                                        # must use the built-in Node test runner
 npm run smoke                                   # Chromium smoke tests
+npm run check:host                              # After a Codex update: read-only check for degraded host integration
 node scripts/smoke-plan-messages.mjs             # smoke test for progress and trace without the plan tool
 npm run card:create -- my-card --title "My card" # scaffold a new card
 node src/cli.mjs agent                          # run the background service in the foreground

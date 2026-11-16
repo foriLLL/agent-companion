@@ -45,6 +45,8 @@ systemd 用户服务常驻发现并注入；主进程 cmdline 被 Chromium setpr
 - 构建 Linux 后端：`npm run build:linux -- --target linux-x64|linux-arm64`；Release 由
   `scripts/prepare-installer.mjs` 把 Team ID、tag 与 Linux 归档 SHA256 写入 `install.sh`
 - 冒烟/探测：`npm run smoke` / `npm run probe:emby`
+- 宿主适配自检：`npm run check:host`（只读查询正在运行的 Codex，列出入口、会话区、让位方式各落在哪一级，
+  以及哪些 Codex 内部命名已缺失；有降级时退出码为 2）。Codex 升级后先跑它
 
 ## 新增卡片
 卡片是 `src/cards/<id>/` 下的一个目录，随仓库一起构建；平台负责外框、Shadow DOM 隔离、开关与排序、
@@ -70,6 +72,22 @@ systemd 用户服务常驻发现并注入；主进程 cmdline 被 Chromium setpr
 - 要把卡片提交进仓库时，同步更新写死内置卡片清单的断言（`test/card-registry.test.mjs`、
   `test/companion-config.test.mjs`、`test/config-v2.test.mjs`、`test/injector-rpc.test.mjs`、
   `test/service-registry.test.mjs`），并给卡片补测试；只在本机自用的卡片可以不改这些测试。
+
+## 宿主适配（`src/renderer/adapters/`）
+Codex 每次升级都可能改掉类名、data 属性、DOM 层级和打包方式。凡是依赖 Codex 页面结构的能力都按下面的规则写，
+否则升级一次坏一次：
+- **自有界面不依赖宿主**：入口（悬浮按钮）和抽屉都挂在自己的 Shadow DOM 里，任何锚点都找不到时仍然可用。
+- **信号按稳定程度分级**：自动化属性（`data-app-action-*`、`data-thread-summary-panel-toggle` 等）→ ARIA 语义
+  （`role`、`aria-*`、`contenteditable`）→ 几何位置。CSS Modules 类名、Tailwind 类名、按钮文案、打包产物的文件名
+  只能作为最高一级的可选信号，后面必须还有不依赖它们的一级。
+- **生效与否靠实测，不靠「选择器命中」**：改动原生布局前先写入、同步读回位置、撤销（`probeRoom`），
+  不符合预期就换下一级并记入诊断（`roomFallbacks`）。不能假设某个变量或类名还在被原生样式消费。
+- **只加自己的标记**：对原生节点只增删 `data-companion-*` 属性并用自己的样式表覆盖，不改写原生的
+  `style` / `class`，撤销后原生状态原样保留。
+- **每一级都进诊断和冒烟**：`getDiagnostics().adapter` 的 `entry` / `thread` / `room` 标出当前落在哪一级；
+  新增一种宿主结构或后备方式时，在 `scripts/smoke-codex-adapter.mjs` 里加对应夹具（含「钩子全无」的场景）。
+- 与原生 Summary 完全一致（判档阈值、平移量、动画）只在最高一级保证；后备级只保证不压住对话、
+  入口不丢、关闭后原样恢复。
 
 ## 代码约定
 - 无 lint/format 配置。风格：2 空格缩进、双引号、分号、ESM
