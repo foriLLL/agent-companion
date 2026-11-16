@@ -4,14 +4,12 @@
 
 import * as service0 from "./proxy/service.mjs";
 import * as service1 from "./tasks/service.mjs";
-import * as service2 from "./chrono-divide/service.mjs";
-import * as service3 from "./hongguo/service.mjs";
-import * as service4 from "./emby/service.mjs";
+import * as service2 from "./hongguo/service.mjs";
+import * as service3 from "./emby/service.mjs";
 
 export const SERVICE_REGISTRY = Object.freeze({
   "proxy": service0,
   "tasks": service1,
-  "chrono-divide": service2,
-  "hongguo": service3,
-  "emby": service4,
+  "hongguo": service2,
+  "emby": service3,
 });
