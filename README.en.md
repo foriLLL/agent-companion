@@ -8,7 +8,7 @@ directory with a small contract: tell Codex what you want, it writes the card fo
 in this repository, and the card shows up next to your chat after a reinstall.
 
 The platform also ships with several ready-to-use cards: a task board that tracks progress across
-sessions, a Hongguo short-drama player, an Emby player, mini games, and a proxy status card.
+sessions, a Hongguo short-drama player, an Emby player, and a proxy status card.
 
 Companion runs as a background service. Install it once, then just open Codex as usual. It does not
 modify `app.asar`, the Codex installation, or the app signature.
@@ -43,7 +43,7 @@ modify `app.asar`, the Codex installation, or the app signature.
   A card only implements its own UI and logic.
 - **Capability-based access.** A card declares the capabilities it needs in its manifest (storage,
   backend RPC, the session list, top-level overlays). Undeclared capabilities are not available to it.
-- **Built-in cards that work out of the box.** Task board, Hongguo, Emby, mini games, and proxy status.
+- **Built-in cards that work out of the box.** Task board, Hongguo, Emby, and proxy status.
   Each can be enabled, disabled, and reordered, and follows Codex's light and dark themes.
 - **Codex is left untouched.** The UI is injected through a debugging port bound to the loopback
   address. The background service starts at login and recovers automatically after a crash.
@@ -55,7 +55,6 @@ modify `app.asar`, the Codex installation, or the app signature.
 | **Task board** | Pins the Codex sessions you are working on in one place, with live status, plan progress, and a per-session trace | On |
 | **Hongguo** | Browse, search, save, pick episodes, play, and auto-play the next episode (requires FFmpeg) | On |
 | **Emby** | Connects to a self-hosted Emby server: libraries, search, source selection, subtitles, resume, and progress reporting | On |
-| **Mini games** | Locally implemented 2048, Minesweeper, and Solitaire, with saves kept on your machine | On |
 | **Proxy status** | Shows the proxy Codex was launched with and whether the local port is reachable | On |
 
 ### Task board
@@ -368,11 +367,6 @@ nothing is written to the configuration or the credential store):
 ```sh
 npm run probe:emby -- --server https://emby.example.com --username alice --search "three body"
 ```
-
-### Mini games
-
-The "摸鱼" card includes locally implemented 2048, 9×9 Minesweeper (first click is always safe), and classic
-Solitaire, with up to 30 undo steps. It makes no requests to external sites.
 
 ## How it works
 

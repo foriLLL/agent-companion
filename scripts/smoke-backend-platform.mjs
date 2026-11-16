@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { execFile, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createServer } from "node:http";
-import { cp, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createInterface } from "node:readline";
@@ -14,10 +14,12 @@ const scriptRoot = path.dirname(fileURLToPath(import.meta.url));
 const rootArgument = process.argv.indexOf("--repo-root");
 const repoRoot = rootArgument >= 0 ? path.resolve(process.argv[rootArgument + 1]) : path.dirname(scriptRoot);
 const { CompanionConfig } = await import(pathToFileURL(path.join(repoRoot, "src/companion-config.mjs")));
-const { CARD_MANIFESTS } = await import(pathToFileURL(path.join(repoRoot, "src/card-registry.mjs")));
+const { generateCardRegistry } = await import(pathToFileURL(path.join(repoRoot, "scripts/generate-card-registry.mjs")));
 const { CdpConnection } = await import(pathToFileURL(path.join(repoRoot, "src/cdp-connection.mjs")));
 const { reserveLoopbackPort } = await import(pathToFileURL(path.join(repoRoot, "src/launcher.mjs")));
 const { listCdpTargets } = await import(pathToFileURL(path.join(repoRoot, "src/targets.mjs")));
+const FIXTURE_ID = "fixture-static";
+let CARD_MANIFESTS;
 const temporary = await mkdtemp(path.join(tmpdir(), "companion-backend-platform-"));
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const checks = [];
@@ -63,6 +65,26 @@ try {
   // src/agent/main.mjs 以 JSON import 读取版本号。
   await cp(path.join(repoRoot, "package.json"), path.join(snapshot, "package.json"));
   await symlink(path.join(repoRoot, "node_modules"), path.join(snapshot, "node_modules"));
+  // 夹具卡：只有渲染端、没有后端服务与业务 RPC，验证配置链路不重建节点、独立 generation 只建 scope。
+  // 只写进快照，经真实的目录扫描与注册表生成进入 bundle，开发目录不受影响。
+  const fixtureDir = path.join(snapshot, "src/cards", FIXTURE_ID);
+  await mkdir(fixtureDir, { recursive: true });
+  await writeFile(path.join(fixtureDir, "manifest.json"), JSON.stringify({
+    id: FIXTURE_ID, title: "静态夹具", version: 1, defaultEnabled: false, defaultOrder: 50,
+    layout: { height: "content", minHeight: 160, scroll: "outer" },
+    lifecycle: { hidden: "retain", start: "first-visible" }, state: { scope: "target", version: 1 }, capabilities: ["storage"]
+  }));
+  await writeFile(path.join(fixtureDir, "renderer.mjs"), `export function mount(ctx) {
+  const node = document.createElement("div");
+  node.className = "${FIXTURE_ID}";
+  node.textContent = "静态夹具";
+  ctx.root.append(node);
+  return { dispose() { node.remove(); } };
+}
+`);
+  await generateCardRegistry({ cardsDir: path.join(snapshot, "src/cards"), outDir: path.join(snapshot, "src"), requireEntries: true });
+  ({ CARD_MANIFESTS } = await import(pathToFileURL(path.join(snapshot, "src/card-registry.mjs"))));
+  assert.ok(CARD_MANIFESTS.some((manifest) => manifest.id === FIXTURE_ID), "夹具卡进入注册表");
   const bun = path.join(repoRoot, "node_modules", "bun", "bin", "bun.exe");
   const rendererPath = path.join(temporary, "renderer.js");
   await exec(bun, ["build", path.join(snapshot, "src/renderer/entry.mjs"), "--target=browser", "--format=iife", "--outfile", rendererPath]);
@@ -79,7 +101,7 @@ try {
   const configPath = path.join(temporary, "config-v2.json");
   const store = new CompanionConfig({ path: configPath });
   let config = await store.loadV2({ strict: true });
-  config = await store.patch({ enabled: true, cards: Object.fromEntries(CARD_MANIFESTS.map((manifest) => [manifest.id, { enabled: manifest.id === "games", settings: {} }])) }, { expectedRevision: config.revision });
+  config = await store.patch({ enabled: true, cards: Object.fromEntries(CARD_MANIFESTS.map((manifest) => [manifest.id, { enabled: manifest.id === FIXTURE_ID, settings: {} }])) }, { expectedRevision: config.revision });
   pageServer = createServer((_request, response) => { response.setHeader("Content-Type", "text/html;charset=utf-8"); response.end(page); });
   await new Promise((resolve) => pageServer.listen(0, "127.0.0.1", resolve));
   const chromePort = await reserveLoopbackPort();
@@ -127,36 +149,36 @@ try {
   });
   await wait(() => ready || (backend.exitCode !== null ? Promise.reject(new Error(stderr || `backend exit ${backend.exitCode}`)) : false), "compiled backend ready", 15000);
   verify(ready.compiled && ready.counters.socketsOpen === 1 && ready.counters.bindings === 1, "编译后端建立真实 CDP session 与 RPC binding");
-  verify(ready.serviceScopes === 0, "仅启用 games，媒体服务没有请求 scope");
+  verify(ready.serviceScopes === 0, "仅启用静态夹具卡，媒体服务没有请求 scope");
   await evaluate("globalThis.__CODEX_COMPANION__.setOpen(true)");
-  await wait(() => evaluate('Boolean(__find("#codex-companion-root")?.shadowRoot.querySelector("[data-card=games] .content")?.shadowRoot.querySelector(".game-board"))'), "games mount");
+  await wait(() => evaluate('Boolean(__find("#codex-companion-root")?.shadowRoot.querySelector("[data-card=fixture-static] .content")?.shadowRoot.querySelector(".fixture-static"))'), "fixture mount");
   await evaluate(`globalThis.__backendNodes = {
     native: document.getElementById("native-panel"),
     runtime: globalThis.__CODEX_COMPANION__.runtime,
-    slot: __find("#codex-companion-root").shadowRoot.querySelector("[data-card=games]"),
-    game: __find("#codex-companion-root").shadowRoot.querySelector("[data-card=games] .content").shadowRoot.querySelector(".games-card")
+    slot: __find("#codex-companion-root").shadowRoot.querySelector("[data-card=fixture-static]"),
+    card: __find("#codex-companion-root").shadowRoot.querySelector("[data-card=fixture-static] .content").shadowRoot.querySelector(".fixture-static")
   }`);
   const state = () => evaluate("globalThis.__CODEX_COMPANION__?.runtime?.getConfig() ?? null");
   const patch = async (change) => {
     config = await store.patch(change, { expectedRevision: config.revision });
     await wait(async () => (await state())?.revision === config.revision, `watch revision ${config.revision}`);
   };
-  const sameNodes = () => evaluate('globalThis.__CODEX_COMPANION__.runtime === __backendNodes.runtime && document.getElementById("native-panel") === __backendNodes.native && __find("#codex-companion-root").shadowRoot.querySelector("[data-card=games] .content").shadowRoot.querySelector(".games-card") === __backendNodes.game');
-  await patch({ cards: { games: { settings: { fixtureTheme: "amber" } }, "future-card": { enabled: false, settings: { retained: true } } } });
-  verify((await state()).cards.games.settings.fixtureTheme === "amber" && await sameNodes(), "外部配置 patch→watcher→injector→settings，游戏/原生节点不重建");
+  const sameNodes = () => evaluate('globalThis.__CODEX_COMPANION__.runtime === __backendNodes.runtime && document.getElementById("native-panel") === __backendNodes.native && __find("#codex-companion-root").shadowRoot.querySelector("[data-card=fixture-static] .content").shadowRoot.querySelector(".fixture-static") === __backendNodes.card');
+  await patch({ cards: { [FIXTURE_ID]: { settings: { fixtureTheme: "amber" } }, "future-card": { enabled: false, settings: { retained: true } } } });
+  verify((await state()).cards[FIXTURE_ID].settings.fixtureTheme === "amber" && await sameNodes(), "外部配置 patch→watcher→injector→settings，卡片/原生节点不重建");
   const nextOrder = ["future-card", ...CARD_MANIFESTS.map((manifest) => manifest.id).reverse()];
   await patch({ order: nextOrder });
-  verify(JSON.stringify((await state()).order) === JSON.stringify(nextOrder) && await sameNodes(), "排序透传且保留现有游戏节点");
-  verify(await evaluate(`Number(__backendNodes.slot.style.order) === ${nextOrder.indexOf("games")}`), "排序实际更新 CardSlot order");
+  verify(JSON.stringify((await state()).order) === JSON.stringify(nextOrder) && await sameNodes(), "排序透传且保留现有卡片节点");
+  verify(await evaluate(`Number(__backendNodes.slot.style.order) === ${nextOrder.indexOf(FIXTURE_ID)}`), "排序实际更新 CardSlot order");
   await patch({ placement: "inline-in-summary" });
   await evaluate("globalThis.__CODEX_COMPANION__.setOpen(true)");
   await wait(() => evaluate('__CODEX_COMPANION__.runtime.getDiagnostics().adapter.mode === "animated-summary"'), "inline native layout");
-  verify(await sameNodes(), "placement 改为 inline 后保留游戏实例与原生面板");
-  await patch({ cards: { games: { enabled: false } } });
-  verify(await evaluate('!__backendNodes.game.isConnected && __CODEX_COMPANION__.runtime.getDiagnostics().shell.count === 0'), "禁用回收游戏并保持 runtime");
-  await patch({ cards: { games: { enabled: true } } });
-  await wait(() => evaluate('Boolean(__find("#codex-companion-root")?.shadowRoot.querySelector("[data-card=games] .content")?.shadowRoot.querySelector(".game-board"))'), "games re-enable");
-  verify(await evaluate('__find("#codex-companion-root").shadowRoot.querySelector("[data-card=games] .content").shadowRoot.querySelector(".games-card") !== __backendNodes.game && __CODEX_COMPANION__.runtime === __backendNodes.runtime'), "重新启用创建新游戏，runtime 保持原实例");
+  verify(await sameNodes(), "placement 改为 inline 后保留卡片实例与原生面板");
+  await patch({ cards: { [FIXTURE_ID]: { enabled: false } } });
+  verify(await evaluate('!__backendNodes.card.isConnected && __CODEX_COMPANION__.runtime.getDiagnostics().shell.count === 0'), "禁用回收卡片并保持 runtime");
+  await patch({ cards: { [FIXTURE_ID]: { enabled: true } } });
+  await wait(() => evaluate('Boolean(__find("#codex-companion-root")?.shadowRoot.querySelector("[data-card=fixture-static] .content")?.shadowRoot.querySelector(".fixture-static"))'), "fixture re-enable");
+  verify(await evaluate('__find("#codex-companion-root").shadowRoot.querySelector("[data-card=fixture-static] .content").shadowRoot.querySelector(".fixture-static") !== __backendNodes.card && __CODEX_COMPANION__.runtime === __backendNodes.runtime'), "重新启用创建新卡片，runtime 保持原实例");
   let status = await command("status");
   verify(status.counters.mounts === 1 && status.counters.configUpdates === 5 && status.counters.watchUpdates >= 6, "五次配置变化只 applyConfig，不重跑 bundle");
   verify(status.serviceScopes === 0 && status.errors.length === 0, "配置链路未触发媒体请求或后端错误");
@@ -165,18 +187,18 @@ try {
   await wait(async () => {
     try { return (await state())?.revision === config.revision; } catch { return false; }
   }, "reload latest config");
-  verify((await state()).cards.games.settings.fixtureTheme === "amber" && (await state()).placement === "inline-in-summary", "页面 reload 从最新导航脚本恢复 settings 与 placement");
+  verify((await state()).cards[FIXTURE_ID].settings.fixtureTheme === "amber" && (await state()).placement === "inline-in-summary", "页面 reload 从最新导航脚本恢复 settings 与 placement");
   status = await command("status");
   verify(status.counters.mounts === 1, "reload 无需后端重新执行 bundle");
 
   await evaluate("globalThis.__CODEX_COMPANION__.setOpen(true)");
-  await wait(() => evaluate('Boolean(__find(".games-card"))'), "reload games mount");
+  await wait(() => evaluate('Boolean(__find(".fixture-static"))'), "reload fixture mount");
   // 原始 binding 发起请求，接收端只观察真实 CDP 响应并继续转发到产品客户端。
-  // games 无业务 RPC；独立 generation 不影响 renderer 的游戏实例。
+  // 夹具卡无业务 RPC；独立 generation 不影响 renderer 的卡片实例。
   const rpc = await evaluate(`(async () => {
     const runtime = __CODEX_COMPANION__.runtime;
     const original = runtime.receiveRpc;
-    const game = __find(".games-card");
+    const card = __find(".fixture-static");
     const pending = new Map();
     runtime.receiveRpc = function(response) {
       try { return original.call(this, response); }
@@ -185,29 +207,29 @@ try {
     const request = (id, method, generation) => new Promise((resolve, reject) => {
       const timer = setTimeout(() => { pending.delete(id); reject(new Error("RPC response timeout: " + method)); }, 5000);
       pending.set(id, response => { clearTimeout(timer); pending.delete(id); resolve(response); });
-      try { __CODEX_COMPANION_RPC__(JSON.stringify({ id, method, params: {}, cardId: "games", generation })); }
+      try { __CODEX_COMPANION_RPC__(JSON.stringify({ id, method, params: {}, cardId: "fixture-static", generation })); }
       catch (error) { clearTimeout(timer); pending.delete(id); reject(error); }
     });
     try {
-      const success = await request("backend-rpc-dispose", "games.lifecycle.dispose", 900001);
-      const failure = await request("backend-rpc-unknown", "games.fixtureUnknown", 900002);
-      return { success, failure, gameRetained: game.isConnected && __find(".games-card") === game && __CODEX_COMPANION__.runtime === runtime };
+      const success = await request("backend-rpc-dispose", "fixture-static.lifecycle.dispose", 900001);
+      const failure = await request("backend-rpc-unknown", "fixture-static.fixtureUnknown", 900002);
+      return { success, failure, cardRetained: card.isConnected && __find(".fixture-static") === card && __CODEX_COMPANION__.runtime === runtime };
     } finally { runtime.receiveRpc = original; }
   })()`);
   verify(rpc.success.ok === true && rpc.success.result?.disposed === true, "浏览器 binding→编译 Bun RPC bridge→Registry 清理→真实 CDP 成功响应");
   verify(rpc.failure.ok === false && rpc.failure.error?.code === "RPC_METHOD_NOT_FOUND", "未知方法经过真实跨 CDP 链路返回 RPC_METHOD_NOT_FOUND");
   status = await command("status");
   verify(status.counters.rpcSuccessResponses === 1 && status.counters.rpcErrorResponses === 1
-    && status.scopes.length === 1 && status.scopes[0].cardId === "games"
+    && status.scopes.length === 1 && status.scopes[0].cardId === FIXTURE_ID
     && status.scopes[0].generation === 900001 && status.scopes[0].disposed && status.errors.length === 0,
-  "后端发送一成功一错误响应，仅创建并清理 games 独立 scope，无媒体 scope");
-  verify(rpc.gameRetained, "后端独立 generation 清理与未知请求均不重建游戏或 runtime");
+  "后端发送一成功一错误响应，仅创建并清理夹具卡独立 scope，无媒体 scope");
+  verify(rpc.cardRetained, "后端独立 generation 清理与未知请求均不重建卡片或 runtime");
   const stopped = await command("stop");
   verify(stopped.stopped && stopped.serviceClosed && stopped.counters.socketsOpen === 0, "stop 关闭 watcher、真实 CDP session 与服务 registry");
   const exited = await Promise.race([backendExited, pause(3000).then(() => ({ timeout: true }))]);
   verify(exited.code === 0 && !exited.timeout, "编译进程自然退出，无残留连接或定时器");
   const configAfterStop = await state();
-  config = await store.patch({ cards: { games: { settings: { fixtureTheme: "after-stop" } } } }, { expectedRevision: config.revision });
+  config = await store.patch({ cards: { [FIXTURE_ID]: { settings: { fixtureTheme: "after-stop" } } } }, { expectedRevision: config.revision });
   await pause(1700);
   verify((await state()).revision === configAfterStop.revision, "stop 后外部 patch 不再更新页面");
   console.log(JSON.stringify({ ok: true, checks, artifactHash, counters: stopped.counters, errors: stopped.errors }, null, 2));

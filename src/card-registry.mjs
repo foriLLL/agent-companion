@@ -2,7 +2,7 @@
 // 静态元数据，供 Node 与 bundle 直接 import；运行时不读文件系统。
 import { validateCatalog } from "./platform/registry/manifest.mjs";
 
-export const CARD_REGISTRY_HASH = "56c90878d843a3d5cb565615f27d9108700fd3424ec95aff6b9d795c45d869f4";
+export const CARD_REGISTRY_HASH = "624972b19d116130185c83777bb93ef9fcd41a9906123670c3a378683d9c496c";
 
 export const CARD_MANIFESTS = validateCatalog([
   {
@@ -52,29 +52,6 @@ export const CARD_MANIFESTS = validateCatalog([
       "threads",
       "overlay",
       "attention"
-    ]
-  },
-  {
-    "id": "games",
-    "title": "摸鱼",
-    "version": 1,
-    "defaultEnabled": true,
-    "defaultOrder": 10,
-    "layout": {
-      "height": "content",
-      "minHeight": 440,
-      "scroll": "outer"
-    },
-    "lifecycle": {
-      "hidden": "retain",
-      "start": "first-visible"
-    },
-    "state": {
-      "scope": "target",
-      "version": 1
-    },
-    "capabilities": [
-      "storage"
     ]
   },
   {

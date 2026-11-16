@@ -1,6 +1,5 @@
 // 由 scripts/generate-card-registry.mjs 生成。请勿手改。
 // mode: require-entries
-// 无 service.mjs，未注册：games
 
 import * as service0 from "./proxy/service.mjs";
 import * as service1 from "./tasks/service.mjs";

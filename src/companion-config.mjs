@@ -37,7 +37,6 @@ export function defaultCompanionConfigPath(home = homedir()) {
 function normalizeCards(value) {
   const cards = value && typeof value === "object" && !Array.isArray(value) ? value : {};
   return {
-    games: typeof cards.games === "boolean" ? cards.games : DEFAULT_CARDS.games,
     hongguo: typeof cards.hongguo === "boolean" ? cards.hongguo : DEFAULT_CARDS.hongguo,
     emby: typeof cards.emby === "boolean" ? cards.emby : DEFAULT_CARDS.emby
   };
@@ -59,7 +58,6 @@ export function normalizeCardOrder(value) {
   for (const id of ["hongguo", "emby"]) {
     if (!order.includes(id)) order.push(id);
   }
-  if (!order.includes("games")) order.unshift("games");
   return order;
 }
 

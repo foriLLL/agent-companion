@@ -24,8 +24,8 @@ test("normalize：默认卡片全开、placement 默认 standalone，未知字�
     version: 1,
     enabled: true,
     placement: "standalone-button",
-    cards: { games: true, hongguo: true, emby: true },
-    cardOrder: ["games", "hongguo", "emby"]
+    cards: { hongguo: true, emby: true },
+    cardOrder: ["hongguo", "emby"]
   });
   assert.deepEqual(normalizeCompanionConfig({
     version: 99,
@@ -37,20 +37,20 @@ test("normalize：默认卡片全开、placement 默认 standalone，未知字�
     version: 1,
     enabled: true,
     placement: "standalone-button",
-    cards: { games: true, hongguo: false, emby: true },
-    cardOrder: ["games", "hongguo", "emby"]
+    cards: { hongguo: false, emby: true },
+    cardOrder: ["hongguo", "emby"]
   });
   assert.equal(normalizeCompanionConfig({ enabled: false }).enabled, false);
   assert.equal(normalizeCompanionConfig({ placement: "inline-in-summary" }).placement, "inline-in-summary");
-  assert.deepEqual(normalizeCompanionConfig({ cards: [] }).cards, { games: true, hongguo: true, emby: true });
+  assert.deepEqual(normalizeCompanionConfig({ cards: [] }).cards, { hongguo: true, emby: true });
 });
 
 test("normalize：cardOrder 白名单过滤、去重、缺失项补末尾", () => {
-  assert.deepEqual(normalizeCompanionConfig({ cardOrder: ["emby", "hongguo"] }).cardOrder, ["games", "emby", "hongguo"]);
-  assert.deepEqual(normalizeCompanionConfig({ cardOrder: ["emby"] }).cardOrder, ["games", "emby", "hongguo"]);
-  assert.deepEqual(normalizeCompanionConfig({ cardOrder: ["emby", "emby", "bogus"] }).cardOrder, ["games", "emby", "hongguo"]);
-  assert.deepEqual(normalizeCompanionConfig({ cardOrder: "emby" }).cardOrder, ["games", "hongguo", "emby"]);
-  assert.deepEqual(normalizeCompanionConfig({ cardOrder: [] }).cardOrder, ["games", "hongguo", "emby"]);
+  assert.deepEqual(normalizeCompanionConfig({ cardOrder: ["emby", "hongguo"] }).cardOrder, ["emby", "hongguo"]);
+  assert.deepEqual(normalizeCompanionConfig({ cardOrder: ["emby"] }).cardOrder, ["emby", "hongguo"]);
+  assert.deepEqual(normalizeCompanionConfig({ cardOrder: ["emby", "emby", "bogus"] }).cardOrder, ["emby", "hongguo"]);
+  assert.deepEqual(normalizeCompanionConfig({ cardOrder: "emby" }).cardOrder, ["hongguo", "emby"]);
+  assert.deepEqual(normalizeCompanionConfig({ cardOrder: [] }).cardOrder, ["hongguo", "emby"]);
 });
 
 test("save 写入 0600 并可 load 回读", async () => {
@@ -67,8 +67,8 @@ test("save 写入 0600 并可 load 回读", async () => {
       version: 1,
       enabled: true,
       placement: "standalone-button",
-      cards: { proxy: true, tasks: true, games: true, hongguo: false, emby: true },
-      cardOrder: ["proxy", "tasks", "games", "hongguo", "emby"]
+      cards: { proxy: true, tasks: true, hongguo: false, emby: true },
+      cardOrder: ["proxy", "tasks", "hongguo", "emby"]
     });
   });
 });
@@ -82,7 +82,7 @@ test("load：文件缺失或损坏时回退默认，不抛异常", async () => {
       enabled: true,
       placement: "standalone-button",
       cards: { ...DEFAULT_CARDS },
-      cardOrder: ["proxy", "tasks", "games", "hongguo", "emby"]
+      cardOrder: ["proxy", "tasks", "hongguo", "emby"]
     });
 
     await writeFile(path, "{ broken", "utf8");
@@ -91,7 +91,7 @@ test("load：文件缺失或损坏时回退默认，不抛异常", async () => {
       enabled: true,
       placement: "standalone-button",
       cards: { ...DEFAULT_CARDS },
-      cardOrder: ["proxy", "tasks", "games", "hongguo", "emby"]
+      cardOrder: ["proxy", "tasks", "hongguo", "emby"]
     });
   });
 });
@@ -112,5 +112,5 @@ test("v1 配置里未知卡片与字段被忽略", () => {
   const config = normalizeCompanionConfig({ cards: { retired: true }, cardOrder: ["retired", "emby"], retiredUrl: "https://example.com/" });
   assert.equal(Object.hasOwn(config, "retiredUrl"), false);
   assert.equal(Object.hasOwn(config.cards, "retired"), false);
-  assert.deepEqual(config.cardOrder, ["games", "emby", "hongguo"]);
+  assert.deepEqual(config.cardOrder, ["emby", "hongguo"]);
 });

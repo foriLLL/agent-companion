@@ -189,11 +189,10 @@ test("requireEntries 要求 renderer.mjs，service.mjs 可选", async () => {
 test("仓库内置卡片可被发现且能力符合冻结枚举", async () => {
   const cardsDir = fileURLToPath(new URL("../src/cards/", import.meta.url));
   const discovered = await discoverCards({ cardsDir });
-  assert.deepEqual(discovered.cards.map((card) => card.manifest.id), ["proxy", "tasks", "games", "hongguo", "emby"]);
-  assert.deepEqual(discovered.cards.map((card) => card.manifest.defaultOrder), [0, 5, 10, 20, 40]);
+  assert.deepEqual(discovered.cards.map((card) => card.manifest.id), ["proxy", "tasks", "hongguo", "emby"]);
+  assert.deepEqual(discovered.cards.map((card) => card.manifest.defaultOrder), [0, 5, 20, 40]);
   assert.deepEqual(discovered.cards.find((card) => card.manifest.id === "proxy").manifest.capabilities, ["rpc"]);
   assert.deepEqual(discovered.cards.find((card) => card.manifest.id === "tasks").manifest.capabilities, ["rpc", "threads", "overlay", "attention"]);
-  assert.deepEqual(discovered.cards.find((card) => card.manifest.id === "games").manifest.capabilities, ["storage"]);
   assert.deepEqual(discovered.cards.find((card) => card.manifest.id === "emby").manifest.capabilities, ["rpc", "storage"]);
   assert.deepEqual(discovered.cards.find((card) => card.manifest.id === "hongguo").manifest.capabilities, ["rpc", "storage"]);
   for (const card of discovered.cards) {

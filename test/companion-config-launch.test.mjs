@@ -65,12 +65,12 @@ test("launch/agent 部分 patch 深度合并，端口边界合法，旧 save 不
   assert.deepEqual(next.cards, initial.cards);
   assert.deepEqual(next.order, initial.order);
   assert.equal(next.revision, 5);
-  await store.save({ cards: { games: false } });
+  await store.save({ cards: { emby: false } });
   const saved = await store.loadV2();
   assert.deepEqual(saved.launch, next.launch);
   assert.deepEqual(saved.agent, next.agent);
   assert.equal(saved.revision, 6);
-  assert.equal(saved.cards.games.enabled, false);
+  assert.equal(saved.cards.emby.enabled, false);
   assertMode(await stat(path), 0o600);
   assert.deepEqual(JSON.parse(await readFile(path, "utf8")), saved);
   assert.deepEqual((await readdir(dir)).filter(name => name.endsWith(".tmp") || name.endsWith(".lock")), []);
