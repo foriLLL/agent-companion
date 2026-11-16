@@ -242,7 +242,10 @@ EOF
 
 # ---------------------------------------------------------------- Linux（预览）
 
-LINUX_FILES=(codex-companion LICENSE THIRD_PARTY_NOTICES.md hls.js.LICENSE mp4box.LICENSE undici.LICENSE BUN-LICENSE.md)
+LINUX_FILES=(codex-companion LICENSE THIRD_PARTY_NOTICES.md hls.js.LICENSE mp4box.LICENSE undici.LICENSE openhongguo.LICENSE BUN-LICENSE.md)
+# 红果 SDK 运行时（wasm 无法编进单文件后端）放在同级目录；文件清单与 scripts/build-linux.mjs 一致。
+LINUX_RUNTIME_DIR="openhongguo"
+LINUX_RUNTIME_FILES=(index.js package.json LICENSE GO_LICENSE dist/openhongguo.wasm dist/wasm_exec.js)
 
 linux_install_dir() {
   if [ -n "${CODEX_COMPANION_INSTALL_DIR:-}" ]; then
@@ -254,6 +257,22 @@ linux_install_dir() {
   fi
 }
 
+# 运行时目录同样只能包含清单内的普通文件及其上级目录，不接受符号链接。
+linux_runtime_is_ours() {
+  local directory="$1" entry name file known
+  if [ ! -d "$directory" ] || [ -L "$directory" ]; then return 1; fi
+  while IFS= read -r entry; do
+    if [ -L "$entry" ]; then return 1; fi
+    name="${entry#"$directory"/}"
+    known=0
+    for file in "${LINUX_RUNTIME_FILES[@]}"; do
+      if [ "$name" = "$file" ] && [ -f "$entry" ]; then known=1; fi
+      if [ "$name" != "$file" ] && [ "$name" = "${file%/*}" ] && [ -d "$entry" ]; then known=1; fi
+    done
+    [ "$known" = 1 ] || return 1
+  done < <(find "$directory" -mindepth 1)
+}
+
 # 安装目录只能不存在，或是只含 Companion 自己文件的真实目录：
 # 避免 CODEX_COMPANION_INSTALL_DIR 指向已有目录时把别人的文件一起替换或删除。
 linux_dir_is_ours() {
@@ -263,6 +282,10 @@ linux_dir_is_ours() {
   for entry in "$directory"/* "$directory"/.[!.]*; do
     [ -e "$entry" ] || [ -L "$entry" ] || continue
     name="${entry##*/}"
+    if [ "$name" = "$LINUX_RUNTIME_DIR" ]; then
+      linux_runtime_is_ours "$entry" || return 1
+      continue
+    fi
     known=0
     for file in "${LINUX_FILES[@]}"; do
       if [ "$name" = "$file" ]; then known=1; fi
@@ -278,6 +301,11 @@ uninstall_linux() {
   "$INSTALL_DIR/codex-companion" agent uninstall >/dev/null || die "停用后台服务失败；程序已保留，请重试。"
   local file
   for file in "${LINUX_FILES[@]}"; do rm -f "${INSTALL_DIR:?}/$file"; done
+  if [ -d "$INSTALL_DIR/$LINUX_RUNTIME_DIR" ]; then
+    for file in "${LINUX_RUNTIME_FILES[@]}"; do rm -f "${INSTALL_DIR:?}/$LINUX_RUNTIME_DIR/$file"; done
+    rmdir "$INSTALL_DIR/$LINUX_RUNTIME_DIR/dist" 2>/dev/null || true
+    rmdir "$INSTALL_DIR/$LINUX_RUNTIME_DIR"
+  fi
   rmdir "$INSTALL_DIR"
   log "Companion 已卸载，应用菜单恢复为系统原有的 ChatGPT 入口；配置保留在 ~/.config/codex-companion。"
 }
@@ -404,6 +432,7 @@ main() {
   if [ "$system" = "Darwin" ]; then install_macos; else install_linux; fi
 }
 
-if [ "${BASH_SOURCE[0]}" = "$0" ]; then
+# 经 `curl … | bash` 从标准输入执行时 BASH_SOURCE 为空，同样视为直接运行；被 source 时不执行。
+if [ "${BASH_SOURCE[0]:-$0}" = "$0" ]; then
   main "$@"
 fi

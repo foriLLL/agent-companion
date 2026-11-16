@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
+import { HONGGUO_RUNTIME_DIR, HONGGUO_RUNTIME_FILES } from "../scripts/build-linux.mjs";
 import { renderInstaller } from "../scripts/prepare-installer.mjs";
 
 const installerPath = fileURLToPath(new URL("../packaging/install.sh", import.meta.url));
@@ -16,7 +19,15 @@ const section = (name) => {
   return installer.slice(start, end);
 };
 
-// 安装器只做静态检查，不 source 或执行安装、卸载与 Homebrew 操作。
+const posixOnly = { skip: process.platform === "win32" && "安装脚本只面向 macOS 与 Linux" };
+const bashArray = (name) => {
+  const match = new RegExp(`^${name}=\\(([^)]*)\\)$`, "m").exec(installer);
+  assert.ok(match, `缺少 ${name}`);
+  return match[1].trim().split(/\s+/);
+};
+
+// 除下方两处外只做静态检查：模板在任何写入之前就因未注入发布信息而退出，
+// source 也只定义函数；不执行安装、卸载与 Homebrew 操作。
 test("Release 安装脚本保持有效的 Bash 语法", { skip: process.platform === "win32" && "安装脚本只面向 macOS" }, () => {
   const result = spawnSync("/bin/bash", ["-n", installerPath], { encoding: "utf8" });
   assert.equal(result.status, 0, result.stderr);
@@ -105,4 +116,43 @@ test("可选 FFmpeg 保留已安装检查、显式跳过与失败提示", () => 
   assert.match(optional, /if "\$brew_bin" install ffmpeg; then/);
   assert.match(optional, /FFMPEG_STATUS="install-failed"/);
   assert.match(installer, /如需补装，请运行：brew install ffmpeg/);
+});
+
+test("经管道执行（curl … | bash）也会进入 main，而不是因 BASH_SOURCE 未定义退出", posixOnly, () => {
+  const home = mkdtempSync(join(tmpdir(), "companion-installer-"));
+  try {
+    const result = spawnSync("/bin/bash", [], { input: installer, encoding: "utf8", env: { PATH: process.env.PATH, HOME: home } });
+    assert.equal(result.status, 1);
+    assert.doesNotMatch(result.stderr, /unbound variable|未绑定/);
+    // 模板没有注入发布信息：main 在任何下载或写入之前就以 die 的提示结束。
+    assert.match(result.stderr, /\[codex-companion\]/);
+  } finally { rmSync(home, { recursive: true, force: true }); }
+});
+
+test("Linux 安装目录归属检查接受发布包的全部文件，拒绝多余文件与符号链接", posixOnly, () => {
+  assert.deepEqual(bashArray("LINUX_RUNTIME_FILES"), [...HONGGUO_RUNTIME_FILES]);
+  assert.match(installer, new RegExp(`^LINUX_RUNTIME_DIR="${HONGGUO_RUNTIME_DIR}"$`, "m"));
+  assert.ok(bashArray("LINUX_FILES").includes("openhongguo.LICENSE"));
+  const temporary = mkdtempSync(join(tmpdir(), "companion-installer-"));
+  const bundle = (name, extra = []) => {
+    const directory = join(temporary, name);
+    const files = [...bashArray("LINUX_FILES"), ...HONGGUO_RUNTIME_FILES.map((file) => `${HONGGUO_RUNTIME_DIR}/${file}`), ...extra];
+    for (const file of files) {
+      mkdirSync(dirname(join(directory, file)), { recursive: true });
+      writeFileSync(join(directory, file), "");
+    }
+    return directory;
+  };
+  const owned = (directory) => spawnSync("/bin/bash", ["-c", 'source "$1"; linux_dir_is_ours "$2"', "_", installerPath, directory],
+    { encoding: "utf8" }).status === 0;
+  try {
+    assert.equal(owned(bundle("release")), true);
+    assert.equal(owned(bundle("foreign-top", ["notes.txt"])), false);
+    assert.equal(owned(bundle("foreign-runtime", [`${HONGGUO_RUNTIME_DIR}/dist/extra.bin`])), false);
+    const linked = bundle("linked-runtime");
+    rmSync(join(linked, HONGGUO_RUNTIME_DIR, "index.js"));
+    symlinkSync("/etc/hosts", join(linked, HONGGUO_RUNTIME_DIR, "index.js"));
+    assert.equal(owned(linked), false);
+    assert.equal(owned(join(temporary, "missing")), false);
+  } finally { rmSync(temporary, { recursive: true, force: true }); }
 });

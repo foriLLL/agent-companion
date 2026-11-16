@@ -14,6 +14,13 @@ export const TARGETS = {
   "linux-arm64": { bun: "bun-linux-arm64" }
 };
 
+// 红果 SDK 运行时只带这些文件；install.sh 的 LINUX_RUNTIME_FILES 必须与此一致，
+// 升级与卸载据此确认安装目录里只有 Companion 自己的文件。
+export const HONGGUO_RUNTIME_DIR = "openhongguo";
+export const HONGGUO_RUNTIME_FILES = Object.freeze([
+  "index.js", "package.json", "LICENSE", "GO_LICENSE", "dist/openhongguo.wasm", "dist/wasm_exec.js"
+]);
+
 export function parseArgs(argv, arch = process.arch) {
   const options = { target: `linux-${arch}`, outDir: join(repoRoot, "dist") };
   const args = [...argv];
@@ -58,8 +65,13 @@ async function main() {
   await chmod(binaryOut, 0o755);
 
   // 与 macOS 包一致：附带项目及打包依赖的许可说明；FFmpeg 不进入分发物。
-  // 红果 SDK 是 wasm 包，整包放在二进制同级的 openhongguo 目录，运行时动态 import。
-  await cp(join(repoRoot, "node_modules", "openhongguo"), join(root, "openhongguo"), { recursive: true });
+  // 红果 SDK 是 wasm 包，放在二进制同级的 openhongguo 目录，运行时动态 import；
+  // 只复制清单内的运行时文件，不带文档与类型声明。
+  for (const file of HONGGUO_RUNTIME_FILES) {
+    const destination = join(root, HONGGUO_RUNTIME_DIR, file);
+    await mkdir(dirname(destination), { recursive: true });
+    await cp(join(repoRoot, "node_modules", "openhongguo", file), destination);
+  }
   const licenses = [
     [join(repoRoot, "LICENSE"), "LICENSE"],
     [join(repoRoot, "THIRD_PARTY_NOTICES.md"), "THIRD_PARTY_NOTICES.md"],
