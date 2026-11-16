@@ -6,6 +6,10 @@ export const RPC_CANCEL_METHOD = "rpc.cancel";
 export const DEFAULT_RPC_TIMEOUT_MS = 70_000;
 
 const DEFAULT_BRIDGE_KEY = "__CODEX_COMPANION__";
+// Runtime.addBinding 会把 binding 暴露给 target 内的每个执行上下文，包括同进程 iframe。
+// RPC 能改配置、重启 Codex、读会话记录，只接受顶层页面的调用；window 与 top 都是
+// 不可伪造属性，子框架里的脚本无法让这个表达式为真。
+const MAIN_FRAME_CHECK = "window === window.top";
 const MAX_REQUEST_LENGTH = 1024 * 1024;
 const MAX_RESPONSE_LENGTH = 16 * 1024 * 1024;
 // app:// 的 CSP 禁止 Renderer 直连 loopback，媒体只能经 CDP 参数投递。V8 会把
@@ -161,6 +165,7 @@ export class CdpRpcBridge {
   #disposeContext;
   #generations = new Map();
   #contexts = new Set();
+  #verifiedContexts = new Map();
   #targetId;
   #mediaTransport;
   #logger;
@@ -238,6 +243,7 @@ export class CdpRpcBridge {
     });
     subscribe("Runtime.executionContextsCleared", () => {
       for (const contextId of [...this.#contexts]) this.#abortContext(contextId, new RpcBridgeError("RPC_CONTEXT_DESTROYED", "Renderer 执行上下文已清空"));
+      this.#verifiedContexts.clear();
     });
     subscribe("close", () => {
       this.detach(new RpcBridgeError("RPC_DISCONNECTED", "Renderer 已断开", { retryable: true }));
@@ -261,6 +267,7 @@ export class CdpRpcBridge {
     this.#abortAll(reason);
     this.#generations.clear();
     this.#contexts.clear();
+    this.#verifiedContexts.clear();
     this.#disposeTargetOnce();
   }
 
@@ -268,6 +275,11 @@ export class CdpRpcBridge {
     if (!this.#attached || params?.name !== this.#bindingName) return;
     const executionContextId = params.executionContextId;
     if (!Number.isInteger(executionContextId)) return;
+
+    // 校验期间上下文可能已销毁或 bridge 已关闭；只有仍是同一次校验结果时才继续。
+    const verification = this.#verifyContext(executionContextId);
+    if (!await verification) return;
+    if (!this.#attached || this.#verifiedContexts.get(executionContextId) !== verification) return;
 
     let request;
     try {
@@ -360,6 +372,28 @@ export class CdpRpcBridge {
     }
   }
 
+  // 每个执行上下文只校验一次；子框架的调用不处理也不回复。CDP 调用失败不缓存，下次重试。
+  #verifyContext(executionContextId) {
+    const cached = this.#verifiedContexts.get(executionContextId);
+    if (cached) return cached;
+    const verification = Promise.resolve().then(() => this.#connection.send("Runtime.evaluate", {
+      expression: MAIN_FRAME_CHECK,
+      contextId: executionContextId,
+      returnByValue: true
+    })).then((evaluation) => {
+      const allowed = !evaluation?.exceptionDetails && evaluation?.result?.value === true;
+      if (!allowed && this.#verifiedContexts.get(executionContextId) === verification) {
+        this.#warn(`[codex-companion] 忽略非顶层页面的 RPC 调用（执行上下文 ${executionContextId}）`);
+      }
+      return allowed;
+    }, () => {
+      if (this.#verifiedContexts.get(executionContextId) === verification) this.#verifiedContexts.delete(executionContextId);
+      return false;
+    });
+    this.#verifiedContexts.set(executionContextId, verification);
+    return verification;
+  }
+
   #acceptGeneration(executionContextId, request) {
     if (request.cardId === undefined) return;
     const key = JSON.stringify([executionContextId, request.cardId]);
@@ -398,6 +432,7 @@ export class CdpRpcBridge {
 
   #abortContext(executionContextId, reason) {
     if (!Number.isInteger(executionContextId)) return;
+    this.#verifiedContexts.delete(executionContextId);
     for (const entry of this.#pending.values()) {
       if (entry.executionContextId !== executionContextId) continue;
       entry.canReply = false;

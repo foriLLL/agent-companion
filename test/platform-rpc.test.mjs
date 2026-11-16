@@ -36,6 +36,7 @@ class FakeConnection extends EventEmitter {
   receiveRpc = () => false;
 
   async send(method, params = {}) {
+    if (method === "Runtime.evaluate" && params.expression === "window === window.top") return { result: { value: true } };
     if (method !== "Runtime.callFunctionOn") return {};
     const wire = JSON.parse(JSON.stringify(params));
     const deliver = vm.runInNewContext(`(${wire.functionDeclaration})`, {

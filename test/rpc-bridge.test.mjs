@@ -16,6 +16,9 @@ class FakeConnection {
   responses = [];
   sinkName = "runtime";
   fallbackCalls = 0;
+  subframeContexts = new Set();
+  contextChecks = [];
+  failContextChecks = 0;
   #listeners = new Map();
 
   on(method, listener) {
@@ -36,6 +39,11 @@ class FakeConnection {
   }
 
   async send(method, params = {}) {
+    if (method === "Runtime.evaluate" && params.expression === "window === window.top") {
+      this.contextChecks.push(params.contextId);
+      if (this.failContextChecks > 0) { this.failContextChecks -= 1; throw new Error("CDP 调用超时"); }
+      return { result: { value: !this.subframeContexts.has(params.contextId) } };
+    }
     this.calls.push({ method, params });
     if (method !== "Runtime.callFunctionOn") return {};
 
@@ -446,5 +454,58 @@ test("超时与取消结束后移除 bridge 的 abort 监听器，不保留每�
   await waitFor(() => connection.responses.length === 12);
   assert.equal(signals.length, 12);
   assert.ok(signals.every(signal => signal.aborted && getEventListeners(signal, "abort").length === 0));
+  bridge.detach();
+});
+
+test("只处理顶层页面的 RPC：子框架上下文的调用不进入服务，也不回复", async () => {
+  const connection = new FakeConnection();
+  connection.subframeContexts.add(9);
+  const handled = [];
+  const warnings = [];
+  const bridge = new CdpRpcBridge(connection, {
+    handler: async (method, _params, context) => { handled.push([method, context.executionContextId]); return {}; },
+    targetId: "main",
+    logger: { warn: (message) => warnings.push(message) }
+  });
+  await bridge.attach();
+
+  emitRequest(connection, { id: "frame-1", method: "companion.settings.patch", params: {} }, 9);
+  emitRequest(connection, { id: "frame-2", method: "tasks.trace", params: {} }, 9);
+  emitRequest(connection, { id: "top-1", method: "tasks.list", params: {} }, 7);
+  await waitFor(() => connection.responses.length === 1);
+  await new Promise((resolve) => setTimeout(resolve, 5));
+
+  assert.deepEqual(handled, [["tasks.list", 7]]);
+  assert.deepEqual(connection.responses.map(({ contextId, response }) => [contextId, response.id]), [[7, "top-1"]]);
+  // 每个上下文只校验一次，被拒绝的上下文只告警一次。
+  assert.deepEqual(connection.contextChecks, [9, 7]);
+  assert.equal(warnings.filter((message) => message.includes("非顶层页面")).length, 1);
+  bridge.detach();
+});
+
+test("上下文销毁后重新校验；校验时 CDP 失败不缓存，下一次调用重试", async () => {
+  const connection = new FakeConnection();
+  const handled = [];
+  const bridge = new CdpRpcBridge(connection, { handler: async (method) => { handled.push(method); return {}; }, targetId: "main" });
+  await bridge.attach();
+
+  connection.failContextChecks = 1;
+  emitRequest(connection, { id: "lost", method: "tasks.list", params: {} }, 7);
+  await waitFor(() => connection.contextChecks.length === 1);
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  assert.deepEqual(handled, []);
+
+  emitRequest(connection, { id: "retry", method: "tasks.list", params: {} }, 7);
+  await waitFor(() => connection.responses.length === 1);
+  assert.deepEqual(connection.contextChecks, [7, 7]);
+
+  // 同一个 id 被新文档复用时（导航后变成子框架）不能沿用旧结论。
+  connection.emit("Runtime.executionContextDestroyed", { executionContextId: 7 });
+  connection.subframeContexts.add(7);
+  emitRequest(connection, { id: "reused", method: "tasks.list", params: {} }, 7);
+  await waitFor(() => connection.contextChecks.length === 3);
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  assert.deepEqual(handled, ["tasks.list"]);
+  assert.equal(connection.responses.length, 1);
   bridge.detach();
 });
