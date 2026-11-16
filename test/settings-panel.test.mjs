@@ -4,6 +4,7 @@ import { createSettingsPanel } from "../src/renderer/shell/settings-panel.mjs";
 import { createCardShell } from "../src/renderer/shell/card-shell.mjs";
 import { createCardRuntime } from "../src/renderer/runtime/card-runtime.mjs";
 import { createRpcClient } from "../src/renderer/platform/rpc-client.mjs";
+import { PLAN_HINT_BODY } from "../src/codex-plan-hint-text.mjs";
 
 // 只实现面板用到的 DOM；布局、原生输入行为与 Shadow DOM 另由 Chromium 冒烟验证。
 class Element extends EventTarget {
@@ -88,6 +89,21 @@ function fixture(handler, options = {}) {
   const panel = createSettingsPanel({ document, call, onClose: () => { closed++; }, ...options });
   document.body.append(panel.element);
   return { document, panel, calls, get closed() { return closed; } };
+}
+function taskFixture({ settings = {}, onPatch } = {}) {
+  const base = initialConfig();
+  const withTasks = [...catalog, { id: "tasks", title: "任务看板", defaultEnabled: true, defaultOrder: 5 }];
+  let config = { ...base, cards: { ...base.cards, tasks: { enabled: true, settings } } };
+  return fixture(async (method, params) => {
+    if (method === "companion.settings.get") return { config, catalog: withTasks };
+    if (method === "companion.agent.status") return { available: false };
+    assert.equal(method, "companion.settings.patch");
+    await onPatch?.(params);
+    const patch = params.patch.cards?.tasks ?? {};
+    const tasks = { ...config.cards.tasks, ...patch, settings: { ...config.cards.tasks.settings, ...patch.settings } };
+    config = { ...config, ...params.patch, revision: config.revision + 1, cards: { ...config.cards, ...params.patch.cards, tasks } };
+    return { config };
+  }, { platform: "MacIntel" });
 }
 function change(input, value) {
   if (input.type === "checkbox" || input.type === "radio") input.checked = value;
@@ -228,6 +244,10 @@ test("任务看板设置：Option+Tab 只在 macOS 显示、缺省开启；长�
   assert.ok(hint.parentNode.textContent.includes("AGENTS.md"));
   change(hint, true);
   await turn();
+  assert.equal(hint.checked, false, "确认前不显示已开启");
+  assert.equal(f.calls.filter(item => item.method.endsWith("patch")).length, 0, "确认前不保存配置");
+  byText(root, "同意修改并开启").click();
+  await turn();
   assert.deepEqual(f.calls.at(-1).params, { expectedRevision: 4, patch: { cards: { tasks: { settings: { planHint: true } } } } });
   assert.equal(hint.checked, true);
   const input = bySetting(root, "tasks-switcher");
@@ -258,6 +278,127 @@ test("任务看板设置：Option+Tab 只在 macOS 显示、缺省开启；长�
   await noTasks.panel.open();
   assert.equal(legend(noTasks.panel).hidden, true, "没有任务看板卡片时隐藏");
   noTasks.panel.destroy();
+});
+
+test("计划提示开启前告知全局影响与实际规则；取消、Esc、关闭和销毁均不保存", async () => {
+  const settingsFixture = taskFixture();
+  await settingsFixture.panel.open();
+  const root = settingsFixture.panel.element;
+  const input = bySetting(root, "tasks-plan-hint");
+  const confirmation = byLabel(root, "确认修改 Codex 全局指令");
+  const confirm = byText(root, "同意修改并开启");
+  assert.equal(confirmation.hidden, true);
+  change(input, true);
+  assert.equal(input.checked, false);
+  assert.equal(confirmation.hidden, false);
+  assert.ok(confirmation.textContent.includes("进入模型上下文，影响所有新会话"));
+  assert.ok(confirmation.textContent.includes("AGENTS.override.md"));
+  assert.ok(confirmation.textContent.includes("已加载规则的会话不会自动撤回"));
+  assert.ok(confirmation.textContent.includes("不保证任务完成正确"));
+  assert.equal(confirmation.querySelector("pre").textContent, PLAN_HINT_BODY);
+  assert.equal(settingsFixture.document.activeElement, byText(root, "暂不开启"));
+  byText(root, "暂不开启").click();
+  assert.equal(confirmation.hidden, true);
+  assert.equal(settingsFixture.document.activeElement, input);
+  confirm.click();
+  change(input, true);
+  assert.equal(escape(root).defaultPrevented, true);
+  assert.equal(confirmation.hidden, true);
+  assert.equal(root.hidden, false);
+  change(input, true);
+  settingsFixture.panel.close();
+  assert.equal(confirmation.hidden, true);
+  confirm.click();
+  await settingsFixture.panel.open();
+  assert.equal(confirmation.hidden, true);
+  assert.equal(input.checked, false);
+  change(input, true);
+  settingsFixture.panel.destroy();
+  confirm.click();
+  assert.equal(settingsFixture.calls.filter(item => item.method.endsWith("patch")).length, 0);
+});
+
+test("确认开启只保存一次最小补丁；关闭无需确认，再次开启必须重新确认", async () => {
+  const gate = deferred();
+  const settingsFixture = taskFixture({ settings: { keep: 1 }, onPatch: () => gate.promise });
+  await settingsFixture.panel.open();
+  const root = settingsFixture.panel.element;
+  const input = bySetting(root, "tasks-plan-hint");
+  const confirmation = byLabel(root, "确认修改 Codex 全局指令");
+  change(input, true);
+  const confirm = byText(root, "同意修改并开启");
+  confirm.click();
+  confirm.click();
+  const patches = () => settingsFixture.calls.filter(item => item.method.endsWith("patch"));
+  assert.equal(patches().length, 1);
+  assert.deepEqual(patches()[0].params, { expectedRevision: 4, patch: { cards: { tasks: { settings: { planHint: true } } } } });
+  assert.equal(input.disabled, true);
+  assert.equal(confirmation.hidden, true);
+  gate.resolve();
+  await turn();
+  assert.equal(input.checked, true);
+  assert.equal(settingsFixture.document.activeElement, input);
+  change(input, false);
+  await turn();
+  assert.equal(confirmation.hidden, true);
+  assert.deepEqual(patches()[1].params, { expectedRevision: 5, patch: { cards: { tasks: { settings: { planHint: false } } } } });
+  change(input, true);
+  assert.equal(confirmation.hidden, false);
+  assert.equal(patches().length, 2);
+  byText(root, "暂不开启").click();
+  settingsFixture.panel.destroy();
+});
+
+test("开启保存失败或冲突不自动重放；恢复配置后必须重新确认", async () => {
+  for (const code of ["RPC_TIMEOUT", "CONFIG_CONFLICT"]) {
+    let patches = 0;
+    const settingsFixture = taskFixture({ onPatch: () => {
+      if (++patches === 1) throw Object.assign(Error("保存失败"), { code });
+    } });
+    await settingsFixture.panel.open();
+    const root = settingsFixture.panel.element;
+    const input = bySetting(root, "tasks-plan-hint");
+    change(input, true);
+    byText(root, "同意修改并开启").click();
+    await turn();
+    assert.equal(input.checked, false);
+    assert.equal(byLabel(root, "确认修改 Codex 全局指令").hidden, true);
+    if (code === "RPC_TIMEOUT") {
+      byText(root, "重试").click();
+      await turn();
+    }
+    assert.equal(patches, 1);
+    change(input, true);
+    assert.equal(patches, 1);
+    assert.equal(byLabel(root, "确认修改 Codex 全局指令").hidden, false);
+    byText(root, "同意修改并开启").click();
+    await turn();
+    assert.equal(patches, 2);
+    assert.equal(input.checked, true);
+    settingsFixture.panel.destroy();
+  }
+});
+
+test("待确认时停用任务看板撤销确认；已保存的开启配置不触发额外写入", async () => {
+  const settingsFixture = taskFixture();
+  await settingsFixture.panel.open();
+  const root = settingsFixture.panel.element;
+  change(bySetting(root, "tasks-plan-hint"), true);
+  change(bySetting(root, "card-tasks"), false);
+  await turn();
+  assert.equal(byLabel(root, "确认修改 Codex 全局指令").hidden, true);
+  byText(root, "同意修改并开启").click();
+  const patches = settingsFixture.calls.filter(item => item.method.endsWith("patch"));
+  assert.equal(patches.length, 1);
+  assert.deepEqual(patches[0].params.patch, { cards: { tasks: { enabled: false } } });
+  settingsFixture.panel.destroy();
+
+  const enabledFixture = taskFixture({ settings: { planHint: true } });
+  await enabledFixture.panel.open();
+  assert.equal(bySetting(enabledFixture.panel.element, "tasks-plan-hint").checked, true);
+  assert.equal(byLabel(enabledFixture.panel.element, "确认修改 Codex 全局指令").hidden, true);
+  assert.equal(enabledFixture.calls.filter(item => item.method.endsWith("patch")).length, 0);
+  enabledFixture.panel.destroy();
 });
 
 test("CONFIG_CONFLICT 重新读取，不重放旧 patch，下一次编辑使用刷新后的 revision", async () => {

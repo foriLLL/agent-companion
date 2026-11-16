@@ -93,7 +93,7 @@ try {
       .msg{max-width:560px;margin:28px auto 0;padding:0 24px;color:var(--fg2);line-height:1.7}
       .msg p{margin:0 0 14px}.msg .user{margin-left:auto;width:fit-content;max-width:70%;padding:8px 14px;border-radius:18px;background:var(--active);color:var(--fg)}
       #composer{position:absolute;left:50%;bottom:24px;width:520px;height:56px;margin-left:-300px;padding:12px 14px;border:1px solid var(--line);border-radius:18px;font:inherit;color:var(--fg);background:var(--bg);resize:none}
-      #companion{position:fixed;right:14px;top:60px;width:332px;background:var(--card);color:var(--fg);border-radius:18px;box-shadow:0 0 0 1px var(--cardline),0 8px 28px rgba(0,0,0,.08);--cc-card-bg:var(--card)}
+      #companion{position:fixed;right:14px;top:60px;width:332px;background:var(--card);color:var(--fg);border-radius:18px;box-shadow:0 0 0 1px var(--cardline),0 8px 28px rgba(0,0,0,.08);--cc-card-bg:var(--card);--cc-card-fg:var(--fg)}
     </style>
     <nav id="app-shell-sidebar"><div class="brand">Codex</div><div class="newchat">＋ 新对话</div><div data-app-action-sidebar-scroll="">
       <div data-app-action-sidebar-section="" data-app-action-sidebar-section-collapsed="true" data-app-action-sidebar-section-heading="已置顶">
@@ -225,14 +225,54 @@ try {
   const $ = (selector) => `card.querySelector(${JSON.stringify(selector)})`;
   const task = (key) => `card.querySelector('.task[data-id="' + ids.${key} + '"]')`;
   const marked = (key) => `document.querySelector('[data-app-action-sidebar-thread-id="local:' + ids.${key} + '"]')?.getAttribute('data-codex-companion-task')`;
+  // 按浏览器实际配色合成透明背景，验证文字和撤销按钮可读，避免 currentColor 导致同色。
+  const toastContrast = () => evaluate(`(() => {
+    const toast = ${$(".toast")};
+    const paint = document.createElement('canvas').getContext('2d', { willReadFrequently: true });
+    paint.canvas.width = paint.canvas.height = 1;
+    const luminance = (colors) => {
+      paint.clearRect(0, 0, 1, 1);
+      for (const color of colors) { paint.fillStyle = color; paint.fillRect(0, 0, 1, 1); }
+      return [...paint.getImageData(0, 0, 1, 1).data].slice(0, 3).map((value) => {
+        const srgb = value / 255;
+        return srgb <= .04045 ? srgb / 12.92 : ((srgb + .055) / 1.055) ** 2.4;
+      }).reduce((sum, value, index) => sum + value * [.2126, .7152, .0722][index], 0);
+    };
+    const layers = [getComputedStyle(card.host).backgroundColor, getComputedStyle(toast).backgroundColor];
+    const background = luminance(layers);
+    return [...toast.children].map((node) => {
+      const foreground = luminance([...layers, getComputedStyle(node).color]);
+      return (Math.max(foreground, background) + .05) / (Math.min(foreground, background) + .05);
+    });
+  })()`);
 
   await waitFor(`${$(".add b")}.textContent === '接入任务看板' && !${$(".add")}.hidden`, "当前会话标题");
   assert.equal(await evaluate(`${$(".empty")}.hidden`), false, "空看板提示");
+  const emptyHeight = await evaluate(`card.host.getBoundingClientRect().height`);
   await screenshot("task-board-0-empty.png");
   await evaluate(`${$(".add")}.click()`);
   await waitFor(`${task("a3")} && ${$(".add")}.hidden`, "加入看板");
   assert.equal(await evaluate(marked("a3")), "0", "侧栏条目同色标记");
   assert.deepEqual(await evaluate(`threads.current()`), { id: await evaluate(`ids.a3`), title: "接入任务看板", projectId: "/Users/me/projects/codex-companion" });
+
+  // 移出最后一项：提示仍可读、可以撤销，超时后收起且不留下空白条。
+  await evaluate(`${task("a3")}.querySelector('[data-action=done]').click()`);
+  await waitFor(`!${task("a3")} && !${$(".toast")}.hidden && !${$(".empty")}.hidden`, "移出最后一项后显示撤销提示");
+  assert.equal(await evaluate(`${$(".toast span")}.textContent`), "已完成「接入任务看板」");
+  for (const theme of ["light", "dark"]) {
+    await evaluate(`document.documentElement.dataset.theme = ${JSON.stringify(theme)}`);
+    await screenshot(`task-board-undo-${theme}.png`);
+    const contrast = await toastContrast();
+    assert.ok(contrast.every((ratio) => ratio >= 4.5), `${theme} 完成提示与撤销按钮应清晰可读，实际对比度 ${contrast}`);
+  }
+  await evaluate(`delete document.documentElement.dataset.theme; ${$(".toast button")}.click()`);
+  await waitFor(`${task("a3")} && ${$(".toast")}.hidden && ${marked("a3")} === '0'`, "撤销后恢复最后一项并收起提示");
+  await evaluate(`${task("a3")}.querySelector('[data-action=done]').click()`);
+  await waitFor(`!${task("a3")} && !${$(".toast")}.hidden`, "再次移出最后一项");
+  await waitFor(`${$(".toast")}.hidden`, "完成提示到期自动收起", 8000);
+  assert.equal(await evaluate(`card.host.getBoundingClientRect().height`), emptyHeight, "提示到期后恢复空看板高度");
+  await evaluate(`${$(".add")}.click()`);
+  await waitFor(`${task("a3")} && ${$(".add")}.hidden`, "重新加入看板");
 
   // React 重绘替换节点后，标记在下一帧补回。
   await evaluate(`(() => { const old = document.querySelector('[data-app-action-sidebar-thread-id="local:' + ids.a3 + '"]'); const fresh = old.cloneNode(true); fresh.removeAttribute('data-codex-companion-task'); old.replaceWith(fresh); })()`);

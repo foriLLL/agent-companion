@@ -2,19 +2,14 @@ import { randomBytes } from "node:crypto";
 import { chmod, lstat, readFile, realpath, rename, stat, unlink, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { defaultCodexHome } from "./codex-sessions.mjs";
+import { PLAN_HINT_START, PLAN_HINT_END, PLAN_HINT_BODY } from "./codex-plan-hint-text.mjs";
 
-// 「长任务先列计划」：在 Codex 全局指令文件里维护一段带标记的提示，让 Codex 用自带的 update_plan
+export { PLAN_HINT_START, PLAN_HINT_END, PLAN_HINT_BODY } from "./codex-plan-hint-text.mjs";
+
+// 「长任务先列计划」：在 Codex 全局指令文件里维护一段带标记的提示，让 Codex 用工具或专用进度消息
 // 拆步骤、同步进度，任务看板据此显示计划。只增删标记之间的内容，文件里其它文字原样保留；
 // 关闭开关或卸载 Companion 时删除。Codex 只在新会话开始时读取这个文件。
 
-export const PLAN_HINT_START = "<!-- codex-companion:plan-hint 由 Codex Companion 维护，在 Companion 设置里关闭即可删除 -->";
-export const PLAN_HINT_END = "<!-- /codex-companion:plan-hint -->";
-export const PLAN_HINT_BODY = [
-  "## 任务计划",
-  "- 预计要 3 步以上或超过 5 分钟的任务，动手前先用 update_plan 列出步骤：每步一句话，按执行顺序排列。",
-  "- 每完成一步立即用 update_plan 更新状态，同一时间只有一个 in_progress；计划有变就随时修改。",
-  "- 简单问答、一两步就能完成的任务不用列计划。"
-].join("\n");
 // 连同前面的空行一起匹配；标记行的说明文字以后可能改，只认固定前缀。
 const BLOCK = /\n*<!-- codex-companion:plan-hint\b[^\n]*-->\n[\s\S]*?<!-- \/codex-companion:plan-hint -->\n?/;
 const FILE_LIMIT = 1024 * 1024;

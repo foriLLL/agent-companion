@@ -319,6 +319,7 @@ export function createTraceView({ rpc, effects, signal, threads, element, fail, 
       const finished = done === plan.steps.length;
       const lastEnd = Math.max(...plan.steps.map((step) => step.end ?? -Infinity));
       const head = element("div", "plan-head");
+      if (plan.source === "message") head.title = "来源：助手结构化进度消息；状态由模型报告，不代表验证通过";
       const elapsed = element("span", "plan-elapsed", `${finished ? "共" : "已"}用 ${seconds((finished ? lastEnd : stopAt) - plan.createdAt)}`);
       head.append(element("b", "", "计划"), element("span", "", finished ? `${done} 步全部完成` : `第 ${Math.min(done + 1, plan.steps.length)}/${plan.steps.length} 步`), elapsed);
       if (running && !finished) live.push({ kind: "since", node: elapsed, start: plan.createdAt, prefix: "已用 " });

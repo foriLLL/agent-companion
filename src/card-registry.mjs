@@ -2,7 +2,7 @@
 // 静态元数据，供 Node 与 bundle 直接 import；运行时不读文件系统。
 import { validateCatalog } from "./platform/registry/manifest.mjs";
 
-export const CARD_REGISTRY_HASH = "55d38fa8afc9e2f70f02417e0f84f1ddd9a429776f32e23e979e60cf722abb97";
+export const CARD_REGISTRY_HASH = "339135ac32a3c64e80cb9194fccd3e6e27393c034a31f7a976d1cf8029ed2496";
 
 export const CARD_MANIFESTS = validateCatalog([
   {
@@ -74,6 +74,29 @@ export const CARD_MANIFESTS = validateCatalog([
     },
     "capabilities": [
       "storage"
+    ]
+  },
+  {
+    "id": "chrono-divide",
+    "title": "红警 2 · Chrono Divide",
+    "version": 1,
+    "defaultEnabled": false,
+    "defaultOrder": 15,
+    "layout": {
+      "height": "content",
+      "minHeight": 0,
+      "scroll": "outer"
+    },
+    "lifecycle": {
+      "hidden": "retain",
+      "start": "first-visible"
+    },
+    "state": {
+      "scope": "target",
+      "version": 1
+    },
+    "capabilities": [
+      "rpc"
     ]
   },
   {

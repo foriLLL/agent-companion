@@ -1,4 +1,5 @@
 import { completeCardOrder } from "../../platform/config/runtime-config.mjs";
+import { PLAN_HINT_BODY } from "../../codex-plan-hint-text.mjs";
 
 // agent 拒绝重启时返回机器原因码，这里只展示对用户有意义的说明。
 const RESTART_REFUSALS = {
@@ -35,6 +36,7 @@ export function createSettingsPanel({ document: doc, call, onClose = () => {}, p
   let busy = false;
   let destroyed = false;
   let confirming = false;
+  let planHintConfirming = false;
   // Linux 由应用菜单入口加载卡片，不能自动重开或重启 Codex。
   let menuReopen = false;
   let busyFocus = null;
@@ -163,8 +165,8 @@ export function createSettingsPanel({ document: doc, call, onClose = () => {}, p
     .cc-settings button:hover:not(:disabled) { background:var(--hover); }
     .cc-settings button.cc-ghost { width:28px;padding:0;border-color:transparent;background:transparent;color:var(--fg3); }
     .cc-settings button.cc-ghost:hover:not(:disabled) { color:var(--fg); }
-    .cc-settings button.cc-primary { border-color:transparent;background:var(--fg);color:var(--surface); }
-    .cc-settings button.cc-primary:hover:not(:disabled) { background:var(--fg);opacity:.86; }
+    .cc-settings button.cc-primary { border-color:transparent;background:var(--cc-card-fg,var(--color-token-text-primary,CanvasText));color:var(--surface); }
+    .cc-settings button.cc-primary:hover:not(:disabled) { background:var(--cc-card-fg,var(--color-token-text-primary,CanvasText));opacity:.86; }
     .cc-settings button.cc-handle { width:28px;height:40px;padding:0;border:0;background:transparent;color:var(--fg3); }
     .cc-settings button.cc-handle:hover:not(:disabled) { background:transparent;color:var(--fg2); }
     .cc-settings :disabled { opacity:.5;cursor:default; }
@@ -183,6 +185,11 @@ export function createSettingsPanel({ document: doc, call, onClose = () => {}, p
       background:color-mix(in srgb,#f5a623 10%,transparent);border:1px solid color-mix(in srgb,#f5a623 30%,transparent); }
     .cc-settings-confirm p { color:var(--fg); }
     .cc-settings-confirm .cc-settings-actions { padding:8px 0 0; }
+    .cc-plan-hint-confirm p + p { margin-top:8px; }
+    .cc-plan-hint-confirm details { margin-top:8px; }
+    .cc-plan-hint-confirm summary { cursor:pointer;font-size:12px; }
+    .cc-plan-hint-confirm pre { margin:8px 0 0;padding:10px;border-radius:8px;background:var(--surface);
+      white-space:pre-wrap;overflow-wrap:anywhere;font:11px/1.6 ui-monospace,SFMono-Regular,Consolas,monospace; }
     .cc-status { display:flex;align-items:center;gap:8px;padding:8px 8px 8px 12px;min-height:40px; }
     .cc-status p { flex:1;color:var(--fg);font-size:13px; }
     .cc-status p::before { content:"";display:inline-block;width:7px;height:7px;margin:0 8px 1px 0;border-radius:50%;
@@ -229,6 +236,29 @@ export function createSettingsPanel({ document: doc, call, onClose = () => {}, p
   const planHintHint = node("small");
   const planHint = checkbox(tasksSection, "长任务先列计划", "tasks-plan-hint",
     value => ({ cards: { tasks: { settings: { planHint: value } } } }), planHintHint, tasksOff);
+  const planHintConfirmation = node("div", null, "cc-settings-confirm cc-plan-hint-confirm");
+  planHintConfirmation.hidden = true;
+  planHintConfirmation.setAttribute("role", "group");
+  planHintConfirmation.setAttribute("aria-label", "确认修改 Codex 全局指令");
+  const planHintTitle = node("p");
+  planHintTitle.append(node("strong", "开启将修改 Codex 全局指令"));
+  const planHintPreview = node("details");
+  planHintPreview.append(node("summary", "查看将追加的完整规则"), node("pre", PLAN_HINT_BODY));
+  const confirmPlanHint = control(button("同意修改并开启", () => {
+    if (!planHintConfirming || busy || !config || destroyed || tasksOff() || element.hidden) return;
+    planHint.focus({ preventScroll: true });
+    cancelPlanHintConfirmation(false);
+    void save({ cards: { tasks: { settings: { planHint: true } } } }, { planHintConfirmed: true });
+  }, null, "cc-primary"), tasksOff);
+  const cancelPlanHint = control(button("暂不开启", () => cancelPlanHintConfirmation()));
+  const planHintActions = node("div", null, "cc-settings-actions");
+  planHintActions.append(cancelPlanHint, confirmPlanHint);
+  planHintConfirmation.append(planHintTitle,
+    node("p", "将向 Codex 的全局 AGENTS.md 追加计划规则；若 AGENTS.override.md 非空，则写入它。这段规则会进入模型上下文，影响所有新会话，而不只是看板中的任务。"),
+    node("p", "用途：要求长任务先列计划并同步步骤状态；有 update_plan 时用工具，没有时通过专用进度消息报告，供看板显示进度。不会改写你的输入消息，也不保证任务完成正确。"),
+    node("p", "关闭后只删除这段规则，保留原有指令；已加载规则的会话不会自动撤回。"),
+    planHintPreview, planHintActions);
+  tasksSection.append(planHintConfirmation);
   const switcherHint = node("small");
   const switcher = checkbox(tasksSection, "Option+Tab 切换看板会话", "tasks-switcher",
     value => ({ cards: { tasks: { settings: { switcher: value } } } }), switcherHint, tasksOff);
@@ -271,6 +301,7 @@ export function createSettingsPanel({ document: doc, call, onClose = () => {}, p
   });
   const restartButton = control(button("立即重启 Codex", () => {
     if (busy || !config || destroyed) return;
+    cancelPlanHintConfirmation(false);
     if (menuReopen) {
       showMessage("请退出 ChatGPT 后从应用菜单重新打开，新的代理设置即可生效");
       return;
@@ -398,6 +429,7 @@ export function createSettingsPanel({ document: doc, call, onClose = () => {}, p
     }
   }
   function renderConfig(resetPort = true) {
+    cancelPlanHintConfirmation(false);
     enabled.checked = config.enabled;
     if (config.enabled) cardList.removeAttribute("data-off");
     else cardList.setAttribute("data-off", "");
@@ -405,7 +437,7 @@ export function createSettingsPanel({ document: doc, call, onClose = () => {}, p
     proxyEnabled.checked = config.launch?.proxy?.enabled ?? false;
     tasksSection.parentElement.hidden = !catalog.some(card => card.id === "tasks");
     planHint.checked = config.cards?.tasks?.settings?.planHint === true;
-    planHintHint.textContent = tasksOff() ? "需先启用任务看板" : "在 Codex 的 AGENTS.md 加一段提示，让它拆步骤并同步进度，看板据此显示计划；对新会话生效，关闭即删除";
+    planHintHint.textContent = tasksOff() ? "需先启用任务看板" : "会修改 Codex 全局 AGENTS.md，影响所有新会话；仅用于列计划和同步进度。开启前需确认，关闭删除规则";
     switcher.checked = config.cards?.tasks?.settings?.switcher !== false;
     switcherHint.textContent = tasksOff() ? "需先启用任务看板" : "按住 Option 连按 Tab 选择，松开即切换";
     autoRelaunch.checked = config.agent?.autoRelaunch ?? true;
@@ -535,8 +567,23 @@ export function createSettingsPanel({ document: doc, call, onClose = () => {}, p
       }
     } finally { if (!destroyed) setBusy(false); }
   }
-  async function save(patch) {
+  async function save(patch, { planHintConfirmed = false } = {}) {
     if (busy || !config || destroyed) return;
+    const enablingPlanHint = patch.cards?.tasks?.settings?.planHint === true && config.cards?.tasks?.settings?.planHint !== true;
+    if (enablingPlanHint && (tasksOff() || element.hidden)) {
+      renderConfig(false);
+      return;
+    }
+    if (enablingPlanHint && !planHintConfirmed) {
+      cancelConfirmation();
+      planHint.checked = false;
+      planHintConfirming = true;
+      planHintPreview.open = false;
+      planHintConfirmation.hidden = false;
+      cancelPlanHint.focus();
+      return;
+    }
+    cancelPlanHintConfirmation(false);
     setBusy(true);
     showMessage("正在保存…");
     try {
@@ -558,6 +605,11 @@ export function createSettingsPanel({ document: doc, call, onClose = () => {}, p
         showMessage(errorMessage(error), true);
       }
     } finally { if (!destroyed) setBusy(false); }
+  }
+  function cancelPlanHintConfirmation(restoreFocus = true) {
+    planHintConfirming = false;
+    planHintConfirmation.hidden = true;
+    if (restoreFocus && !element.hidden && !destroyed) planHint.focus({ preventScroll: true });
   }
   function cancelConfirmation() {
     confirming = false;
@@ -584,6 +636,7 @@ export function createSettingsPanel({ document: doc, call, onClose = () => {}, p
   function close() {
     if (destroyed || element.hidden) return;
     element.hidden = true;
+    cancelPlanHintConfirmation(false);
     confirming = false;
     confirmation.hidden = true;
     onClose();
@@ -593,6 +646,7 @@ export function createSettingsPanel({ document: doc, call, onClose = () => {}, p
     event.preventDefault();
     event.stopPropagation();
     if (drag) endDrag(false);
+    else if (planHintConfirming && !busy) cancelPlanHintConfirmation();
     else if (confirming && !busy) cancelConfirmation();
     else close();
   });

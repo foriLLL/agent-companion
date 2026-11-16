@@ -1,0 +1,11 @@
+{
+  "id": "chrono-divide",
+  "title": "红警 2 · Chrono Divide",
+  "version": 1,
+  "defaultEnabled": false,
+  "defaultOrder": 15,
+  "layout": { "height": "content", "minHeight": 0, "scroll": "outer" },
+  "lifecycle": { "hidden": "retain", "start": "first-visible" },
+  "state": { "scope": "target", "version": 1 },
+  "capabilities": ["rpc"]
+}

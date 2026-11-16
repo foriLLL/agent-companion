@@ -1,7 +1,7 @@
 import { open, readdir, readFile, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
-import { applyPlanEvents, createPlanState, currentPlan, parsePlanEvents } from "./codex-plan.mjs";
+import { applyPlanEvents, createPlanState, currentPlan, parsePlanEvents, planFromMessage } from "./codex-plan.mjs";
 
 // 只读 Codex 本机会话数据：session_index.jsonl 里的会话名，以及 rollout 尾部的回合事件。
 // 为了在看板上显示「正在做什么」，会返回一行截短的进度：工具与命令首行、修改的文件名、
@@ -156,7 +156,10 @@ export function lastLifecycle(text, { inTurn = false } = {}) {
       const payload = record.payload ?? {};
       if (payload.type === "reasoning") activity = "思考中";
       else if (payload.type === "message" && payload.role === "assistant") {
-        note = firstLine((payload.content ?? []).map((part) => part?.text ?? "").join("\n")) ?? note;
+        const plan = planFromMessage(payload);
+        const progress = plan && (plan.steps.find(step => step.status === "in_progress")?.text
+          || `计划 ${plan.steps.filter(step => step.status === "completed").length}/${plan.steps.length} 步`);
+        note = (plan ? progress : firstLine((payload.content ?? []).map((part) => part?.text ?? "").join("\n"))) ?? note;
         activity = note ?? activity;
       } else if (payload.type === "function_call" || payload.type === "custom_tool_call") {
         if (/request_user_input_async/.test(payload.name ?? "")) asking.set(payload.call_id, questionTitle(payload.arguments));
@@ -294,10 +297,11 @@ export function parseTrace(text) {
     try { payload = JSON.parse(line).payload ?? {}; } catch { continue; }
     if (payload.type === "reasoning") modelSegment("think", at, "思考");
     else if (payload.type === "message" && payload.role === "assistant") {
-      const text = firstLine((payload.content ?? []).map((part) => part?.text ?? "").join("\n"));
+      const plan = planFromMessage(payload);
+      const text = plan ? "更新计划" : firstLine((payload.content ?? []).map((part) => part?.text ?? "").join("\n"));
       modelSegment("reply", at, text ?? "回复");
       // Codex 干活途中的进度说明（commentary）；没列计划时，Trace 用它们推断做过哪些阶段。
-      if (text && payload.phase !== "final_answer") turn.notes = [...turn.notes, { at, text }].slice(-MAX_TURN_NOTES);
+      if (text && !plan && payload.phase !== "final_answer") turn.notes = [...turn.notes, { at, text }].slice(-MAX_TURN_NOTES);
     } else if (payload.type === "function_call" || payload.type === "custom_tool_call") {
       const input = payload.arguments ?? payload.input;
       const label = describeTool(payload.name, input);

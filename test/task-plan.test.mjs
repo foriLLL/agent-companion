@@ -3,7 +3,8 @@ import test from "node:test";
 import { appendFile, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { applyPlanEvents, createPlanState, currentPlan, parseLiteral, parsePlanEvents, planSummary, plansFromItem } from "../src/codex-plan.mjs";
+import { applyPlanEvents, createPlanState, currentPlan, parseLiteral, parsePlanEvents, planSummary, plansFromItem, planFromMessage } from "../src/codex-plan.mjs";
+import { PLAN_HINT_BODY } from "../src/codex-plan-hint-text.mjs";
 import { PLAN_HINT_END, PLAN_HINT_START, createPlanHint, hasHint, withHint, withoutHint } from "../src/codex-plan-hint.mjs";
 import { CodexSessions, threadCreatedAt } from "../src/codex-sessions.mjs";
 import { createService } from "../src/cards/tasks/service.mjs";
@@ -28,6 +29,15 @@ const execPlan = (timestamp, steps, explanation) => item(timestamp, {
   type: "custom_tool_call", name: "exec", call_id: `c-${timestamp}`,
   input: `const u = await tools.update_plan({\n${explanation ? `  explanation: ${JSON.stringify(explanation)},\n` : ""}  plan: [\n${steps.map(([step, status]) => `    { step: ${JSON.stringify(step)}, status: "${status}" },`).join("\n")}\n  ]\n}); text(u);\n`
 });
+const messagePayload = (plan, extra = {}) => ({
+  type: "message", role: "assistant", phase: "commentary",
+  content: [{ type: "output_text", text: `\`\`\`companion-plan\n${JSON.stringify(plan)}\n\`\`\`` }], ...extra
+});
+const messagePlan = (timestamp, steps, explanation, { before = "", after = "" } = {}) => {
+  const payload = messagePayload({ plan: steps.map(([step, status]) => ({ step, status })), ...(explanation ? { explanation } : {}) });
+  payload.content[0].text = `${before}${payload.content[0].text}${after}`;
+  return item(timestamp, payload);
+};
 
 async function writeRollout(codexHome, id, lines) {
   const created = new Date(threadCreatedAt(id));
@@ -60,6 +70,141 @@ test("计划快照：exec 代码与 JSON function_call 两种写法；补丁和�
   assert.deepEqual(plansFromItem({ type: "custom_tool_call", name: "apply_patch", input: "+tools.update_plan({ plan: [{ step: 'x', status: 'pending' }] })" }), []);
   assert.deepEqual(plansFromItem({ type: "custom_tool_call", name: "exec", input: "await tools.update_plan(plan)" }), []);
   assert.deepEqual(plansFromItem({ type: "custom_tool_call", name: "exec", input: "await tools.update_plan({ plan: [] })" }), []);
+});
+
+test("无计划工具：独立的助手进度消息解析完整快照、分段文字与 CRLF", () => {
+  const input = { plan: [{ step: "检查  现状", status: "completed" }, { step: "验证", status: "in_progress" }], explanation: "检查已完成" };
+  const payload = messagePayload(input);
+  const expected = { explanation: "检查已完成", steps: [{ text: "检查 现状", status: "completed" }, { text: "验证", status: "in_progress" }] };
+  assert.deepEqual(planFromMessage(payload), expected);
+  assert.deepEqual(plansFromItem(payload), [{ ...expected, source: "message" }]);
+  const text = payload.content[0].text.replace(/\n/g, "\r\n");
+  assert.deepEqual(planFromMessage({ ...payload, phase: undefined, channel: "commentary", content: [
+    { type: "output_text", text: text.slice(0, 31) }, { type: "output_text", text: text.slice(31) }
+  ] }), expected);
+  const example = PLAN_HINT_BODY.match(/```companion-plan\n[\s\S]*?\n```/)[0];
+  assert.equal(planFromMessage({ ...payload, content: [{ type: "output_text", text: example }] }).steps.length, 3, "实际提示词示例必须符合解析格式");
+});
+
+test("实际验收输出：计划块前后附带进度说明仍解析，分段消息与 CRLF 一致", () => {
+  const payload = messagePayload({ plan: [{ step: "找到设置开关及配置保存入口", status: "in_progress" }, { step: "验证结果", status: "pending" }] });
+  const expected = planFromMessage(payload);
+  const text = payload.content[0].text;
+  for (const described of [
+    `当前会话没有 \`update_plan\` 工具，因此改用 \`companion-plan\` 快照维持同一份计划。\n\n${text}\n\n先定位相关的开关与配置实现。\n\n`,
+    `${text}\n\n正在检查配置项定义、设置面板开关与 AGENTS.md 写入逻辑。\n\n\n\n`,
+    `检查开始。\n${text}\n检查继续。`
+  ]) {
+    assert.deepEqual(planFromMessage({ ...payload, content: [{ type: "output_text", text: described }] }), expected);
+    const windows = described.replace(/\n/g, "\r\n");
+    assert.deepEqual(planFromMessage({ ...payload, content: [
+      { type: "output_text", text: windows.slice(0, 29) }, { type: "output_text", text: windows.slice(29) }
+    ] }), expected);
+  }
+});
+
+test("专用计划消息拒绝用户、最终回复、引用与嵌套示例、普通文本和工具输出", () => {
+  const payload = messagePayload({ plan: [{ step: "检查", status: "in_progress" }] });
+  const text = payload.content[0].text;
+  for (const extra of [
+    { role: "user" }, { phase: "final_answer" }, { phase: undefined },
+    { phase: "final_answer", channel: "commentary" },
+    { phase: "final_answer", content: [{ type: "output_text", text: `示例如下：\n${text}\n这是示例` }] },
+    { content: [{ type: "output_text", text: `> ${text}` }] },
+    { content: [{ type: "output_text", text: text.split("\n").map(line => `> ${line}`).join("\n") }] },
+    { content: [{ type: "output_text", text: `\`\`\`\`markdown\n${text}\n\`\`\`\`` }] },
+    { content: [{ type: "output_text", text: `~~~markdown\n${text}\n~~~` }] },
+    { content: [{ type: "output_text", text: text.split("\n").map(line => `    ${line}`).join("\n") }] },
+    { content: [{ type: "output_text", text: "当前进度 2/5，下一步验证" }] },
+    { content: [{ type: "input_text", text }] },
+    { content: [{ type: "output_text", text: text.replace("companion-plan", "json") }] },
+    { content: [{ type: "output_text", text: `${text}\n${text}` }] }
+  ]) assert.equal(planFromMessage({ ...payload, ...extra }), null);
+  for (const type of ["function_call_output", "custom_tool_call_output"]) {
+    const record = item("2026-10-28T10:00:10Z", { type, output: text, call_id: "fixture" });
+    assert.deepEqual(parsePlanEvents(record), []);
+  }
+  assert.deepEqual(parsePlanEvents(event("2026-10-28T10:00:10Z", "agent_message", { message: text })), [], "不重复解析 event_msg 副本");
+});
+
+test("只解析一个完整的顶层计划块，不误认普通代码块内部的标记或缺失闭合的快照", () => {
+  const payload = messagePayload({ plan: [{ step: "验证", status: "in_progress" }] });
+  const text = payload.content[0].text;
+  const expected = planFromMessage(payload);
+  assert.deepEqual(planFromMessage({ ...payload, content: [{ type: "output_text", text: `\`\`\`\`markdown\n${text}\n\`\`\`\`\n当前计划：\n${text}` }] }), expected);
+  assert.deepEqual(planFromMessage({ ...payload, content: [{ type: "output_text", text: text.replace(/```/g, "~~~~") }] }), expected);
+  for (const invalid of [text.slice(0, -3), `${text}\n\n${text.slice(0, -3)}`, text.replace(/\n```$/, "\n~~~"), text.replace(/\n```$/, "\n``")]) {
+    assert.equal(planFromMessage({ ...payload, content: [{ type: "output_text", text: invalid }] }), null);
+  }
+});
+
+test("专用计划快照严格校验状态、完整步骤和大小，不静默截断或猜状态", () => {
+  const valid = { step: "检查", status: "pending" };
+  for (const input of [
+    null, [], {}, { plan: [] }, { plan: "检查" }, { plan: [valid], unknown: true },
+    { plan: [valid], explanation: 1 }, { plan: [valid], explanation: "x".repeat(301) },
+    { plan: [{ step: "检查", status: "done" }] }, { plan: [{ step: "检查" }] },
+    { plan: [{ status: "pending" }] }, { plan: [{ ...valid, extra: "x" }] },
+    { plan: [null] }, { plan: [{ ...valid, step: " " }] },
+    { plan: [{ ...valid, step: "x".repeat(201) }] },
+    { plan: [valid, { ...valid, step: " 检查 " }] },
+    { plan: [{ ...valid, status: "in_progress" }, { step: "验证", status: "in_progress" }] },
+    { plan: Array.from({ length: 51 }, (value, index) => ({ ...valid, step: `步骤 ${index}` })) }
+  ]) assert.equal(planFromMessage(messagePayload(input)), null, JSON.stringify(input));
+  const payload = messagePayload({ plan: [valid] });
+  assert.equal(planFromMessage({ ...payload, content: [{ type: "output_text", text: "x".repeat(33 * 1024) }] }), null);
+  assert.equal(planFromMessage({ ...payload, content: [{ type: "output_text", text: "```companion-plan\n{bad}\n```" }] }), null);
+});
+
+test("工具与进度消息共用状态机，切换通道保留步骤时间且来源跟随最新快照", () => {
+  const state = applyPlanEvents(createPlanState(), parsePlanEvents([
+    event("2026-10-28T10:00:00Z", "task_started"),
+    messagePlan("2026-10-28T10:00:10Z", [["检查", "in_progress"], ["验证", "pending"]]),
+    execPlan("2026-10-28T10:01:00Z", [["检查", "completed"], ["验证", "in_progress"]])
+  ].join("\n")));
+  assert.equal(currentPlan(state).source, undefined, "工具快照不沿用消息来源");
+  applyPlanEvents(state, parsePlanEvents(messagePlan("2026-10-28T10:02:00Z", [["检查", "completed"], ["验证", "completed"]])));
+  const plan = currentPlan(state);
+  assert.equal(plan.source, "message");
+  assert.equal(plan.steps[0].start, Date.parse("2026-10-28T10:00:10Z"));
+  assert.equal(plan.steps[1].start, Date.parse("2026-10-28T10:01:00Z"));
+  assert.equal(planSummary(plan).done, 2);
+  assert.equal(planSummary(plan).source, "message");
+  applyPlanEvents(state, parsePlanEvents(event("2026-10-28T10:03:00Z", "task_started")));
+  assert.equal(currentPlan(state), null, "上一回合完成的消息计划也应过期");
+});
+
+test("无计划工具的动态看板：带说明的 rollout 增量推送当前步骤、总规划与 Trace", async (t) => {
+  const dir = await withDir(t);
+  const codexHome = join(dir, "codex");
+  const path = await writeRollout(codexHome, ID, [
+    event("2026-10-28T10:00:00Z", "task_started"),
+    messagePlan("2026-10-28T10:00:10Z", [["检查", "in_progress"], ["验证", "pending"]], undefined, { before: "当前会话没有 update_plan，改用进度快照。\n\n", after: "\n\n先检查现状。" })
+  ]);
+  const sessions = new CodexSessions({ codexHome, now: () => Date.parse("2026-10-28T10:01:00Z") });
+  const service = createService({ taskBoard: new TaskBoardStorage({ path: join(dir, "board.json") }), codexSessions: sessions });
+  const first = await service.methods.add({ threadId: ID, title: "无工具计划" }, context);
+  assert.equal(first.tasks[0].plan.total, 2);
+  assert.equal(first.tasks[0].plan.done, 0);
+  assert.equal(first.tasks[0].plan.active, 0);
+  assert.equal(first.tasks[0].activity, "检查", "不把代码块标记显示为当前动作");
+  const next = messagePlan("2026-10-28T10:00:30Z", [["检查", "completed"], ["验证", "in_progress"]], undefined, { after: "\n\n正在验证结果。" });
+  await appendFile(path, next.slice(0, 50));
+  assert.equal((await sessions.plan(ID)).steps[0].status, "in_progress", "半行先不解析");
+  const watching = service.methods.watch({ since: first.sig, waitMs: 1000 }, context);
+  await appendFile(path, `${next.slice(50)}\n`);
+  const update = await watching;
+  assert.notEqual(update.sig, first.sig);
+  assert.deepEqual(update.tasks[0].plan, { total: 2, done: 1, active: 1, steps: [
+    { text: "检查", status: "completed" }, { text: "验证", status: "in_progress" }
+  ], source: "message" });
+  assert.equal(update.tasks[0].activity, "验证");
+  const trace = await service.methods.trace({ threadId: ID }, context);
+  assert.equal(trace.plan.source, "message");
+  assert.equal(trace.plan.steps[1].start, Date.parse("2026-10-28T10:00:30Z"));
+  assert.deepEqual(trace.turns.at(-1).notes, [], "结构化计划不混入普通文字进展列表");
+  await appendFile(path, `${messagePlan("2026-10-28T10:00:45Z", [["检查", "completed"], ["验证", "completed"]])}\n`);
+  assert.equal((await service.methods.list({}, context)).tasks[0].plan.done, 2);
 });
 
 test("步骤计时：进行中从首次标记算起，直接跳到完成的从前一步完成算起；改措辞按位置对上", () => {

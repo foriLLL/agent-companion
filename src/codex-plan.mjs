@@ -1,4 +1,4 @@
-// Codex 自带计划工具 update_plan 的解析。每次调用都是一份完整快照：步骤、各步状态和一句说明。
+// 计划工具 update_plan 与助手专用进度消息的解析。每次报告都是完整快照：步骤、状态和一句说明。
 // 现在的桌面端把它写在 exec 工具的 JS 代码里（tools.update_plan({...})），旧版本是参数为 JSON 的
 // function_call。这里把快照串起来，推算每一步什么时候开始、什么时候完成。只读，不落盘。
 
@@ -6,6 +6,7 @@ export const PLAN_STATUSES = Object.freeze(["pending", "in_progress", "completed
 const MAX_STEPS = 50;
 const TEXT_LIMIT = 200;
 const EXPLANATION_LIMIT = 300;
+const MESSAGE_LIMIT = 32 * 1024;
 const ESCAPES = { n: "\n", t: "\t", r: "\r", b: "\b", f: "\f", v: "\v", 0: "\0" };
 
 function clean(value, limit) {
@@ -128,9 +129,54 @@ export function normalizePlan(input) {
   return steps.length ? { explanation: clean(input.explanation, EXPLANATION_LIMIT), steps } : null;
 }
 
+export function planFromMessage(payload) {
+  if (payload?.type !== "message" || payload.role !== "assistant" || (payload.phase ?? payload.channel) !== "commentary") return null;
+  if (!Array.isArray(payload.content) || !payload.content.length || payload.content.some(part => part?.type !== "output_text" || typeof part.text !== "string")) return null;
+  let length = 0;
+  for (const part of payload.content) {
+    length += part.text.length;
+    if (length > MESSAGE_LIMIT) return null;
+  }
+  const text = payload.content.map(part => part.text).join("").replace(/\r\n/g, "\n");
+  const snapshots = [];
+  let fence = null;
+  for (const line of text.split("\n")) {
+    const boundary = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+    if (fence) {
+      if (boundary && boundary[1][0] === fence.delimiter[0] && boundary[1].length >= fence.delimiter.length && !boundary[2].trim()) {
+        if (fence.plan) snapshots.push(fence.lines.join("\n"));
+        fence = null;
+      } else if (fence.plan) fence.lines.push(line);
+    } else if (boundary) {
+      fence = { delimiter: boundary[1], plan: boundary[2].trim() === "companion-plan", lines: [] };
+    }
+  }
+  if (snapshots.length !== 1 || fence?.plan) return null;
+  let input;
+  try { input = JSON.parse(snapshots[0]); } catch { return null; }
+  if (!input || typeof input !== "object" || Array.isArray(input) || Object.keys(input).some(key => !["plan", "explanation"].includes(key))) return null;
+  if (input.explanation !== undefined && (typeof input.explanation !== "string" || input.explanation.length > EXPLANATION_LIMIT)) return null;
+  if (!Array.isArray(input.plan) || !input.plan.length || input.plan.length > MAX_STEPS) return null;
+  const texts = new Set();
+  let active = 0;
+  for (const step of input.plan) {
+    if (!step || typeof step !== "object" || Array.isArray(step) || Object.keys(step).some(key => !["step", "status"].includes(key))) return null;
+    if (typeof step.step !== "string" || step.step.length > TEXT_LIMIT || !PLAN_STATUSES.includes(step.status)) return null;
+    const name = clean(step.step, TEXT_LIMIT);
+    if (!name || texts.has(name)) return null;
+    texts.add(name);
+    if (step.status === "in_progress" && ++active > 1) return null;
+  }
+  return normalizePlan(input);
+}
+
 /** 一条 response_item 里的计划快照（同一次 exec 可能调用多次，按顺序返回）。 */
 export function plansFromItem(payload) {
   if (!payload || typeof payload !== "object") return [];
+  if (payload.type === "message") {
+    const plan = planFromMessage(payload);
+    return plan ? [{ ...plan, source: "message" }] : [];
+  }
   if (payload.type === "function_call" && payload.name === "update_plan") {
     try { return [normalizePlan(JSON.parse(payload.arguments))].filter(Boolean); } catch { return []; }
   }
@@ -155,7 +201,7 @@ export function parsePlanEvents(text) {
       if (Number.isFinite(at)) events.push({ type: "turn", at });
       continue;
     }
-    if (!line.includes("update_plan") || !line.includes("\"response_item\"")) continue;
+    if (!line.includes("\"response_item\"") || (!line.includes("update_plan") && !line.includes("companion-plan"))) continue;
     let record;
     try { record = JSON.parse(line); } catch { continue; }
     const at = Date.parse(record.timestamp);
@@ -204,7 +250,7 @@ export function applyPlanEvents(state, events) {
       if (end !== null) lastEnd = Math.max(lastEnd, end);
       return { text: step.text, status: step.status, start, end, inferred };
     });
-    state.plan = { createdAt, updatedAt: event.at, turn: state.turn, explanation: event.explanation, steps };
+    state.plan = { createdAt, updatedAt: event.at, turn: state.turn, explanation: event.explanation, steps, ...(event.source === "message" ? { source: "message" } : {}) };
   }
   return state;
 }
@@ -218,7 +264,7 @@ export function currentPlan(state) {
   if (!plan) return null;
   const unfinished = plan.steps.some((step) => step.status !== "completed");
   if (plan.turn !== state.turn && !(unfinished && plan.turn === state.turn - 1)) return null;
-  return { createdAt: plan.createdAt, updatedAt: plan.updatedAt, explanation: plan.explanation, steps: plan.steps.map((step) => ({ ...step })) };
+  return { createdAt: plan.createdAt, updatedAt: plan.updatedAt, explanation: plan.explanation, steps: plan.steps.map((step) => ({ ...step })), ...(plan.source === "message" ? { source: "message" } : {}) };
 }
 
 /** 看板条目用的计划摘要：总步数、完成数、进行中的那一步。 */
@@ -229,6 +275,7 @@ export function planSummary(plan) {
     total: plan.steps.length,
     done: plan.steps.filter((step) => step.status === "completed").length,
     active: active >= 0 ? active : null,
-    steps: plan.steps.map(({ text, status }) => ({ text, status }))
+    steps: plan.steps.map(({ text, status }) => ({ text, status })),
+    ...(plan.source === "message" ? { source: "message" } : {})
   };
 }

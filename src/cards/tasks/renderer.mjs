@@ -175,8 +175,9 @@ ${ROW_STYLE}
       outline:none;box-shadow:inset 0 0 0 1px color-mix(in srgb,currentColor 30%,transparent)}
     .empty{margin:6px 8px 6px;font-size:12.5px;line-height:1.55;color:var(--muted)}
     .note{margin:6px 8px 2px;font-size:12.5px;color:var(--danger)}
+    /* 反色提示的底色取宿主文字色；currentColor 会跟着本元素的反色文字一起变化，导致同色。 */
     .toast{display:flex;align-items:center;gap:10px;margin:8px 0 0;padding:7px 8px 7px 12px;border-radius:12px;font-size:12.5px;
-      background:color-mix(in srgb,currentColor 90%,transparent);color:var(--cc-card-bg,Canvas);box-shadow:0 6px 20px rgba(0,0,0,.14)}
+      background:color-mix(in srgb,var(--cc-card-fg,CanvasText) 90%,transparent);color:var(--cc-card-bg,Canvas);box-shadow:0 6px 20px rgba(0,0,0,.14)}
     .toast span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     .toast button{font-weight:600;padding:3px 8px;border-radius:7px}
     .toast button:hover{background:color-mix(in srgb,var(--cc-card-bg,Canvas) 18%,transparent)}
@@ -430,7 +431,7 @@ ${TRACE_STYLE}
       bar.append(cell);
     }
     strip.append(bar, element("span", "progress-count", `${plan.done}/${plan.total}`));
-    strip.title = [`计划 ${plan.done}/${plan.total} 步`, ...plan.steps.map((step, index) => `${STEP_MARK[step.status] ?? "○"} ${index + 1}. ${step.text}`)].join("\n");
+    strip.title = [`计划 ${plan.done}/${plan.total} 步${plan.source === "message" ? " · 助手进度消息" : ""}`, ...plan.steps.map((step, index) => `${STEP_MARK[step.status] ?? "○"} ${index + 1}. ${step.text}`)].join("\n");
     strip.setAttribute("role", "img");
     strip.setAttribute("aria-label", `计划进度：完成 ${plan.done} 步，共 ${plan.total} 步`);
     return strip;

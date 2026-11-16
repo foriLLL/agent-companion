@@ -510,18 +510,32 @@ export async function settingsLayout() {
   const shadow = host.attachShadow({ mode: "open" });
   document.body.append(host);
   const calls = [];
-  let config = { version: 2, revision: 0, enabled: true, cards: {}, order: ["long-title"], placement: "standalone-button", launch: { proxy: { enabled: false, port: 7890 } }, agent: { autoRelaunch: true } };
+  let config = { version: 2, revision: 0, enabled: true, cards: { tasks: { enabled: true, settings: {} } }, order: ["long-title", "tasks"], placement: "standalone-button", launch: { proxy: { enabled: false, port: 7890 } }, agent: { autoRelaunch: true } };
   const panel = createSettingsPanel({ document, call: async (method, params) => {
     calls.push({ method, params });
-    if (method === "companion.settings.get") return { config, catalog: [{ id: "long-title", title: "LongUnbrokenCardTitle".repeat(5), defaultEnabled: true, defaultOrder: 0 }] };
+    if (method === "companion.settings.get") return { config, catalog: [{ id: "long-title", title: "LongUnbrokenCardTitle".repeat(5), defaultEnabled: true, defaultOrder: 0 }, { id: "tasks", title: "任务看板", defaultEnabled: true, defaultOrder: 5 }] };
     if (method === "companion.agent.status") return { available: false };
     if (method === "companion.codex.restart") return { accepted: true };
-    config = { ...config, ...params.patch, revision: config.revision + 1 };
+    const tasksPatch = params.patch.cards?.tasks ?? {};
+    const tasks = { ...config.cards.tasks, ...tasksPatch, settings: { ...config.cards.tasks.settings, ...tasksPatch.settings } };
+    config = { ...config, ...params.patch, revision: config.revision + 1, cards: { ...config.cards, ...params.patch.cards, tasks } };
     return { config };
   } });
   shadow.append(panel.element);
   try {
     await panel.open();
+    const planHint = panel.element.querySelector('[data-setting="tasks-plan-hint"]');
+    const confirmation = panel.element.querySelector('[aria-label="确认修改 Codex 全局指令"]');
+    const buttonContrast = button => {
+      const style = getComputedStyle(button);
+      const luminance = color => color.match(/[\d.]+/g).slice(0, 3)
+        .map(value => Number(value) / 255)
+        .map(value => value <= .04045 ? value / 12.92 : ((value + .055) / 1.055) ** 2.4)
+        .reduce((total, value, index) => total + value * [.2126, .7152, .0722][index], 0);
+      const foreground = luminance(style.color);
+      const background = luminance(style.backgroundColor);
+      return (Math.max(foreground, background) + .05) / (Math.min(foreground, background) + .05);
+    };
     for (const [scheme, background, foreground] of [["light", "rgb(255, 255, 255)", "rgb(26, 28, 31)"], ["dark", "rgb(37, 37, 37)", "rgb(236, 236, 236)"]]) {
       host.style.colorScheme = scheme;
       host.style.setProperty("--cc-card-bg", background);
@@ -530,7 +544,31 @@ export async function settingsLayout() {
       equal(getComputedStyle(panel.element).color, foreground, `${scheme} 文字 token`);
       assert(panel.element.scrollWidth <= panel.element.clientWidth, `${scheme} 320px 设置页横向滚动`);
       for (const input of panel.element.querySelectorAll("input")) assert(input.labels?.length, "表单缺少可访问 label");
+      planHint.click();
+      assert(!confirmation.hidden && !planHint.checked, "确认前开关不能显示已开启");
+      equal(calls.filter(call => call.method.endsWith("patch")).length, 0, "确认前不能保存计划提示");
+      equal(shadow.activeElement.textContent, "暂不开启", "计划提示默认焦点应为取消");
+      const preview = confirmation.querySelector("details");
+      preview.querySelector("summary").click();
+      assert(preview.open && confirmation.querySelector("pre").textContent.includes("update_plan"), "实际规则预览不能展开");
+      assert(panel.element.scrollWidth <= panel.element.clientWidth, `${scheme} 规则预览导致横向滚动`);
+      assert(confirmation.scrollWidth <= confirmation.clientWidth, `${scheme} 确认提示内容溢出`);
+      assert(buttonContrast(confirmation.querySelector(".cc-primary")) >= 4.5, `${scheme} 确认按钮文字对比度不足`);
+      confirmation.querySelector("button").click();
+      assert(confirmation.hidden && shadow.activeElement === planHint, "取消未恢复开关焦点");
     }
+    planHint.click();
+    confirmation.querySelector(".cc-primary").click();
+    await tick();
+    assert(planHint.checked && confirmation.hidden && shadow.activeElement === planHint, "确认开启或焦点恢复失败");
+    equal(calls.filter(call => call.method.endsWith("patch")).length, 1, "确认开启只能保存一次");
+    planHint.click();
+    await tick();
+    assert(!planHint.checked && confirmation.hidden, "关闭不应再次要求确认");
+    planHint.click();
+    panel.element.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+    assert(confirmation.hidden && !panel.element.hidden, "Esc 应只取消计划提示确认");
+    equal(calls.filter(call => call.method.endsWith("patch")).length, 2, "再次开启未确认就保存");
     const buttons = [...panel.element.querySelectorAll("button")];
     buttons.find(button => button.textContent === "立即重启 Codex").click();
     equal(calls.filter(call => call.method.endsWith("restart")).length, 0, "显示确认前就发重启");
@@ -538,7 +576,7 @@ export async function settingsLayout() {
     buttons.find(button => button.textContent === "确认重启").click();
     await tick();
     equal(calls.filter(call => call.method.endsWith("restart")).length, 1, "确认后只发一次重启");
-    return { width: 320, themes: 2, overflow: false, labelledInputs: panel.element.querySelectorAll("input").length, confirmedRestart: true };
+    return { width: 320, themes: 2, overflow: false, labelledInputs: panel.element.querySelectorAll("input").length, confirmedRestart: true, confirmedPlanHint: true, exactRulePreview: true };
   } finally { panel.destroy(); host.remove(); }
 }
 
