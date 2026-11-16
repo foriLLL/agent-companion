@@ -34,7 +34,8 @@ systemd 用户服务常驻发现并注入；主进程 cmdline 被 Chromium setpr
 - `packaging/` — `install.sh`（macOS 与 Linux）与 macOS 启动器 (`mac-app/`)
 
 ## 常用命令
-- 以源码注册 agent：`npm start`（即 `agent install`）
+- 以源码注册 agent：`npm start`（即 `agent install`；`prestart` 先生成渲染器，再由
+  `scripts/prepare-source-install.mjs` 在 macOS 编译原生助手并检查 / 用 Homebrew 补装 FFmpeg）
 - 无感注入 agent：`node src/cli.mjs agent [--log-dir <dir>]`（常驻）、
   `agent install|uninstall|status|restart-codex`；原生助手 `node scripts/build-native.mjs`
 - 原生冒烟：`node scripts/smoke-native.mjs`（默认档不抢焦点；`--interactive` 会激活窗口）

@@ -39,17 +39,44 @@ Linux 版为预览：已验证安装、启动、连接、注入与 RPC，登录�
   （`/usr/lib/chatgpt/ChatGPT`，其它位置用 `CODEX_COMPANION_CODEX_EXECUTABLE` 指定）。
 - Linux 需要 systemd 用户服务（`systemctl --user`）；可选 `notify-send`（libnotify）用于
   提示重开，`secret-tool`（libsecret）用于保存 Emby Token，缺少时 Token 存到数据目录下 `0600` 的文件。
-- 使用发布版（macOS 的 `.app`、Linux 的单文件后端）不需要 Node.js；从源码运行需要 Node.js 22+ 与 npm
-  （依赖安装会提供固定版本的 Bun）。
-- 可选：系统 FFmpeg，用于本机重封装、转码与复杂字幕。项目不打包 FFmpeg，
-  只查找 `CODEX_COMPANION_FFMPEG`、`PATH` 与 Homebrew / MacPorts（Linux 另含 `/usr/bin`、snap、Linuxbrew）目录。
+- 从源码安装需要 git、Node.js 22+ 与 npm（依赖安装会提供固定版本的 Bun）；macOS 还需要
+  Xcode Command Line Tools（`xcode-select --install`），用来编译识别并重开 Codex 的原生助手。
+- FFmpeg：**红果短剧必须有它才能播放**；Emby 的 HEVC、EC-3、MKV、超高码率媒体和图形字幕也要用。
+  Emby HLS、常规 MP4 与其它卡片不需要。项目不打包 FFmpeg，只查找 `CODEX_COMPANION_FFMPEG`、`PATH`
+  与 Homebrew / MacPorts（Linux 另含 `/usr/bin`、snap、Linuxbrew）目录；安装方式见下一节。
 
 macOS 上的杜比视界 / HDR 本机播放需要 `brew install ffmpeg-full molten-vk`；
 P5/P8 使用 RPU 映射到 BT.709 SDR，HDR10/HLG 做色调映射，这不是原生 HDR 输出。
 
 ## 安装
 
-### 使用发布版（推荐）
+### 从源码安装
+
+目前还没有发布版，按下面的方式安装：
+
+```sh
+git clone https://github.com/foriLLL/codex_companion.git
+cd codex_companion
+npm ci
+npm start
+```
+
+`npm start` 一次做完这些事：
+
+1. 生成卡片渲染器；
+2. macOS 上编译原生助手（缺少 Command Line Tools 时会停下并提示先运行 `xcode-select --install`）；
+3. 检查 FFmpeg：macOS 上没有 FFmpeg 但有 Homebrew 时自动执行 `brew install ffmpeg`
+   （设置 `CODEX_COMPANION_SKIP_FFMPEG=1` 可跳过）；没有 Homebrew 或在 Linux 上只提示，需要自己安装：
+   macOS 先装 [Homebrew](https://brew.sh/) 再 `brew install ffmpeg`，Debian / Ubuntu 用
+   `sudo apt install ffmpeg`，Fedora 用 `sudo dnf install ffmpeg-free`。FFmpeg 可以之后再补装，不用重新安装 Companion；
+4. 以当前源码注册登录后自动启动的后台服务（macOS：launchd；Linux：systemd 用户服务并覆盖菜单入口）。
+
+装好后重新打开 Codex 即可看到卡片。后台服务直接运行当前 Node 与仓库源码：更新时在仓库里
+`git pull && npm ci && npm start`；更换 Node 版本或移动仓库后也要重新执行 `npm start`。
+
+### 使用发布版（尚未发布）
+
+仓库还没有 GitHub Release，下面的命令暂时不可用；发布后可以不装 Node.js 直接安装：
 
 ```sh
 curl -fsSL https://github.com/foriLLL/codex_companion/releases/latest/download/install.sh | bash
@@ -63,17 +90,6 @@ Linux 上先安装官方 ChatGPT 桌面版，再运行同一条命令。安装�
 按发布时写入脚本的 SHA256 校验后放到 `~/.local/share/codex-companion`，注册 systemd 用户服务
 并覆盖应用菜单里的 ChatGPT 入口，不需要 sudo。之后从应用菜单打开 ChatGPT 即可；安装时
 ChatGPT 若已开着，需要退出后从菜单重开一次。FFmpeg 需自行安装（如 `sudo apt install ffmpeg`）。
-
-### 从源码安装（开发者）
-
-```sh
-npm ci
-npm start        # 生成渲染器并以当前源码注册后台服务（macOS：launchd；Linux：systemd 用户服务）
-```
-
-开发安装的后台服务直接运行当前 Node 与仓库源码；更换 Node 版本或移动仓库后需重新执行。
-
-Linux 上 `npm start` 同样以源码注册 systemd 用户服务并覆盖菜单入口。
 
 ### Linux 安装写入的文件
 
@@ -131,7 +147,7 @@ npm run probe:emby -- --server https://emby.example.com --username alice --searc
 红果的公开目录与播放地址；SDK 以 wasm 形式随应用分发，不需要另外安装。SDK 用本机生成的
 匿名设备档案请求内容，不接受登录态。
 
-播放时后台把签名 URL 直接交给本机 FFmpeg（需要自行安装），以 `-decryption_key`
+播放时后台把签名 URL 直接交给本机 FFmpeg（没有 FFmpeg 就无法播放，安装见上文「安装」），以 `-decryption_key`
 解出受内容密钥保护的流，转成 H.264/AAC fMP4 后经有界 RPC 分片交给页面 MSE 播放；
 源编码是 HEVC 时统一转码，避免 Chromium 解码不稳定。也就是说，受保护的剧集是用 SDK 取得的
 内容密钥在本机解密后播放的，并非红果官方提供的播放方式；播放期间签名地址与内容密钥会出现在
@@ -249,9 +265,9 @@ Emby Token 只发往配置的 Emby origin，不进入 DOM、媒体 URL、FFmpeg 
 
 ## 卸载
 
-在 `Codex Companion.app` 中点击「卸载 Companion」再删除 App，或运行
-`bash install.sh --uninstall`（Linux 同样适用：停用服务、删除 Companion 生成的菜单入口与程序，
-系统原有入口随之恢复）；开发安装使用 `node src/cli.mjs agent uninstall`。
+从源码安装的，在仓库里运行 `node src/cli.mjs agent uninstall`（停用后台服务；Linux 同时删除 Companion
+生成的菜单入口，系统原有入口随之恢复），再删除仓库目录。发布版在 `Codex Companion.app` 中点击
+「卸载 Companion」再删除 App，或运行 `bash install.sh --uninstall`。
 
 如需同时清除配置与存档，手动删除上文的数据目录；Emby Token 位于「钥匙串访问」
 （service 为 `codex-companion.emby`）。删除不可恢复。

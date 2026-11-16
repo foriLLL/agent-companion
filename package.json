@@ -22,7 +22,7 @@
   "packageManager": "npm@11.6.0",
   "scripts": {
     "start": "node src/cli.mjs agent install",
-    "prestart": "npm run generate:renderer",
+    "prestart": "npm run generate:renderer && node scripts/prepare-source-install.mjs",
     "start:legacy": "node src/cli.mjs launch",
     "attach": "node src/cli.mjs attach",
     "inject": "node src/cli.mjs inject",
