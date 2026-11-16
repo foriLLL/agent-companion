@@ -138,16 +138,19 @@ export function lastLifecycle(text, { inTurn = false } = {}) {
   // 要等用户回答（send_user_message_question_reply 消息里带着 call_id）才算答完。
   // call_id → 问题标题，用作摘要。
   const asking = new Map();
+  // 还没回答的提问各自是什么时候问的（call_id → 毫秒）。回合中途提问时，「这次结果」的时间是提问时间，
+  // 不是回合开始时间，否则加入看板或看过会话之后的新提问永远算不上未读。
+  const askedAt = new Map();
   for (const line of text.split("\n")) {
     if (line.includes("\"response_item\"")) {
       sawItem = true;
       if (asking.size && line.includes("send_user_message_question_reply")) {
-        for (const callId of asking.keys()) if (line.includes(callId)) asking.delete(callId);
+        for (const callId of asking.keys()) if (line.includes(callId)) { asking.delete(callId); askedAt.delete(callId); }
       }
       // 工具输出可能很大，只抠 call_id，不整行解析。
       if (line.includes("_call_output\"")) {
         const callId = line.match(/"call_id":"([^"]+)"/)?.[1];
-        if (callId) pending.delete(callId);
+        if (callId && pending.delete(callId)) askedAt.delete(callId);
         activity = "思考中";
         continue;
       }
@@ -162,8 +165,10 @@ export function lastLifecycle(text, { inTurn = false } = {}) {
         note = (plan ? progress : firstLine((payload.content ?? []).map((part) => part?.text ?? "").join("\n"))) ?? note;
         activity = note ?? activity;
       } else if (payload.type === "function_call" || payload.type === "custom_tool_call") {
-        if (/request_user_input_async/.test(payload.name ?? "")) asking.set(payload.call_id, questionTitle(payload.arguments));
-        else if (/request_user_input/.test(payload.name ?? "")) pending.add(payload.call_id);
+        const asked = /request_user_input_async/.test(payload.name ?? "") ? "async" : /request_user_input/.test(payload.name ?? "") ? "sync" : null;
+        if (asked === "async") asking.set(payload.call_id, questionTitle(payload.arguments));
+        else if (asked === "sync") pending.add(payload.call_id);
+        if (asked) askedAt.set(payload.call_id, Date.parse(record.timestamp));
         activity = describeTool(payload.name, payload.arguments ?? payload.input);
       }
       continue;
@@ -174,7 +179,7 @@ export function lastLifecycle(text, { inTurn = false } = {}) {
     const payload = record?.payload;
     let status = record?.type === "event_msg" ? LIFECYCLE[payload?.type] : undefined;
     if (!status) continue;
-    if (status === "running") { pending.clear(); asking.clear(); activity = "思考中"; note = null; }
+    if (status === "running") { pending.clear(); asking.clear(); askedAt.clear(); activity = "思考中"; note = null; }
     if (status === "idle" && endsWithQuestion(payload.last_agent_message)) status = "asking";
     const at = Date.parse(record.timestamp);
     last = { status, at: Number.isFinite(at) ? at : null, summary: replySummary(payload.last_agent_message, status === "asking") };
@@ -188,6 +193,11 @@ export function lastLifecycle(text, { inTurn = false } = {}) {
     const waiting = pending.size + asking.size > 0;
     if (waiting) last.status = "asking";
     last.activity = waiting ? "在等你回答" : activity === "思考中" && note ? note : activity;
+  }
+  // 回合中途提问：结果时间取最近一次还没回答的提问（回合结束后才算 asking 的，回合结束时间本来就更晚）。
+  if (last?.status === "asking") {
+    const latest = Math.max(...[...askedAt.values()].filter(Number.isFinite));
+    if (Number.isFinite(latest) && !(last.at >= latest)) last.at = latest;
   }
   return last;
 }

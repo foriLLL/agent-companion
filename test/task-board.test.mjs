@@ -86,6 +86,25 @@ test("以问句收尾或有未回答的提问时为 asking", () => {
   assert.equal(lastLifecycle([call, accepted].join("\n"), { inTurn: true }).status, "asking");
 });
 
+test("回合中途提问：结果时间取提问时间，加入看板或看过之后的新提问才能算未读", () => {
+  const started = event("2026-10-28T10:00:00Z", "task_started");
+  const first = item("2026-10-28T10:02:00Z", { type: "function_call", name: "request_user_input", call_id: "s1" });
+  assert.deepEqual(pick(lastLifecycle([started, first].join("\n"))), { status: "asking", at: Date.parse("2026-10-28T10:02:00Z") });
+  // 答完继续干活：回到回合开始时间；再问一次：取第二次提问的时间。
+  const answer = item("2026-10-28T10:03:00Z", { type: "function_call_output", call_id: "s1", output: "A" });
+  assert.deepEqual(pick(lastLifecycle([started, first, answer].join("\n"))), { status: "running", at: Date.parse("2026-10-28T10:00:00Z") });
+  const second = item("2026-10-28T10:04:00Z", { type: "function_call", name: "request_user_input", call_id: "s2" });
+  assert.deepEqual(pick(lastLifecycle([started, first, answer, second].join("\n"))), { status: "asking", at: Date.parse("2026-10-28T10:04:00Z") });
+  // 异步提问后回合结束：回合结束时间更晚，照旧用它。
+  const call = item("2026-10-28T10:00:30Z", { type: "function_call", name: "request_user_input_async", call_id: "c1" });
+  const accepted = item("2026-10-28T10:00:31Z", { type: "function_call_output", call_id: "c1", output: "{\"accepted\":true}" });
+  const done = event("2026-10-28T10:00:40Z", "task_complete", { last_agent_message: "先看看这两个选项。" });
+  assert.deepEqual(pick(lastLifecycle([started, call, accepted].join("\n"))), { status: "asking", at: Date.parse("2026-10-28T10:00:30Z") });
+  assert.deepEqual(pick(lastLifecycle([started, call, accepted, done].join("\n"))), { status: "asking", at: Date.parse("2026-10-28T10:00:40Z") });
+  // 尾部窗口里看不到回合开始：仍以提问时间作为结果时间。
+  assert.deepEqual(pick(lastLifecycle([first].join("\n"), { inTurn: true })), { status: "asking", at: Date.parse("2026-10-28T10:02:00Z") });
+});
+
 test("按创建日期定位 rollout，并区分进行中、等你回复、中断与无响应", async (t) => {
   const codexHome = await withDir(t);
   let now = Date.now();
