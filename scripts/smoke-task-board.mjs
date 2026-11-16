@@ -100,7 +100,7 @@ try {
         <button class="project" data-app-action-sidebar-section-toggle="">已置顶</button></div>
       <div class="project" data-app-action-sidebar-project-row="" data-app-action-sidebar-project-id="/Users/me/projects/codex-companion" data-app-action-sidebar-project-label="codex-companion" data-app-action-sidebar-project-collapsed="false">codex-companion</div>
       <div data-app-action-sidebar-project-list-id="/Users/me/projects/codex-companion" data-app-action-sidebar-project-show-all="true">\${rowsA}</div>
-      <div class="project" id="project-b" data-app-action-sidebar-project-row="" data-app-action-sidebar-project-id="/Users/me/projects/ecam" data-app-action-sidebar-project-label="ecam" data-app-action-sidebar-project-collapsed="true">ecam</div>
+      <div class="project" id="project-b" data-app-action-sidebar-project-row="" data-app-action-sidebar-project-id="/Users/me/projects/docs-site" data-app-action-sidebar-project-label="docs-site" data-app-action-sidebar-project-collapsed="true">docs-site</div>
     </div></nav><main><header>接入任务看板</header><div class="msg"><p class="user">帮我给 Companion 加一个任务看板卡片</p><p>好的，先梳理现有卡片平台的接口……</p></div><textarea id="composer" placeholder="要求后续变更"></textarea></main><div id="companion"></div>\`;
     // 模拟 React：异步提交展开结果，点击条目即切换当前会话。
     globalThis.clicks = [];
@@ -121,13 +121,13 @@ try {
       const project = event.target.closest('#project-b[data-app-action-sidebar-project-collapsed=true]');
       if (project) setTimeout(() => {
         project.setAttribute('data-app-action-sidebar-project-collapsed', 'false');
-        project.insertAdjacentHTML('afterend', '<div data-app-action-sidebar-project-list-id="/Users/me/projects/ecam" data-app-action-sidebar-project-show-all="false">' + [101, 102, 103].map((n) => row(n, '对齐埋点口径 ' + n)).join('') + '<button class="toggle" data-app-action-sidebar-project-show-all-toggle="">显示全部</button></div>');
+        project.insertAdjacentHTML('afterend', '<div data-app-action-sidebar-project-list-id="/Users/me/projects/docs-site" data-app-action-sidebar-project-show-all="false">' + [101, 102, 103].map((n) => row(n, '整理发布说明 ' + n)).join('') + '<button class="toggle" data-app-action-sidebar-project-show-all-toggle="">显示全部</button></div>');
       }, 60);
       const showAll = event.target.closest('[data-app-action-sidebar-project-show-all-toggle]');
       if (showAll) setTimeout(() => {
         const list = showAll.parentElement;
         list.setAttribute('data-app-action-sidebar-project-show-all', 'true');
-        showAll.insertAdjacentHTML('beforebegin', [104, 105].map((n) => row(n, n === 105 ? '评审值班号二期前端' : '旧会话 ' + n)).join(''));
+        showAll.insertAdjacentHTML('beforebegin', [104, 105].map((n) => row(n, n === 105 ? '评审设置页二期前端' : '旧会话 ' + n)).join(''));
         showAll.remove();
       }, 60);
       const section = event.target.closest('[data-app-action-sidebar-section-collapsed=true]');
@@ -281,7 +281,7 @@ try {
   await evaluate(`seed([
     { threadId: ids.s1, title: '准备周五分享', projectId: null },
     { threadId: ids.a10, title: '升级 hls.js', projectId: '/Users/me/projects/codex-companion', seenAt: 1 },
-    { threadId: ids.bHidden, title: '评审值班号二期前端', projectId: '/Users/me/projects/ecam', seenAt: 1 },
+    { threadId: ids.bHidden, title: '评审设置页二期前端', projectId: '/Users/me/projects/docs-site', seenAt: 1 },
     { threadId: ids.a24, title: '发布 v0.2 检查清单', projectId: '/Users/me/projects/codex-companion' }
   ]); handle.visibilityChanged({ visible: true })`);
   await waitFor(`card.querySelectorAll('.task').length === 5`, "刷新出 5 个任务");

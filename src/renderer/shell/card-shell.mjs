@@ -4,7 +4,7 @@ import { createSettingsPanel } from "./settings-panel.mjs";
 export function createCardShell({ document: doc = document, hostId = "codex-companion-root" } = {}) {
   const host = doc.createElement("div");
   host.id = hostId;
-  host.setAttribute("aria-label", "播放器卡片");
+  host.setAttribute("aria-label", "Companion 卡片");
   host.style.cssText = "display:block;width:100%;min-width:0;flex:none;color-scheme:light dark;pointer-events:auto";
   const root = host.attachShadow({ mode: "open" });
   const style = doc.createElement("style");

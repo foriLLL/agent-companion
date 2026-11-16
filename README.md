@@ -130,11 +130,13 @@ npm run probe:emby -- --server https://emby.example.com --username alice --searc
 
 卡片通过 [openhongguo](https://github.com/beilunyang/openhongguo) 这个非官方 SDK 读取
 红果的公开目录与播放地址；SDK 以 wasm 形式随应用分发，不需要另外安装。SDK 用本机生成的
-匿名设备档案请求内容，不接受登录态，也不绕过 DRM。
+匿名设备档案请求内容，不接受登录态。
 
 播放时后台把签名 URL 直接交给本机 FFmpeg（需要自行安装），以 `-decryption_key`
 解出受内容密钥保护的流，转成 H.264/AAC fMP4 后经有界 RPC 分片交给页面 MSE 播放；
-源编码是 HEVC 时统一转码，避免 Chromium 解码不稳定。
+源编码是 HEVC 时统一转码，避免 Chromium 解码不稳定。也就是说，受保护的剧集是用 SDK 取得的
+内容密钥在本机解密后播放的，并非红果官方提供的播放方式；播放期间签名地址与内容密钥会出现在
+FFmpeg 的命令行参数里，本机同一用户的其他进程可以看到。
 
 搜索限定「剧集」分类并支持继续分页，缺失的封面由 SDK 批量详情补齐；多季作品的选集页可切换季。
 本集结束后立即自动播放下一集，不再显示 5 秒倒计时；最后一集保留重播入口。

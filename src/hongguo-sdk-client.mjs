@@ -102,8 +102,8 @@ function translateError(error, operation) {
   });
 }
 
-// 设备档案沿用 openhongguo 自己的默认路径（<配置目录>/openhongguo/anonymous.json），
-// 与 ohg CLI 共用同一台匿名设备，避免每次安装都重新注册。
+// 设备档案放在 Companion 自己的数据目录（hongguo/anonymous.json），后续请求复用同一台
+// 匿名设备，避免每次启动都重新注册；不与 ohg CLI 的默认档案共用。
 function defaultProfilePath() {
   return join(companionDataDir(), "hongguo", "anonymous.json");
 }
@@ -134,7 +134,7 @@ export class HongguoSdkClient {
         : this.profilePath;
       return createClient({
         profile,
-        // 默认 2 台：播放接口按设备概率性返回空结果，换设备能显著提高成功率。
+        // SDK 默认换 2 台，这里放宽到 3 台：播放接口按设备概率性返回空结果，换设备能显著提高成功率。
         deviceResets: 3,
         retryAttempts: 3
       });

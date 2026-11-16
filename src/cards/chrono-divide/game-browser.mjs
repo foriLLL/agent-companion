@@ -50,7 +50,9 @@ export async function launchGameBrowser({ proxy, profile = join(companionDataDir
       const message = buffer.slice(0, end);
       buffer = buffer.slice(end + 1);
       if (!message) continue;
-      const response = JSON.parse(message);
+      // 管道里出现无法解析的消息时丢弃这一条，不能让异常冒到事件循环把后台服务带崩。
+      let response;
+      try { response = JSON.parse(message); } catch { continue; }
       if (response.method === "Page.screencastFrame") frameListeners.get(response.sessionId)?.(response.params);
       const request = pending.get(response.id);
       if (!request) continue;

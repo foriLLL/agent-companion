@@ -69,7 +69,9 @@ systemd 用户服务常驻发现并注入；主进程 cmdline 被 Chromium setpr
   生成（`pretest` 自动执行），不要手改
 - **安全红线**：CDP 调试端口只绑 loopback + 随机端口，禁止改为
   0.0.0.0；Emby AccessToken 只存系统凭证库（`src/platform/secret-store.mjs`），
-  明文不得出现在命令行参数（macOS `security` 除外）；连接信息存数据目录下 `emby.json` (0600)
+  明文不得出现在命令行参数（macOS `security` 除外）；连接信息存数据目录下 `emby.json` (0600)。
+  红果播放是已知例外：签名播放地址与内容密钥只能作为 FFmpeg 参数（`-i`、`-decryption_key`）传入，
+  播放期间同一用户的进程可见；不要把这种做法扩展到其它凭证
 - 跨平台：平台分支函数接受 `platform` 参数，测试显式传入；macOS 专属能力（launchd、
   通过代理重启 Codex、`/bin/ps`、`defaults`）在其它平台返回「不支持」而非抛 ENOENT；
   文件权限断言用 `test/helpers/permissions.mjs` 的 `assertMode`

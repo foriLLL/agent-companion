@@ -20,3 +20,6 @@ emby-home.json
 # 本地笔记与交接文档（不随仓库发布）
 /notes/
 HANDOFF*.md
+
+# 本机 agent 工具的配置（含本机绝对路径）
+.claude/
