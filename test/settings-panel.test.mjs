@@ -645,3 +645,37 @@ test("runtime 的平台 RPC 独立于业务卡片，总开关关闭仍保留外�
   assert.equal(shell.host.isConnected, false);
   assert.equal(sent.some(item => item.method === "companion.lifecycle.dispose"), false);
 });
+
+test("播放提醒：两项各有关 / 提醒 / 暂停三档，缺省需要你时暂停、完成时提醒；只写卡片 settings，任务看板关闭时禁用", async () => {
+  const f = taskFixture({ settings: { keep: 1, alertDone: "bogus" } });
+  await f.panel.open();
+  const root = f.panel.element;
+  const radios = key => descendants(root).filter(item => item.dataset.setting === key);
+  const checked = key => radios(key).find(item => item.checked)?.value;
+  for (const key of ["tasks-alertAttention", "tasks-alertDone"]) {
+    assert.deepEqual(radios(key).map(item => [item.type, item.value]), [["radio", "off"], ["radio", "notify"], ["radio", "pause"]]);
+    assert.equal(radios(key)[0].parentNode.parentNode.getAttribute("role"), "radiogroup");
+  }
+  assert.equal(checked("tasks-alertAttention"), "pause", "没写过设置时需要你就暂停");
+  assert.equal(checked("tasks-alertDone"), "notify", "非法值回到缺省的只提醒");
+  assert.ok(root.textContent.includes("任务需要你时") && root.textContent.includes("提问、中断或长时间没有动静"));
+  change(radios("tasks-alertAttention").find(item => item.value === "notify"), true);
+  await turn();
+  assert.deepEqual(f.calls.at(-1).params, { expectedRevision: 4, patch: { cards: { tasks: { settings: { alertAttention: "notify" } } } } });
+  assert.equal(checked("tasks-alertAttention"), "notify");
+  change(radios("tasks-alertDone").find(item => item.value === "off"), true);
+  await turn();
+  assert.deepEqual(f.calls.at(-1).params.patch, { cards: { tasks: { settings: { alertDone: "off" } } } });
+  assert.equal(checked("tasks-alertDone"), "off");
+  const patches = f.calls.filter(item => item.method.endsWith("patch")).length;
+  const unchecked = radios("tasks-alertDone").find(item => item.value === "pause");
+  unchecked.checked = false;
+  unchecked.dispatchEvent(new Event("change"));
+  await turn();
+  assert.equal(f.calls.filter(item => item.method.endsWith("patch")).length, patches, "取消选中的那一项不保存");
+  change(bySetting(root, "card-tasks"), false);
+  await turn();
+  assert.ok([...radios("tasks-alertAttention"), ...radios("tasks-alertDone")].every(item => item.disabled), "任务看板关闭时不可用");
+  assert.ok(root.textContent.includes("需先启用任务看板"));
+  f.panel.destroy();
+});

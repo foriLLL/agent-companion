@@ -1,5 +1,6 @@
 import { TRACE_STYLE, createTraceView } from "./trace.mjs";
 import { createSwitcher, orderByRecent, touchRecent } from "./switcher.mjs";
+import { ALERT_TEXT, alertLevel, taskAlerts } from "./alerts.mjs";
 
 // 长轮询：服务端在会话记录变化时立即返回，没变化最多挂 20 秒；出错后隔一会儿再连。
 const WATCH_WAIT_MS = 20_000;
@@ -104,7 +105,8 @@ function ago(ms, now = Date.now()) {
 
 // 看板只列用户主动加入的会话；颜色与左侧会话条目呼应，点击后由平台定位、动画并打开。
 // macOS 上按住 Option 连按 Tab 在看板会话之间切换（settings.switcher 为 false 时关闭）。
-export function mount({ root, rpc, effects, signal, threads, isVisible, overlay, settings }) {
+// 卡片里有视频在播时，任务需要你或完成会经平台提醒层弹出提醒（settings.alertAttention / alertDone）。
+export function mount({ root, rpc, effects, signal, threads, isVisible, overlay, attention, settings }) {
   const doc = root.ownerDocument;
   root.innerHTML = `<style>
     :host{display:block;${TOKENS};
@@ -248,6 +250,12 @@ ${TRACE_STYLE}
   let recent = [];
   let switcherOn = settings?.switcher !== false;
   let switcher = null;
+  const levelsOf = (value) => ({ attention: alertLevel(value, "alertAttention"), done: alertLevel(value, "alertDone") });
+  let alertLevels = levelsOf(settings);
+  // 已发出、还没撤回的提醒：会话 id → 提醒时的状态。状态一变（例如在 Codex 里回答了）就撤回。
+  const alerted = new Map();
+  // 只在看板持续同步期间比较前后两次快照；断开后重连的第一次只作基线，不补发错过的旧变化。
+  let alertsArmed = false;
 
   function showNote(message) {
     note.textContent = message || "";
@@ -551,9 +559,33 @@ ${TRACE_STYLE}
     }
   }
 
+  // 播放提醒：平台只在有视频播放时显示，pause 档先暂停再提醒。
+  function raiseAlerts(previous, next) {
+    if (!attention) return;
+    for (const [id, status] of alerted) {
+      if (next.tasks.find((task) => task.threadId === id)?.status === status) continue;
+      alerted.delete(id);
+      attention.dismiss(id);
+    }
+    for (const { kind, task } of taskAlerts(previous, next)) {
+      const level = alertLevels[kind];
+      if (level === "off") continue;
+      const shown = attention.notify({
+        key: task.threadId, tone: kind, title: displayName(task), text: ALERT_TEXT[task.status] ?? statusLabel(task),
+        detail: typeof task.summary === "string" ? task.summary : "", color: colors[task.color] ?? "",
+        pause: level === "pause", sticky: kind === "attention",
+        action: { label: "去处理", run: () => { void reveal(task); } }
+      });
+      if (shown) alerted.set(task.threadId, task.status);
+    }
+  }
+
   function accept(next) {
     if (signal.aborted || !next) return;
+    const previous = alertsArmed ? board : null;
     board = next;
+    alertsArmed = watching !== null;
+    try { raiseAlerts(previous, next); } catch (error) { fail(error); }
     if (syncNote) {
       syncNote = false;
       showNote("");
@@ -586,7 +618,9 @@ ${TRACE_STYLE}
     void (async () => {
       while (!controller.signal.aborted && !signal.aborted) {
         try {
-          const since = board?.sig ?? null;
+          // 停过同步后的第一次请求不带 since，立即拿到当前看板作提醒基线（停止期间的旧变化不补发）；
+          // 之后服务端挂起到有变化才返回，返回的变化都发生在同步期间，可以提醒。
+          const since = alertsArmed ? board?.sig ?? null : null;
           const next = await rpc("watch", { since, waitMs: WATCH_WAIT_MS }, { signal: controller.signal, timeoutMs: WATCH_WAIT_MS + 15_000 });
           accept(next);
           // 服务端只在超时后才返回未变化的结果；万一立即返回，也歇一下再连，避免空转。
@@ -602,6 +636,14 @@ ${TRACE_STYLE}
   function stopWatch() {
     watching?.abort();
     watching = null;
+    alertsArmed = false;
+  }
+  // 卡片可见时同步；收起后只要还有视频在播（或提醒没处理完）也继续同步，好及时提醒。
+  const alertsOn = () => Boolean(attention) && (alertLevels.attention !== "off" || alertLevels.done !== "off");
+  const shouldWatch = () => isVisible() || (alertsOn() && (attention.isPlaying() || attention.pending() > 0));
+  function syncWatch() {
+    if (shouldWatch()) startWatch();
+    else stopWatch();
   }
 
   // 悬停在任务上一会儿，在看板左侧弹出这个会话的 Trace；鼠标移进浮层不关，离开后稍等再关。
@@ -731,16 +773,20 @@ ${TRACE_STYLE}
       pick: (task) => { closePeek(); void reveal(task); }
     });
   }
+  if (attention) attention.subscribe(() => { if (!signal.aborted) syncWatch(); });
   render();
   void refresh();
-  if (isVisible()) startWatch();
+  syncWatch();
   return {
     updateSettings(next) {
       switcherOn = next?.switcher !== false;
       if (!switcherOn) switcher?.cancel();
+      alertLevels = levelsOf(next);
+      syncWatch();
     },
     visibilityChanged({ visible }) {
-      if (visible) { void refresh(); startWatch(); } else stopWatch();
+      if (visible) void refresh();
+      syncWatch();
       if (!visible) closePeek();
       trace.visibilityChanged(visible);
     },

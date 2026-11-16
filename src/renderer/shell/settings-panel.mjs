@@ -1,5 +1,6 @@
 import { completeCardOrder } from "../../platform/config/runtime-config.mjs";
 import { PLAN_HINT_BODY } from "../../codex-plan-hint-text.mjs";
+import { alertLevel } from "../../cards/tasks/alerts.mjs";
 
 // agent 拒绝重启时返回机器原因码，这里只展示对用户有意义的说明。
 const RESTART_REFUSALS = {
@@ -88,6 +89,32 @@ export function createSettingsPanel({ document: doc, call, onClose = () => {}, p
     return input;
   }
 
+  // 几档单选，外观同「显示方式」的分段控件；原生 radio 保留键盘与表单语义。返回 值 → input。
+  function choice(parent, title, hint, key, options, patch, disabled) {
+    const row = node("div", null, "cc-settings-row");
+    const text = node("span", title);
+    if (hint) text.append(node("small", hint));
+    const group = node("div", null, "cc-seg cc-seg-inline");
+    group.setAttribute("role", "radiogroup");
+    group.setAttribute("aria-label", title);
+    const inputs = new Map();
+    for (const [value, label] of options) {
+      const wrap = node("label");
+      const input = control(node("input"), disabled);
+      input.type = "radio";
+      input.name = `companion-${key}`;
+      input.value = value;
+      input.dataset.setting = key;
+      wrap.append(input, node("span", label));
+      group.append(wrap);
+      inputs.set(value, input);
+      listen(input, "change", () => { if (input.checked) void save(patch(value)); });
+    }
+    row.append(text, group);
+    parent.append(row);
+    return inputs;
+  }
+
   const style = node("style");
   // 颜色优先取 Codex 设计变量（随宿主明暗切换），缺失时回退到 currentColor 混色。
   style.textContent = `
@@ -155,6 +182,9 @@ export function createSettingsPanel({ document: doc, call, onClose = () => {}, p
       box-shadow:var(--shadow-mode-toggle-selected,0 2px 4px -1px #00000014),0 0 0 .5px var(--line); }
     .cc-seg label:has(input:focus-visible) { outline:2px solid var(--focus);outline-offset:1px; }
     .cc-seg input { position:absolute;inset:0;margin:0;opacity:0;cursor:pointer; }
+    .cc-seg-inline { flex:none;grid-template-columns:repeat(3,auto); }
+    .cc-seg-inline label { min-height:24px;padding:2px 10px;font-size:12px; }
+    .cc-seg-inline label:has(input:disabled) { cursor:default;opacity:.5; }
     .cc-settings input[type="text"] { width:72px;height:28px;padding:0 8px;border:1px solid var(--color-token-input-border,var(--line2));
       border-radius:8px;color:inherit;background:transparent;font:inherit;text-align:center;font-variant-numeric:tabular-nums; }
     .cc-settings input[type="text"]:focus { outline:none;border-color:var(--focus);box-shadow:0 0 0 3px color-mix(in srgb,var(--focus) 22%,transparent); }
@@ -263,6 +293,14 @@ export function createSettingsPanel({ document: doc, call, onClose = () => {}, p
   const switcher = checkbox(tasksSection, "Option+Tab 切换看板会话", "tasks-switcher",
     value => ({ cards: { tasks: { settings: { switcher: value } } } }), switcherHint, tasksOff);
   switcher.parentNode.hidden = !mac;
+  // 播放提醒：卡片里有视频在播时，任务需要你或完成就弹出提醒；「暂停」先暂停播放再提醒。
+  const alertNote = node("p", "卡片里有视频在播时，任务状态变化会弹出提醒", "cc-settings-note");
+  tasksSection.append(alertNote);
+  const alertChoices = new Map();
+  for (const [key, title, hint] of [["alertAttention", "任务需要你时", "提问、中断或长时间没有动静"], ["alertDone", "任务完成时", "回复结束"]]) {
+    alertChoices.set(key, choice(tasksSection, title, hint, `tasks-${key}`, [["off", "关"], ["notify", "提醒"], ["pause", "暂停"]],
+      value => ({ cards: { tasks: { settings: { [key]: value } } } }), tasksOff));
+  }
   const proxySection = section("启动");
   const proxyEnabled = checkbox(proxySection, "通过代理启动", "proxy-enabled", value => ({ launch: { proxy: { enabled: value } } }));
   const portForm = node("form", null, "cc-settings-row");
@@ -440,6 +478,11 @@ export function createSettingsPanel({ document: doc, call, onClose = () => {}, p
     planHintHint.textContent = tasksOff() ? "需先启用任务看板" : "会修改 Codex 全局 AGENTS.md，影响所有新会话；仅用于列计划和同步进度。开启前需确认，关闭删除规则";
     switcher.checked = config.cards?.tasks?.settings?.switcher !== false;
     switcherHint.textContent = tasksOff() ? "需先启用任务看板" : "按住 Option 连按 Tab 选择，松开即切换";
+    alertNote.textContent = tasksOff() ? "需先启用任务看板" : "卡片里有视频在播时，任务状态变化会弹出提醒；「暂停」会先暂停播放";
+    for (const [key, inputs] of alertChoices) {
+      const level = alertLevel(config.cards?.tasks?.settings, key);
+      for (const [value, input] of inputs) input.checked = value === level;
+    }
     autoRelaunch.checked = config.agent?.autoRelaunch ?? true;
     if (resetPort) {
       portInput.value = String(config.launch?.proxy?.port ?? 7890);

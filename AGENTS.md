@@ -58,7 +58,10 @@ systemd 用户服务常驻发现并注入；主进程 cmdline 被 Chromium setpr
   `lifecycle`（`hidden`: `retain` | `suspend`，`start`: `immediate` | `first-visible`）、
   `state`（`scope`: `target` | `session` | `global`，`version`）、`capabilities`。
 - `capabilities` 只声明用到的：`storage`（本地存档）、`rpc`（调用本卡的后台服务）、
-  `threads`（Codex 侧栏会话列表）、`overlay`（卡片区之外的顶层浮层）。未声明的能力不会出现在 `ctx` 上。
+  `threads`（Codex 侧栏会话列表）、`overlay`（卡片区之外的顶层浮层）、`attention`（发提醒，可让平台暂停
+  卡片里正在播放的媒体；`ctx.attention.notify({ key, tone, title, text, detail, color, pause, action })`，
+  默认只在有媒体播放时显示）。未声明的能力不会出现在 `ctx` 上。播放类卡片不用声明任何能力：平台自动识别
+  卡片 ShadowRoot 里的 `<video>` / `<audio>`。
 - `renderer.mjs` 导出 `mount(ctx)`：只在 `ctx.root`（本卡的 ShadowRoot）里渲染，不碰宿主 DOM。
   `ctx` 提供 `manifest`、`settings`、`signal`、`storage`、`rpc`、`effects`、`reportError`、`isVisible()`、
   `requestOpen()`。事件、定时器、观察器和 Object URL 一律经 `ctx.effects`（`listen` / `timeout` / `interval` /

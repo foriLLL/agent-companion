@@ -60,11 +60,12 @@ try {
   };
 
   await evaluate(`(async () => {
-    const [{ createCodexThreads }, { mount }, { createEffects }, { createOverlayLayer }] = await Promise.all([
+    const [{ createCodexThreads }, { mount }, { createEffects }, { createOverlayLayer }, { createAttentionLayer }] = await Promise.all([
       import(${JSON.stringify(await moduleUrl("src/renderer/adapters/codex-threads.mjs"))}),
       import(${JSON.stringify(await moduleUrl("src/cards/tasks/renderer.mjs"))}),
       import(${JSON.stringify(await moduleUrl("src/renderer/platform/effects.mjs"))}),
-      import(${JSON.stringify(await moduleUrl("src/renderer/shell/overlay-layer.mjs"))})
+      import(${JSON.stringify(await moduleUrl("src/renderer/shell/overlay-layer.mjs"))}),
+      import(${JSON.stringify(await moduleUrl("src/renderer/shell/attention-layer.mjs"))})
     ]);
     const id = (n) => '01a18216-3b02-7db0-b394-' + String(n).padStart(12, '0');
     globalThis.ids = { a3: id(3), a10: id(10), a24: id(24), b1: id(101), bHidden: id(105), s1: id(201) };
@@ -141,7 +142,7 @@ try {
     // 内存版看板服务，语义与 src/cards/tasks/service.mjs 一致。
     globalThis.rpcCalls = [];
     let revision = 0, tasks = [];
-    const statusOf = { [ids.a24]: 'running', [ids.bHidden]: 'asking', [ids.s1]: 'interrupted' };
+    const statusOf = globalThis.statusOf = { [ids.a24]: 'running', [ids.bHidden]: 'asking', [ids.s1]: 'interrupted' };
     const ageOf = { [ids.a24]: 40e3, [ids.bHidden]: 2 * 3600e3, [ids.s1]: 3 * 86400e3, [ids.a10]: 25 * 60e3 };
     const started = Date.now();
     globalThis.activityOf = { [ids.a24]: '运行 npm test' };
@@ -156,7 +157,7 @@ try {
       const status = statusOf[task.threadId] ?? 'idle';
       return { ...task, name: task.customName ?? task.suggestedName ?? '未命名会话', status, updatedAt, turnAt: updatedAt, unread: status !== 'running' && updatedAt > task.seenAt,
         activity: status === 'running' ? activityOf[task.threadId] ?? '思考中' : null, summary: summaryOf[task.threadId] ?? null, plan: planOf[task.threadId] ?? null };
-    }), sig: String(revision) + ':' + JSON.stringify(activityOf) + JSON.stringify(planOf) });
+    }), sig: String(revision) + ':' + JSON.stringify(activityOf) + JSON.stringify(planOf) + JSON.stringify(statusOf) + tasks.map((task) => task.seenAt).join() });
     const pick = () => { const used = new Array(8).fill(0); for (const task of tasks) used[task.color] += 1; return used.indexOf(Math.min(...used)); };
     const methods = {
       list: () => view(),
@@ -219,7 +220,24 @@ try {
     globalThis.controller = new AbortController();
     const effects = createEffects({ signal: controller.signal, onError: (error) => errors.push(error.message) });
     const overlay = createOverlayLayer({ document, cardId: 'tasks', effects });
-    globalThis.handle = mount({ root: card, rpc, effects, signal: controller.signal, threads, overlay, settings: {}, isVisible: () => true });
+    // 播放提醒：另一张卡片里放一个真实播放的视频（画布流），平台提醒层在卡片根上识别播放。
+    const player = document.createElement('div');
+    player.style.cssText = 'position:fixed;left:-400px;top:0;width:320px;height:180px';
+    document.body.append(player);
+    const playerRoot = player.attachShadow({ mode: 'open' });
+    const canvas = document.createElement('canvas');
+    canvas.width = 64; canvas.height = 36;
+    const paint = canvas.getContext('2d');
+    globalThis.frame = setInterval(() => { paint.fillStyle = 'hsl(' + (Date.now() / 10 % 360) + ',60%,50%)'; paint.fillRect(0, 0, 64, 36); }, 30);
+    globalThis.video = document.createElement('video');
+    video.muted = true;
+    video.srcObject = canvas.captureStream(30);
+    playerRoot.append(video);
+    globalThis.layer = createAttentionLayer({ document, onError: (error) => errors.push(error.message), autoDismissMs: 500 });
+    layer.observe(playerRoot);
+    globalThis.visible = true;
+    globalThis.handle = mount({ root: card, rpc, effects, signal: controller.signal, threads, overlay, attention: layer.forCard('tasks', effects),
+      settings: {}, isVisible: () => globalThis.visible });
   })()`);
 
   const $ = (selector) => `card.querySelector(${JSON.stringify(selector)})`;
@@ -558,7 +576,45 @@ try {
   await waitFor(`!${$(".note")}.hidden && ${$(".note")}.textContent === 'watch 请求超时'`, "同步失败提示");
   await waitFor(`${$(".note")}.hidden`, "同步恢复后清除提示", 8000);
 
-  await evaluate(`controller.abort(); handle.dispose(); threads.dispose()`);
+  // 播放提醒：抽屉收起后，没视频在播就停止同步；有视频在播就继续同步，任务需要你时暂停并提醒，完成时只提醒。
+  const alertPanel = `document.getElementById('codex-companion-attention')?.shadowRoot.querySelector('.panel')`;
+  const alertOpen = `Boolean(${alertPanel}?.matches(':popover-open'))`;
+  const watches = () => evaluate(`rpcCalls.filter((method) => method === 'watch').length`);
+  await evaluate(`globalThis.visible = false; handle.visibilityChanged({ visible: false })`);
+  let watched = await watches();
+  await evaluate(`activityOf[ids.a24] = '收起后的变化'; bump()`);
+  await new Promise((resolve) => setTimeout(resolve, 400));
+  assert.equal(await watches(), watched, "收起且没在播放时不同步");
+  await evaluate(`video.play()`);
+  await waitFor(`layer.diagnostics().playing && rpcCalls.filter((method) => method === 'watch').length >= ${watched + 2}`, "开始播放后恢复同步，先取基线再挂起");
+  assert.equal(await evaluate(alertOpen), false, "停止同步期间的变化不补发提醒");
+  await evaluate(`unsee(ids.a24); statusOf[ids.a24] = 'asking'; bump()`);
+  await waitFor(`${alertOpen} && video.paused`, "任务需要你：暂停播放并提醒");
+  assert.deepEqual(await evaluate(`(() => { const item = ${alertPanel}.querySelector('li'); return [item.dataset.tone, item.querySelector('strong').textContent, item.querySelector('.text').textContent, item.style.getPropertyValue('--task') !== '']; })()`),
+    ["attention", "发布 v0.2 检查清单", "在等你回答", true]);
+  await screenshot("task-board-alert.png");
+  const clicked = await evaluate(`clicks.length`);
+  await evaluate(`${alertPanel}.querySelector('li button.go').click()`);
+  await waitFor(`clicks.length > ${clicked} && clicks.at(-1) === 'local:' + ids.a24 && !${alertOpen}`, "去处理：在侧栏打开这个会话");
+  assert.equal(await evaluate(`video.paused`), true, "去处理不替用户恢复播放");
+  await evaluate(`video.play()`);
+  await evaluate(`statusOf[ids.a24] = 'running'; bump()`);
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  assert.equal(await evaluate(alertOpen), false, "回到进行中不提醒");
+  await evaluate(`unsee(ids.a24); statusOf[ids.a24] = 'idle'; bump()`);
+  await waitFor(`${alertOpen} && ${alertPanel}.querySelector('li').dataset.tone === 'done' && !video.paused`, "完成：只提醒不暂停");
+  assert.equal(await evaluate(`${alertPanel}.querySelector('.text').textContent`), "已完成");
+  await waitFor(`!${alertOpen}`, "完成提醒自动收起");
+  // 两项都关掉：收起时即使在播放也不再同步。
+  await evaluate(`handle.updateSettings({ alertAttention: 'off', alertDone: 'off' })`);
+  watched = await watches();
+  await evaluate(`unsee(ids.a24); statusOf[ids.a24] = 'asking'; bump()`);
+  await new Promise((resolve) => setTimeout(resolve, 400));
+  assert.equal(await watches(), watched, "提醒全关时收起即停止同步");
+  assert.equal(await evaluate(`${alertOpen} || video.paused`), false, "提醒全关时不提醒也不暂停");
+  await evaluate(`video.pause(); clearInterval(frame); globalThis.visible = true; handle.updateSettings({}); handle.visibilityChanged({ visible: true })`);
+
+  await evaluate(`controller.abort(); handle.dispose(); threads.dispose(); layer.dispose()`);
   assert.equal(await evaluate(`document.querySelectorAll('[data-codex-companion-task]').length + (document.getElementById('codex-companion-thread-marks') ? 1 : 0)`), 0, "释放后不残留标记");
   assert.equal(await evaluate(`document.getElementById('codex-companion-overlay-tasks')`), null, "释放后移除顶层浮层");
   assert.deepEqual(await evaluate(`errors`), []);

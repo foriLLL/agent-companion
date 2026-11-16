@@ -70,6 +70,8 @@ When several Codex sessions are running at once, you no longer need to open each
 - **Per-session trace.** Hover over a task to open a timeline of that session, split into lanes for the
   plan, the model, commands, files, sub-agents, and you. Failures and moments waiting for your input are highlighted.
 - **Quick switching.** On macOS, hold Option and press Tab to switch between board sessions, the same way ⌘Tab switches apps.
+- **Watch while you wait.** While a video plays in a card, playback pauses with an alert when a task needs you,
+  and you get a brief alert when one finishes, even in fullscreen.
 
 <img src="assets/readme/task-board-switcher.png" alt="Option+Tab session switcher" width="460">
 
@@ -265,6 +267,13 @@ launch proxy you also need to reopen it from the menu yourself.
   mouse. This works while the cards are collapsed and does not intercept keys when the board is empty. It
   can be turned off under "任务看板" (Task board) in the settings. It is not offered on Linux, where desktop
   environments reserve Alt+Tab.
+- While a video plays in a card (Hongguo, Emby, and so on), a board task that is waiting for your answer, was
+  interrupted, or has gone quiet for a long time pauses playback and shows an alert next to the video. A
+  finished turn only shows an alert, which closes after a few seconds. In fullscreen the alert appears over
+  the video; "去处理" (Handle) leaves fullscreen and opens the session, and "继续播放" (Resume) keeps watching.
+  Under "任务看板" (Task board) in the settings, "任务需要你时" (When a task needs you) and "任务完成时"
+  (When a task finishes) can each be set to off, alert, or pause. Nothing is shown when nothing is playing,
+  and changes from before the board started syncing are not replayed.
 
 **Plan progress**
 

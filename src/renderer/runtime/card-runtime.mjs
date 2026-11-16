@@ -5,6 +5,7 @@ import { createCardShell } from "../shell/card-shell.mjs";
 import { createCodexAdapter } from "../adapters/codex.mjs";
 import { createCodexThreads } from "../adapters/codex-threads.mjs";
 import { createOverlayLayer } from "../shell/overlay-layer.mjs";
+import { createAttentionLayer } from "../shell/attention-layer.mjs";
 
 import { normalizeRuntimeConfig } from "../../platform/config/runtime-config.mjs";
 export { normalizeRuntimeConfig };
@@ -27,6 +28,7 @@ function safeBackend(name, onError) {
 export function createCardRuntime({
   manifests, renderers, config: initialConfig = {}, artifactHash,
   shellFactory = createCardShell, adapterFactory = createCodexAdapter, threadsFactory = createCodexThreads,
+  attentionFactory = createAttentionLayer,
   localStorage: localBackend, sessionStorage: sessionBackend,
   rpcClient = createRpcClient(), onError = () => {}
 }) {
@@ -46,6 +48,8 @@ export function createCardRuntime({
   let config = normalizeRuntimeConfig(initialConfig, manifests);
   // 会话列表属于宿主原生界面，只由平台创建；没有声明 threads 能力的卡片拿不到它。
   let threads = null;
+  // 提醒层由所有卡片共享：平台监听每张卡片里的媒体播放，声明 attention 能力的卡片可以发提醒。
+  let attention = null;
 
   function report(error, details = {}) {
     failures.push({ message: error?.message || String(error), code: error?.code, ...details });
@@ -117,6 +121,7 @@ export function createCardRuntime({
   function createRecord(manifest) {
     const record = { manifest, settings: config.cards[manifest.id].settings, started: false, handle: null };
     record.slot = shell.add(manifest, () => retry(manifest.id));
+    record.unobserveMedia = attention?.observe(record.slot.root) ?? (() => {});
     record.lifecycle = createCardLifecycle({
       createContext({ signal, effects, settings }) {
         record.effects = effects;
@@ -133,6 +138,8 @@ export function createCardRuntime({
           // 顶层浮层与本实例同生命周期：卸载、关闭或重试时随 effects 一起移除。
           ...(manifest.capabilities.includes("overlay")
             ? { overlay: createOverlayLayer({ document: shell.host.ownerDocument, cardId: manifest.id, effects }) } : {}),
+          // 提醒随本实例撤回：卸载、关闭或重试时由 effects 清掉它发出的提醒和订阅。
+          ...(manifest.capabilities.includes("attention") && attention ? { attention: attention.forCard(manifest.id, effects) } : {}),
           // 只有平台负责可见性；业务可以申请展开，不能操作原生 DOM。
           requestOpen: () => adapter?.setOpen(true)
         };
@@ -165,6 +172,8 @@ export function createCardRuntime({
     }
   }
 
+  try { attention = attentionFactory({ document: shell.host.ownerDocument, onError: (error) => report(error, { phase: "attention" }) }); }
+  catch (error) { report(error, { phase: "attention" }); }
   if (threadsFactory && manifests.some((manifest) => manifest.capabilities.includes("threads"))) {
     try { threads = threadsFactory({ document: shell.host.ownerDocument, onError: (error) => report(error, { phase: "threads" }) }); }
     catch (error) { report(error, { phase: "threads" }); }
@@ -177,6 +186,7 @@ export function createCardRuntime({
 
   function remove(record, reason) {
     records.delete(record.manifest.id);
+    record.unobserveMedia?.();
     const cleanup = record.lifecycle.dispose(reason);
     record.slot.remove();
     // 生命周期释放走独立 RPC，不能被刚刚中止的业务 signal 一起取消。
@@ -232,6 +242,7 @@ export function createCardRuntime({
     const jobs = [...records.values()].map((record) => remove(record, "unmounted"));
     adapter.dispose();
     threads?.dispose();
+    attention?.dispose();
     shell.dispose();
     disposal = Promise.allSettled(jobs).then(() => rpcClient.dispose());
     return disposal;
@@ -247,7 +258,7 @@ export function createCardRuntime({
     setOpen: (open) => adapter.setOpen(open),
     getConfig: () => config,
     getDiagnostics: () => ({ artifactHash, revision: config.revision, scopeId, disposed,
-      adapter: adapter.getDiagnostics(), shell: shell.diagnostics(), rpc: rpcClient.diagnostics(),
+      adapter: adapter.getDiagnostics(), shell: shell.diagnostics(), rpc: rpcClient.diagnostics(), attention: attention?.diagnostics() ?? null,
       cards: Object.fromEntries([...records].map(([id, record]) => [id, record.lifecycle.diagnostics()])), errors: [...failures] })
   };
 }
