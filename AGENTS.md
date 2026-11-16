@@ -46,6 +46,31 @@ systemd 用户服务常驻发现并注入；主进程 cmdline 被 Chromium setpr
   `scripts/prepare-installer.mjs` 把 Team ID、tag 与 Linux 归档 SHA256 写入 `install.sh`
 - 冒烟/探测：`npm run smoke` / `npm run probe:emby`
 
+## 新增卡片
+卡片是 `src/cards/<id>/` 下的一个目录，随仓库一起构建；平台负责外框、Shadow DOM 隔离、开关与排序、
+生命周期、存档与 RPC，卡片只写自己的界面和逻辑。
+- 生成骨架：`npm run card:create -- <id> --title <标题>`，需要后台服务时加 `--service`。
+  `id` 为小写字母开头的字母、数字或连字符，不能是 `companion`。
+- `manifest.json`：`id`、`title`、`version`、`defaultEnabled`（新卡保持 `false`）、`defaultOrder`、
+  `layout`（`height`: `content` | `viewport`，`minHeight`，`scroll`: `inner` | `outer`）、
+  `lifecycle`（`hidden`: `retain` | `suspend`，`start`: `immediate` | `first-visible`）、
+  `state`（`scope`: `target` | `session` | `global`，`version`）、`capabilities`。
+- `capabilities` 只声明用到的：`storage`（本地存档）、`rpc`（调用本卡的后台服务）、
+  `threads`（Codex 侧栏会话列表）、`overlay`（卡片区之外的顶层浮层）。未声明的能力不会出现在 `ctx` 上。
+- `renderer.mjs` 导出 `mount(ctx)`：只在 `ctx.root`（本卡的 ShadowRoot）里渲染，不碰宿主 DOM。
+  `ctx` 提供 `manifest`、`settings`、`signal`、`storage`、`rpc`、`effects`、`reportError`、`isVisible()`、
+  `requestOpen()`。事件、定时器、观察器和 Object URL 一律经 `ctx.effects`（`listen` / `timeout` / `interval` /
+  `observe` / `objectUrl` / `add`）登记，卸载时由平台统一回收。返回值可含 `updateSettings`、
+  `visibilityChanged`、`dispose`、`api`。动态内容用 `textContent`，不要拼进 `innerHTML`。
+- `service.mjs` 导出 `createService(dependencies)`，返回 `{ methods, cleanupMethods?, disposeTarget?, dispose?, applyConfig? }`。
+  方法 `foo` 对外是 `<id>.foo`，页面里用 `ctx.rpc("foo", params)` 调用。每个方法都要校验参数、尊重 `context.signal`，
+  按 `context.targetId` 归属资源并在 `disposeTarget` 里清理；`scope: "global"` 的状态只能由后台服务写。
+- 写完运行 `npm test`（`pretest` 会重新生成卡片目录与渲染器），界面改动再跑 `npm run smoke`；
+  `npm start` 重启后台服务后在卡片区设置里启用新卡。
+- 要把卡片提交进仓库时，同步更新写死内置卡片清单的断言（`test/card-registry.test.mjs`、
+  `test/companion-config.test.mjs`、`test/config-v2.test.mjs`、`test/injector-rpc.test.mjs`、
+  `test/service-registry.test.mjs`），并给卡片补测试；只在本机自用的卡片可以不改这些测试。
+
 ## 代码约定
 - 无 lint/format 配置。风格：2 空格缩进、双引号、分号、ESM
 - 注释与文档用中文，代码标识符用英文
