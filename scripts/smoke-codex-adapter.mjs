@@ -117,6 +117,12 @@ try {
   assert.equal(await evaluate(`host.isConnected`), true, "初始隐藏也连接 host");
   await evaluate(`adapter.setOpen(true)`);
   await waitFor(`adapter.isOpen()`, "独立面板未打开");
+  // 铺满整窗的 shell 不能是 no-drag，否则 Electron 把整窗从标题栏可拖动区域里扣掉、窗口拖不动；
+  // 只有可点的入口和抽屉声明 no-drag。
+  assert.deepEqual(await evaluate(`(() => {
+    const shell=document.getElementById('codex-companion-root-shell'), region=(el)=>getComputedStyle(el).getPropertyValue('-webkit-app-region');
+    return {shell:region(shell), drawer:region(shell.shadowRoot.querySelector('.drawer')), entry:region(document.getElementById('codex-companion-root-toolbar'))};
+  })()`), { shell: "none", drawer: "no-drag", entry: "no-drag" }, "整窗 shell 不得阻止拖动窗口");
   await waitFor(`video.currentTime > .1`, "测试媒体未播放");
   assert.equal(await evaluate(`getComputedStyle(document.getElementById('frame')).transform`), "matrix(1, 0, 0, 1, -80, 0)", "不改写原生自己的平移");
   // 没有原生平移钩子（也没有输入框）：按内置公式判档，改为限制会话面板宽度来让位，抽屉不压会话。

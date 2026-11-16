@@ -396,7 +396,9 @@ export function createCodexAdapter({ host, placement = "standalone-button", onVi
   const usesStandalone = () => standalone || fallbackActive || inlineEntryFallback;
   const shell = document.createElement("div");
   shell.id = `${hostId}-shell`;
-  shell.style.cssText = "all:initial !important;position:fixed !important;inset:0 !important;z-index:2147483646 !important;pointer-events:none !important;-webkit-app-region:no-drag !important";
+  // shell 铺满整窗，不能声明 -webkit-app-region:no-drag：Electron 不看 pointer-events，会把整窗从标题栏的
+  // 可拖动区域里扣掉，窗口就拖不动了。只有真正可点的入口按钮和抽屉自己声明 no-drag。
+  shell.style.cssText = "all:initial !important;position:fixed !important;inset:0 !important;z-index:2147483646 !important;pointer-events:none !important";
   // Codex 模态弹窗（侧聊关闭确认等）的遮罩为 `.codex-dialog-overlay`（z-50），Codex 自身也以此判断模态。
   // 弹窗期间 shell 降为 z-index:auto：仍盖在会话内容上，但让出遮罩与确认框，避免挡住按钮。
   const SHELL_TOP_LAYER = "2147483646";
