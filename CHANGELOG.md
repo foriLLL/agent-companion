@@ -65,6 +65,8 @@
   并检查 FFmpeg，有 Homebrew 时自动安装；README 的安装一节改为以源码安装为主，写明红果短剧必须有 FFmpeg；
 - README 重写并提供中英文两个版本（`README.md` / `README.en.md`）：说明卡片平台与「让 AI 写一张卡片」的流程，
   重点介绍任务看板、红果短剧与 Emby，附任务看板截图；`AGENTS.md` 新增「新增卡片」约定。
+- 修复 Codex 26.1111 起新建会话加入任务看板后一直显示「找不到记录」：Codex 把客户端临时 id 与真实 id 的绑定
+  改存到 `electron-owner-atoms:<hash>` 下，看板现在在各命名空间里查找绑定。
 
 ## 0.0.1 - 2026-07-30
 

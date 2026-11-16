@@ -342,3 +342,20 @@ test("新建会话的客户端临时 id 按 Codex 绑定换成真实 id，看板
   assert.deepEqual(board.tasks.map((task) => [task.threadId, task.aliases]), [[ID, [CLIENT]]]);
   assert.equal((await call("add", { threadId: ID })).tasks.length, 1);
 });
+
+test("Codex 26.1111 起绑定按窗口存在 electron-owner-atoms:<hash> 下，也能换成真实 id", async (t) => {
+  const CLIENT = "52c64417-e96b-46fc-b3ef-2e698cbd06d0";
+  const OTHER = "0a5423a2-c421-41db-9885-7d2a4741cd63";
+  const { call, taskBoard } = await serviceFixture(t);
+  const statePath = join(dirname(taskBoard.path), "codex", ".codex-global-state.json");
+  await call("add", { threadId: CLIENT, title: "新会话" });
+  // 新旧两种位置同时存在、多个窗口各有一份时都要认；数组和非字符串值忽略。
+  await writeFile(statePath, JSON.stringify({
+    "electron-persisted-atom-state": { "draft-thread-identities-v1": { "new-conversation": `client-new-thread:${OTHER}` } },
+    "electron-owner-atoms:b37c0cad": { "client-thread-bindings-v1": { [`client-new-thread:${CLIENT}`]: ID }, [`thread-client-id-v1:local%3A${ID}`]: `client-new-thread:${CLIENT}` },
+    "electron-owner-atoms:other": { "client-thread-bindings-v1": [`client-new-thread:${OTHER}`] },
+    "electron-owner-atoms:broken": { "client-thread-bindings-v1": { [`client-new-thread:${OTHER}`]: 42 } }
+  }));
+  const board = await call("list");
+  assert.deepEqual(board.tasks.map((task) => [task.threadId, task.status, task.aliases]), [[CLIENT, "idle", [ID]]]);
+});

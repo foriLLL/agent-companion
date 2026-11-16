@@ -362,7 +362,9 @@ export class CodexSessions {
 
   /**
    * 新建会话在本次运行中，侧栏条目一直用客户端临时 id（local:client-new-thread:<uuid>），
-   * 真实会话 id 在发出第一条消息后才分配；两者的绑定由 Codex 存在 .codex-global-state.json。
+   * 真实会话 id 在发出第一条消息后才分配；两者的绑定由 Codex 存在 .codex-global-state.json 的
+   * client-thread-bindings-v1 里。旧版放在 electron-persisted-atom-state 下，26.1111 起按窗口放在
+   * electron-owner-atoms:<hash> 下；这里在根和每个顶层对象里都找一遍，换命名空间时不至于失效。
    * 返回 { real: 客户端 id → 真实 id, client: 真实 id → 客户端 id }，按文件变化缓存。
    */
   async bindings() {
@@ -374,8 +376,13 @@ export class CodexSessions {
     const real = new Map();
     const client = new Map();
     try {
-      const bound = JSON.parse(await readFile(path, "utf8"))?.["electron-persisted-atom-state"]?.["client-thread-bindings-v1"];
-      for (const [key, value] of Object.entries(bound ?? {})) {
+      const root = JSON.parse(await readFile(path, "utf8"));
+      const scopes = [root, ...Object.values(root ?? {})].filter((value) => value && typeof value === "object" && !Array.isArray(value));
+      const entries = scopes.flatMap((scope) => {
+        const bound = scope["client-thread-bindings-v1"];
+        return bound && typeof bound === "object" && !Array.isArray(bound) ? Object.entries(bound) : [];
+      });
+      for (const [key, value] of entries) {
         const clientId = key.startsWith(CLIENT_PREFIX) ? key.slice(CLIENT_PREFIX.length) : null;
         if (!THREAD_ID_PATTERN.test(clientId ?? "") || typeof value !== "string" || !THREAD_ID_PATTERN.test(value)) continue;
         real.set(clientId, value);
