@@ -13,7 +13,7 @@ Companion 以后台服务的形式运行，安装一次后日常只需打开 Cod
 > Codex Companion 是非官方项目，与 OpenAI、ChatGPT、Codex、字节跳动、红果短剧及 Emby 均无隶属、
 > 授权或背书关系；相关名称和商标归各自权利人所有。
 
-![任务看板与单会话 Trace](assets/readme/task-board-trace.png)
+![在 Codex 里打开卡片区：任务看板跟踪多个会话，悬停看 Trace，点击打开对应会话](assets/readme/demo-task-board.gif)
 
 ## 目录
 
@@ -59,6 +59,8 @@ Companion 以后台服务的形式运行，安装一次后日常只需打开 Cod
 - **快速切换**：macOS 上按住 Option 连按 Tab，像 ⌘Tab 一样在看板会话之间切换。
 - **边看边等**：在卡片里看视频时，任务需要你就自动暂停并提醒，完成了弹个提醒，全屏也看得到。
 
+![任务看板与单会话 Trace](assets/readme/task-board-trace.png)
+
 <img src="assets/readme/task-board-switcher.png" alt="Option+Tab 会话切换器" width="460">
 
 ### 红果短剧
@@ -66,6 +68,10 @@ Companion 以后台服务的形式运行，安装一次后日常只需打开 Cod
 在卡片里浏览推荐、搜索剧集、维护片单，选集播放并自动连播下一集，多季作品可切换季。
 卡片通过非官方 SDK [openhongguo](https://github.com/beilunyang/openhongguo) 读取内容，播放需要本机安装 FFmpeg。
 使用前请阅读[红果短剧的使用说明](#红果短剧-1)中关于播放方式与合规的部分。
+
+边看边等：看板上的任务需要你时，视频自动暂停并弹出提醒，点「去处理」直接打开对应会话（演示中海报与画面做了模糊处理）。
+
+![在红果卡片里看剧时，任务需要你，播放暂停并提醒，点「去处理」打开对应会话](assets/readme/demo-hongguo.gif)
 
 ### Emby
 

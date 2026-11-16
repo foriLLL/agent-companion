@@ -18,7 +18,7 @@ modify `app.asar`, the Codex installation, or the app signature.
 
 > The user interface is currently available in Chinese only.
 
-![Task board with a per-session trace](assets/readme/task-board-trace.png)
+![The card area inside Codex: the task board tracks several sessions, hover for a trace, click to open the session](assets/readme/demo-task-board.gif)
 
 ## Contents
 
@@ -72,6 +72,8 @@ When several Codex sessions are running at once, you no longer need to open each
 - **Watch while you wait.** While a video plays in a card, playback pauses with an alert when a task needs you,
   and you get a brief alert when one finishes, even in fullscreen.
 
+![Task board with a per-session trace](assets/readme/task-board-trace.png)
+
 <img src="assets/readme/task-board-switcher.png" alt="Option+Tab session switcher" width="460">
 
 ### Hongguo
@@ -80,6 +82,11 @@ Browse recommendations, search for series, keep a watchlist, pick an episode, an
 one. Multi-season series can switch seasons. The card reads content through the unofficial SDK
 [openhongguo](https://github.com/beilunyang/openhongguo), and playback requires FFmpeg on your machine.
 Before using it, read the playback and compliance notes in the [Hongguo usage section](#hongguo-1).
+
+Watch while you wait: when a task on the board needs you, the video pauses and an alert appears; click
+"去处理" (Handle it) to jump to that session. Posters and video are blurred in the demo.
+
+![Watching in the Hongguo card: a task needs you, playback pauses with an alert, and "去处理" opens the session](assets/readme/demo-hongguo.gif)
 
 ### Emby
 
