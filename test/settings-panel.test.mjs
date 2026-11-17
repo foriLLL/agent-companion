@@ -679,3 +679,147 @@ test("播放提醒：两项各有关 / 提醒 / 暂停三档，缺省需要你�
   assert.ok(root.textContent.includes("需先启用任务看板"));
   f.panel.destroy();
 });
+
+function fakeConnection(initial = true) {
+  let connected = initial;
+  const listeners = new Set();
+  return {
+    isConnected: () => connected,
+    subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener); },
+    set(value) { connected = value; for (const listener of [...listeners]) listener(value); },
+    checks: 0,
+    async check() { this.checks += 1; return connected; },
+    get listeners() { return listeners.size; }
+  };
+}
+const messageOf = root => descendants(root).find(child => child.className === "cc-settings-message");
+
+test("后台断开时提示正在自动恢复；恢复后自动重新读取，不用点重试", async () => {
+  const connection = fakeConnection();
+  let offline = false;
+  const f = fixture(method => {
+    if (offline) throw Object.assign(Error("companion.settings.get 请求超时"), { code: "RPC_TIMEOUT" });
+    if (method === "companion.settings.get") return { config: initialConfig(), catalog };
+    if (method === "companion.agent.status") return { available: false };
+    throw Error(`unexpected ${method}`);
+  }, { connection });
+  offline = true;
+  connection.set(false);
+  await f.panel.open();
+  const root = f.panel.element;
+  assert.equal(messageOf(root).textContent, "后台连接已断开，正在自动恢复…");
+  assert.equal(bySetting(root, "enabled").disabled, true);
+  offline = false;
+  const before = f.calls.length;
+  connection.set(true);
+  await turn();
+  await turn();
+  assert.deepEqual(f.calls.slice(before).map(item => item.method), ["companion.settings.get", "companion.agent.status"]);
+  assert.equal(bySetting(root, "enabled").disabled, false);
+  assert.equal(messageOf(root).textContent, "");
+  connection.set(false);
+  assert.equal(messageOf(root).textContent, "后台连接已断开，正在自动恢复…", "已打开的面板断开时立即提示");
+  f.panel.destroy();
+  assert.equal(connection.listeners, 0, "销毁后取消订阅");
+});
+
+test("恢复时还有请求在途，等它结束后再重新读取；面板关闭时不读取", async () => {
+  const connection = fakeConnection();
+  const gate = deferred();
+  let gated = true;
+  const f = fixture(async method => {
+    if (method === "companion.settings.get" && gated) { gated = false; await gate.promise; }
+    if (method === "companion.settings.get") return { config: initialConfig(), catalog };
+    if (method === "companion.agent.status") return { available: false };
+    throw Error(`unexpected ${method}`);
+  }, { connection });
+  const opening = f.panel.open();
+  await turn();
+  connection.set(false);
+  connection.set(true);
+  assert.equal(f.calls.filter(item => item.method === "companion.settings.get").length, 1, "在途时不并发读取");
+  gate.reject(Object.assign(Error("timeout"), { code: "RPC_TIMEOUT" }));
+  await opening;
+  await turn();
+  await turn();
+  assert.equal(f.calls.filter(item => item.method === "companion.settings.get").length, 2, "在途请求结束后补读一次");
+  assert.equal(bySetting(f.panel.element, "enabled").disabled, false);
+  f.panel.close();
+  connection.set(false);
+  connection.set(true);
+  await turn();
+  assert.equal(f.calls.filter(item => item.method === "companion.settings.get").length, 2, "关闭的面板不读取，下次打开自然会读");
+  f.panel.destroy();
+});
+
+test("runtime 把 rpc-client 的连接状态交给设置页", async () => {
+  const document = makeDocument();
+  const client = createRpcClient({ binding: () => () => undefined });
+  const shell = createCardShell({ document });
+  const configure = shell.configureSettings;
+  let options;
+  shell.configureSettings = received => { options = received; return configure(received); };
+  const backend = { getItem: () => null, setItem() {} };
+  const runtime = createCardRuntime({
+    manifests: [], renderers: {}, config: initialConfig(), shellFactory: () => shell, rpcClient: client,
+    localStorage: backend, sessionStorage: backend,
+    adapterFactory: ({ host }) => {
+      document.body.append(host);
+      return { setPlacement() {}, setHasCards() {}, dispose() {}, getDiagnostics: () => ({ mode: "fixture" }) };
+    }
+  });
+  assert.equal(options.connection, client.connection);
+  await runtime.dispose();
+});
+
+test("请求丢在已断开的旧连接上、确认时链路已恢复：自动重读一次，仍失败不再无限重试", async () => {
+  const connection = fakeConnection();
+  let failures = 2;
+  const f = fixture(method => {
+    if (method === "companion.settings.get" && failures > 0) { failures -= 1; throw Object.assign(Error("companion.settings.get 请求超时"), { code: "RPC_TIMEOUT" }); }
+    if (method === "companion.settings.get") return { config: initialConfig(), catalog };
+    if (method === "companion.agent.status") return { available: false };
+    throw Error(`unexpected ${method}`);
+  }, { connection });
+  await f.panel.open();
+  await turn();
+  await turn();
+  const reads = () => f.calls.filter(item => item.method === "companion.settings.get").length;
+  assert.equal(reads(), 2, "首次失败后确认链路正常，自动重读一次");
+  assert.equal(connection.checks, 2);
+  await turn();
+  assert.equal(reads(), 2, "自动重读也失败时停下，留给用户点重试");
+  assert.equal(messageOf(f.panel.element).textContent, "请求超时，请重试");
+  byText(f.panel.element, "重试").click();
+  await turn();
+  await turn();
+  assert.equal(reads(), 3);
+  assert.equal(bySetting(f.panel.element, "enabled").disabled, false);
+  failures = 1;
+  f.panel.close();
+  await f.panel.open();
+  await turn();
+  await turn();
+  assert.equal(reads(), 5, "读成功后重置，下次失败仍会自动重读一次");
+  assert.equal(bySetting(f.panel.element, "enabled").disabled, false);
+  f.panel.destroy();
+});
+
+test("保存超时后不重放修改：链路正常时自动重新读取配置", async () => {
+  const connection = fakeConnection();
+  const f = fixture(method => {
+    if (method === "companion.settings.get") return { config: initialConfig(), catalog };
+    if (method === "companion.agent.status") return { available: false };
+    throw Object.assign(Error("companion.settings.patch 请求超时"), { code: "RPC_TIMEOUT" });
+  }, { connection });
+  await f.panel.open();
+  change(bySetting(f.panel.element, "enabled"), false);
+  await turn();
+  await turn();
+  await turn();
+  assert.deepEqual(f.calls.map(item => item.method), ["companion.settings.get", "companion.agent.status", "companion.settings.patch",
+    "companion.settings.get", "companion.agent.status"]);
+  assert.equal(bySetting(f.panel.element, "enabled").disabled, false);
+  assert.equal(bySetting(f.panel.element, "enabled").checked, true, "以后台读回的配置为准");
+  f.panel.destroy();
+});

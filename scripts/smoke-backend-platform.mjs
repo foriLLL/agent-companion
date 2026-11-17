@@ -231,6 +231,10 @@ try {
   const beforeHeal = (await command("status")).counters;
   await evaluate("globalThis.__healRuntime = __CODEX_COMPANION__.runtime; globalThis.__CODEX_COMPANION_RPC__ = () => {}; true");
   verify((await evaluate("__CODEX_COMPANION__.runtime.probeRpc(300)"))?.reason === "RPC_TIMEOUT", "binding 失效后页面 RPC 不通");
+  // 断开期间打开设置页：读取请求丢在坏掉的 binding 上；恢复后应自动读到配置，不需要点重试。
+  await evaluate(`__find('[aria-label="Companion 设置"]').click(); true`);
+  const settingsEnabled = `(() => { const input = __find('#companion-settings [data-setting="enabled"]'); return Boolean(input) && !input.disabled; })()`;
+  verify(!(await evaluate(settingsEnabled)), "断开期间设置页不可编辑");
   const healed = await wait(async () => {
     const { counters } = await command("status");
     return counters.bindings > beforeHeal.bindings ? counters : false;
@@ -239,6 +243,10 @@ try {
   verify((await evaluate("__CODEX_COMPANION__.runtime.probeRpc(3000)"))?.ok === true, "重连后新 binding 生效，页面 RPC 恢复");
   verify(await evaluate("__CODEX_COMPANION__.runtime === globalThis.__healRuntime && Boolean(__find('.fixture-static'))"), "自愈不重建页面 runtime 与卡片");
   verify((await command("status")).errors.some((message) => message.includes("无响应，已断开")), "自愈过程写入 warn 日志");
+  await wait(() => evaluate(settingsEnabled), "设置页恢复后自动重新读取", 45000);
+  verify(await evaluate(`__find('#companion-settings .cc-settings-message').textContent !== "后台连接已断开，正在自动恢复…"`), "设置页恢复后不再显示断开提示");
+  checks.push("断开期间打开的设置页在后台恢复后自动可用，无需点重试");
+  await evaluate(`__find('[aria-label="关闭 Companion 设置"]')?.click(); true`);
 
   const stopped = await command("stop");
   verify(stopped.stopped && stopped.serviceClosed && stopped.counters.socketsOpen === 0, "stop 关闭 watcher、真实 CDP session 与服务 registry");

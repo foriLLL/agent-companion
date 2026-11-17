@@ -122,9 +122,9 @@ export function createCardShell({ document: doc = document, hostId = "codex-comp
 
   return {
     host, root, add, reorder,
-    configureSettings({ call }) {
+    configureSettings({ call, connection }) {
       if (settings) return;
-      settings = createSettingsPanel({ document: doc, call, onClose() {
+      settings = createSettingsPanel({ document: doc, call, connection, onClose() {
         settingsButton.setAttribute("aria-expanded", "false");
         settingsButton.focus({ preventScroll: true });
       } });

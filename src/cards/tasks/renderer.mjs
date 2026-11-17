@@ -5,6 +5,7 @@ import { ALERT_TEXT, alertLevel, taskAlerts } from "./alerts.mjs";
 // 长轮询：服务端在会话记录变化时立即返回，没变化最多挂 20 秒；出错后隔一会儿再连。
 const WATCH_WAIT_MS = 20_000;
 const WATCH_RETRY_MS = 3000;
+const DISCONNECTED_CODES = new Set(["RPC_TIMEOUT", "BRIDGE_UNAVAILABLE"]);
 const UNDO_MS = 6000;
 // 悬停多久打开 Trace 浮层、离开多久关闭；离开后的宽限让鼠标能移进浮层里滚动和缩放。
 const PEEK_OPEN_MS = 350;
@@ -269,7 +270,8 @@ ${TRACE_STYLE}
   // 同步（list/watch）失败的提示在下一次同步成功时自动清除；操作失败的提示留到下一次操作。
   let syncNote = false;
   function failSync(error) {
-    fail(error);
+    // 收不到后台回包时，平台和后台都会自动重连；提示说明正在恢复，而不是一句「watch 请求超时」。
+    fail(DISCONNECTED_CODES.has(error?.code) ? { code: error.code, message: "与后台的连接中断，正在自动重连…" } : error);
     syncNote = !note.hidden;
   }
 

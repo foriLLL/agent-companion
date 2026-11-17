@@ -40,7 +40,7 @@ export function createCardRuntime({
   const hasSettings = typeof shell.configureSettings === "function";
   if (hasSettings) {
     const call = rpcClient.scoped("companion", allocateGeneration(), platformController.signal);
-    shell.configureSettings({ call: (method, params) => call(method, params, { timeoutMs: 15_000 }) });
+    shell.configureSettings({ call: (method, params) => call(method, params, { timeoutMs: 15_000 }), connection: rpcClient.connection });
   }
   let disposed = false;
   let disposal;
