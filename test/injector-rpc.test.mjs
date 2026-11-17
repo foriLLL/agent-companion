@@ -582,6 +582,9 @@ test("会话被拆后按退避重连：重新注册 binding、导航脚本并挂
 });
 
 test("连接半开（OPEN 但不再回复）时，健康检查短超时失败两次即重连", async (t) => {
+  // CDP 调用的超时定时器是 unref 的；Node 22 的测试运行器会在事件循环空闲时直接取消测试。
+  const keepAlive = setInterval(() => {}, 1000);
+  t.after(() => clearInterval(keepAlive));
   const { injector, clock, events, socket } = await steppedInjector(t, { healthTimeoutMs: 10 });
   socket.hang = true;
   await injector.scanNow();
