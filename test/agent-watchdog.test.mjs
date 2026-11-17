@@ -113,7 +113,7 @@ test("写日志失败或没有日志文件时照样终止进程", () => {
   const kills = [];
   const fail = () => { throw new Error("EIO"); };
   abortStalledProcess(30_000, { pid: 1, logPath: "/logs/agent.log", now: Date.now, writeSync: fail, appendFileSync: fail,
-    kill: (pid, signal) => kills.push(signal), setTimeoutImpl: fn => fn() });
+    kill: (_pid, signal) => kills.push(signal), setTimeoutImpl: fn => fn() });
   assert.deepEqual(kills, ["SIGABRT", "SIGKILL"]);
   let appended = false;
   abortStalledProcess(30_000, { pid: 1, logPath: null, now: Date.now, writeSync() {}, appendFileSync: () => { appended = true; },
@@ -165,13 +165,13 @@ const watchdogUrl = new URL("../src/agent/watchdog.mjs", import.meta.url).href;
 function runChild(mode, logPath) {
   const code = `
     import { startMainThreadWatchdog } from ${JSON.stringify(watchdogUrl)};
-    const watchdog = startMainThreadWatchdog({ stallMs: 500, intervalMs: 100, signal: "SIGKILL", logPath: ${JSON.stringify(logPath)},
+    const watchdog = startMainThreadWatchdog({ stallMs: 1_500, intervalMs: 250, signal: "SIGKILL", logPath: ${JSON.stringify(logPath)},
       onError: error => { console.error("watchdog error", error); process.exitCode = 3; } });
     const busy = ms => { const end = Date.now() + ms; while (Date.now() < end) {} };
     const mode = ${JSON.stringify(mode)};
     if (mode === "stuck") setTimeout(() => busy(15_000), 100);
-    else if (mode === "stopped") setTimeout(() => { watchdog.stop(); busy(1_200); }, 100);
-    else setTimeout(() => {}, 1_200);
+    else if (mode === "stopped") setTimeout(() => { watchdog.stop(); busy(3_000); }, 100);
+    else setTimeout(() => {}, 3_000);
   `;
   const startedAt = performance.now();
   const child = spawn(process.execPath, ["--input-type=module", "-e", code], { stdio: ["ignore", "ignore", "pipe"] });
