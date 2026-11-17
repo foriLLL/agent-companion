@@ -29,7 +29,7 @@ const ICONS = {
 // 平台设置只读写 RPC；运行时配置仍由 watcher 推送，不能在这里直接改卡片。
 // platform 缺省取页面 navigator，测试显式传入。
 // connection 来自 rpc-client：断开时说明正在自动恢复，恢复后自动重新读取，不用手动点重试。
-export function createSettingsPanel({ document: doc, call, connection, onClose = () => {}, platform }) {
+export function createSettingsPanel({ document: doc, call, connection, onClose = () => {}, onUpdateStatus = () => {}, platform }) {
   const nav = doc.defaultView?.navigator;
   const mac = /mac|darwin/i.test(String(platform ?? nav?.userAgentData?.platform ?? nav?.platform ?? ""));
   const element = doc.createElement("section");
@@ -49,6 +49,8 @@ export function createSettingsPanel({ document: doc, call, connection, onClose =
   // 恢复连接时如果还有请求在途，等它结束后再重新读取。
   let reloadPending = false;
   let autoReloaded = false;
+  let updateStatus = null;
+  let updatePoll = null;
   const listeners = [];
   const controls = [];
   const rows = new Map();
@@ -237,6 +239,11 @@ export function createSettingsPanel({ document: doc, call, connection, onClose =
     .cc-settings dl { display:grid;grid-template-columns:auto minmax(0,1fr);gap:6px 12px;margin:0;padding:10px 12px;font-size:12px; }
     .cc-settings dl:empty { display:none; }
     .cc-settings dt { color:var(--fg3); } .cc-settings dd { margin:0;text-align:right;overflow-wrap:anywhere;font-variant-numeric:tabular-nums; }
+    .cc-status[data-state="new"] p::before { background:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 18%,transparent); }
+    .cc-update-notes summary { padding:8px 12px;font-size:12px;color:var(--fg2);cursor:pointer; }
+    .cc-update-notes pre, .cc-update-command { margin:0;padding:0 12px 10px;max-height:200px;overflow:auto;white-space:pre-wrap;
+      overflow-wrap:anywhere;font:12px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:var(--fg2); }
+    .cc-update-command { padding-top:8px;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:11px;user-select:text; }
     @media (prefers-reduced-motion:reduce) { .cc-settings * { transition:none !important; } }
   `;
   const header = node("header");
@@ -371,6 +378,26 @@ export function createSettingsPanel({ document: doc, call, connection, onClose =
   const autoSection = section("自动加载");
   const autoRelaunch = checkbox(autoSection, "打开 Codex 时自动加载", "auto-relaunch", value => ({ agent: { autoRelaunch: value } }),
     "刚打开的 Codex 会自动重开一次以加载卡片");
+  // 更新：Homebrew 安装可以自动或一键更新；源码与其它安装方式只提醒，给出命令或 Release 地址。
+  const updateSection = section("更新");
+  const updateRow = node("div", null, "cc-status");
+  const updateText = node("p");
+  const checkUpdateButton = control(button("检查更新", () => { void checkForUpdates(); }),
+    () => ["checking", "updating", "waiting-restart", "restarting"].includes(updateStatus?.phase));
+  updateRow.append(updateText, checkUpdateButton);
+  updateSection.append(updateRow);
+  const autoUpdate = checkbox(updateSection, "自动更新", "auto-update", value => ({ updates: { auto: value } }),
+    "有新版本时自动安装并重启后台服务，不会重启 Codex；视频播放中会等播完再生效");
+  const updateActions = node("div", null, "cc-settings-actions");
+  const updateHint = node("p");
+  const applyUpdateButton = control(button("立即更新", () => { void startUpdate(); }, null, "cc-primary"),
+    () => !updateStatus?.canApply || !updateStatus.available || updateStatus.phase !== "idle" || Boolean(updateStatus.pending));
+  updateActions.append(updateHint, applyUpdateButton);
+  const updateCommand = node("pre", null, "cc-update-command");
+  const updateNotes = node("details", null, "cc-update-notes");
+  const updateNotesBody = node("pre");
+  updateNotes.append(node("summary", "更新内容"), updateNotesBody);
+  updateSection.append(updateActions, updateCommand, updateNotes);
   const statusSection = section("状态");
   const statusRow = node("div", null, "cc-status");
   const statusText = node("p");
@@ -496,6 +523,7 @@ export function createSettingsPanel({ document: doc, call, connection, onClose =
       for (const [value, input] of inputs) input.checked = value === level;
     }
     autoRelaunch.checked = config.agent?.autoRelaunch ?? true;
+    autoUpdate.checked = config.updates?.auto !== false;
     if (resetPort) {
       portInput.value = String(config.launch?.proxy?.port ?? 7890);
       portError.hidden = true;
@@ -570,6 +598,75 @@ export function createSettingsPanel({ document: doc, call, connection, onClose =
       statusDetails.append(node("dt", label), node("dd", String(value)));
     }
   }
+  const UPDATE_BUSY = ["checking", "updating", "waiting-restart", "restarting"];
+  function renderUpdate(status) {
+    updateStatus = status && status.supported !== false && typeof status.current === "string" ? status : null;
+    updateSection.parentElement.hidden = !updateStatus;
+    onUpdateStatus(updateStatus);
+    if (!updateStatus) return;
+    const { current, latest, notice, pending, phase, error, canApply, available, command, releasesUrl, lastCheckAt } = updateStatus;
+    let text = `已是最新版本 ${current}`;
+    let state = "ok";
+    if (notice) text = `已更新到 ${notice.to}`;
+    else if (phase === "restarting") { text = "正在重启后台服务…"; state = "new"; }
+    else if (pending) { text = `${pending.version} 已装好，卡片里的视频播放结束后自动生效`; state = "new"; }
+    else if (phase === "updating") { text = `正在更新到 ${latest?.version ?? "新版本"}…`; state = "new"; }
+    else if (phase === "checking") { text = "正在检查更新…"; state = ""; }
+    else if (available) { text = `发现新版本 ${latest.version}`; state = "new"; }
+    else if (error) { text = error.message; state = "bad"; }
+    else if (!lastCheckAt) { text = `当前版本 ${current}`; state = ""; }
+    if (error && (available || notice)) text += `（${error.message}）`;
+    updateText.textContent = text;
+    if (state) updateRow.dataset.state = state; else delete updateRow.dataset.state;
+    autoUpdate.parentNode.hidden = !canApply;
+    autoUpdate.checked = config?.updates?.auto !== false;
+    const checked = lastCheckAt ? `上次检查 ${new Date(lastCheckAt).toLocaleString([], { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}` : "";
+    const showApply = canApply && available && phase === "idle" && !pending;
+    applyUpdateButton.hidden = !showApply;
+    updateHint.textContent = [canApply ? "通过 Homebrew 更新" : available ? "这种安装方式需要手动更新" : "", checked].filter(Boolean).join(" · ");
+    updateActions.hidden = !updateHint.textContent && !showApply;
+    const manual = !canApply && available ? (command ? `在终端执行：\n${command}` : `到 Release 页面下载：\n${releasesUrl}`) : "";
+    updateCommand.textContent = manual;
+    updateCommand.hidden = !manual;
+    const notes = (notice?.notes || (available ? latest?.notes : "") || "").trim();
+    updateNotesBody.textContent = notes;
+    updateNotes.hidden = !notes;
+    if (notice && notes) updateNotes.open = true;
+    for (const item of controls) item.value.disabled = busy || !config || item.disabled();
+    // 正在检查、升级或等待重启时轮询，直到状态落定；后台重启后整个面板会随新注入重建。
+    clearTimeout(updatePoll);
+    updatePoll = UPDATE_BUSY.includes(phase) || pending ? setTimeout(() => { void pollUpdate(); }, 3000) : null;
+  }
+  async function pollUpdate() {
+    updatePoll = null;
+    if (destroyed || element.hidden) return;
+    try { renderUpdate(await call("companion.update.status", {})); } catch {
+      if (!destroyed && !element.hidden) updatePoll = setTimeout(() => { void pollUpdate(); }, 3000);
+    }
+  }
+  async function checkForUpdates() {
+    if (busy || destroyed) return;
+    setBusy(true);
+    showMessage("正在检查更新…");
+    try {
+      const status = await call("companion.update.check", {});
+      if (destroyed) return;
+      renderUpdate(status);
+      showMessage(status.error ? "" : status.available ? `发现新版本 ${status.latest.version}` : "已是最新版本");
+    } catch (error) { if (!destroyed) showMessage(errorMessage(error), true); }
+    finally { if (!destroyed) setBusy(false); }
+  }
+  async function startUpdate() {
+    if (busy || destroyed || !updateStatus?.canApply) return;
+    setBusy(true);
+    try {
+      const status = await call("companion.update.apply", {});
+      if (destroyed) return;
+      renderUpdate(status);
+      showMessage("正在后台更新，完成后自动重启后台服务");
+    } catch (error) { if (!destroyed) showMessage(errorMessage(error), true); }
+    finally { if (!destroyed) setBusy(false); }
+  }
   function acceptConfig(value) {
     if (!Number.isSafeInteger(value?.revision) || value.revision < 0) throw new Error("设置响应缺少有效版本，请重试");
     config = value;
@@ -581,8 +678,8 @@ export function createSettingsPanel({ document: doc, call, connection, onClose =
     return error?.message || "请求失败，请重试";
   }
   async function readSettings(notice = "") {
-    const [settings, status] = await Promise.allSettled([
-      call("companion.settings.get", {}), call("companion.agent.status", {})
+    const [settings, status, update] = await Promise.allSettled([
+      call("companion.settings.get", {}), call("companion.agent.status", {}), call("companion.update.status", {})
     ]);
     if (destroyed) return;
     if (settings.status === "fulfilled") {
@@ -590,6 +687,9 @@ export function createSettingsPanel({ document: doc, call, connection, onClose =
       catalog = settings.value.catalog;
       renderConfig();
     } else config = null;
+    renderUpdate(update.status === "fulfilled" ? update.value : null);
+    // 打开设置即算看过「已更新」提示；本次面板里仍然显示，下次不再标红点。
+    if (updateStatus?.notice) void call("companion.update.acknowledge", {}).then(next => { if (!destroyed) onUpdateStatus(next); }, () => {});
     if (status.status === "fulfilled") renderStatus(status.value);
     else { statusText.textContent = "状态读取失败"; statusRow.dataset.state = "bad"; statusDetails.replaceChildren(); }
     if (settings.status === "rejected") throw settings.reason;
@@ -709,6 +809,8 @@ export function createSettingsPanel({ document: doc, call, connection, onClose =
   function close() {
     if (destroyed || element.hidden) return;
     element.hidden = true;
+    clearTimeout(updatePoll);
+    updatePoll = null;
     cancelPlanHintConfirmation(false);
     confirming = false;
     confirmation.hidden = true;
@@ -748,6 +850,7 @@ export function createSettingsPanel({ document: doc, call, connection, onClose =
     destroy() {
       if (destroyed) return;
       destroyed = true;
+      clearTimeout(updatePoll);
       for (const cleanup of listeners) cleanup();
       element.remove();
     }

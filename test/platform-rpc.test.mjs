@@ -307,3 +307,26 @@ test("已取消或已关闭的平台服务不执行配置写入或重启回调",
   await assert.rejects(service.handleRpc("companion.settings.patch", { expectedRevision: 7, patch: {} }), { code: "RPC_UNAVAILABLE" });
   await assert.rejects(service.handleRpc("companion.codex.restart", {}), { code: "RPC_UNAVAILABLE" });
 });
+
+test("更新 RPC：status/check/apply/acknowledge 经 bridge 转给平台回调；缺失时 status 不支持、其余 AGENT_UNAVAILABLE", async t => {
+  const calls = [];
+  const STATUS = { current: "0.2.0", phase: "idle", available: true, latest: { version: "0.2.1" } };
+  const service = createService(t, { platform: {
+    getUpdateStatus: () => { calls.push("status"); return STATUS; },
+    checkForUpdates: async () => { calls.push("check"); return { ...STATUS, lastCheckAt: 1 }; },
+    applyUpdate: () => { calls.push("apply"); throw Object.assign(new Error("当前安装方式不支持自动更新"), { code: "UPDATE_UNSUPPORTED" }); },
+    acknowledgeUpdate: async () => { calls.push("ack"); return { ...STATUS, notice: null }; }
+  } });
+  const { call } = await connect(t, service);
+  assert.deepEqual(await call("companion.update.status", {}), STATUS);
+  assert.equal((await call("companion.update.check", {})).lastCheckAt, 1);
+  await assert.rejects(call("companion.update.apply", {}), { code: "UPDATE_UNSUPPORTED", message: "当前安装方式不支持自动更新" });
+  assert.equal((await call("companion.update.acknowledge", {})).notice, null);
+  await assert.rejects(call("companion.update.check", { force: true }), { code: "RPC_INVALID_PARAMS" });
+  assert.deepEqual(calls, ["status", "check", "apply", "ack"]);
+  const bare = createService(t);
+  assert.deepEqual(await bare.handleRpc("companion.update.status", {}, { cardId: "companion" }), { supported: false });
+  for (const method of ["companion.update.check", "companion.update.apply", "companion.update.acknowledge"]) {
+    await assert.rejects(bare.handleRpc(method, {}, { cardId: "companion" }), { code: "AGENT_UNAVAILABLE" });
+  }
+});

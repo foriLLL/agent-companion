@@ -29,6 +29,9 @@ export const PLACEMENTS = Object.freeze(["standalone-button", "inline-in-summary
 export const DEFAULT_PLACEMENT = "standalone-button";
 export const DEFAULT_LAUNCH = Object.freeze({ proxy: Object.freeze({ enabled: false, port: 7890 }) });
 export const DEFAULT_AGENT = Object.freeze({ autoRelaunch: true });
+// 自动更新：Homebrew 安装时发现新版本自动安装并重启后台服务；其它安装方式只提醒。
+// 放在顶层而不是 agent 里：旧版本的校验会拒绝 agent 里不认识的字段，降级后整份配置都读不进来。
+export const DEFAULT_UPDATES = Object.freeze({ auto: true });
 
 export function defaultCompanionConfigPath(home = homedir()) {
   return join(companionDataDir(home), "config-v2.json");
@@ -86,6 +89,11 @@ function validLaunch(value) {
       && Object.keys(value.proxy).every(key => ["enabled", "port"].includes(key))
       && (!Object.hasOwn(value.proxy, "enabled") || typeof value.proxy.enabled === "boolean")
       && (!Object.hasOwn(value.proxy, "port") || validPort(value.proxy.port))));
+}
+
+function validUpdates(value) {
+  return isRecord(value) && Object.keys(value).every(key => key === "auto")
+    && (!Object.hasOwn(value, "auto") || typeof value.auto === "boolean");
 }
 
 function validAgent(value) {
@@ -174,7 +182,8 @@ export function normalizeCompanionConfigV2(value, manifests = CARD_MANIFESTS) {
       enabled: typeof input.launch?.proxy?.enabled === "boolean" ? input.launch.proxy.enabled : DEFAULT_LAUNCH.proxy.enabled,
       port: validPort(input.launch?.proxy?.port) ? input.launch.proxy.port : DEFAULT_LAUNCH.proxy.port
     } },
-    agent: { autoRelaunch: typeof input.agent?.autoRelaunch === "boolean" ? input.agent.autoRelaunch : DEFAULT_AGENT.autoRelaunch }
+    agent: { autoRelaunch: typeof input.agent?.autoRelaunch === "boolean" ? input.agent.autoRelaunch : DEFAULT_AGENT.autoRelaunch },
+    updates: { auto: typeof input.updates?.auto === "boolean" ? input.updates.auto : DEFAULT_UPDATES.auto }
   };
 }
 
@@ -209,14 +218,15 @@ function validateV2(value) {
     || !isRecord(value.cards) || Object.entries(value.cards).some(([id, card]) => !safeId(id)
       || !isRecord(card) || typeof card.enabled !== "boolean" || !isRecord(card.settings))
     || (Object.hasOwn(value, "launch") && !validLaunch(value.launch))
-    || (Object.hasOwn(value, "agent") && !validAgent(value.agent))) {
+    || (Object.hasOwn(value, "agent") && !validAgent(value.agent))
+    || (Object.hasOwn(value, "updates") && !validUpdates(value.updates))) {
     throw new ConfigError("CONFIG_INVALID", "配置 v2 格式无效；保留文件，请修复后重试。");
   }
 }
 
 function applyPatch(current, patch, manifests) {
-  if (!isRecord(patch) || Object.keys(patch).some(key => !["enabled", "placement", "order", "cards", "launch", "agent"].includes(key))) {
-    throw new ConfigError("CONFIG_PATCH_INVALID", "补丁只能包含 enabled、placement、order、cards、launch、agent。");
+  if (!isRecord(patch) || Object.keys(patch).some(key => !["enabled", "placement", "order", "cards", "launch", "agent", "updates"].includes(key))) {
+    throw new ConfigError("CONFIG_PATCH_INVALID", "补丁只能包含 enabled、placement、order、cards、launch、agent、updates。");
   }
   const next = clone(current);
   for (const key of ["enabled", "placement", "order"]) if (Object.hasOwn(patch, key)) next[key] = patch[key];
@@ -227,6 +237,10 @@ function applyPatch(current, patch, manifests) {
   if (Object.hasOwn(patch, "agent")) {
     if (!validAgent(patch.agent)) throw new ConfigError("CONFIG_PATCH_INVALID", "agent 只允许布尔 autoRelaunch。");
     next.agent = { ...next.agent, ...patch.agent };
+  }
+  if (Object.hasOwn(patch, "updates")) {
+    if (!validUpdates(patch.updates)) throw new ConfigError("CONFIG_PATCH_INVALID", "updates 只允许布尔 auto。");
+    next.updates = { ...(next.updates ?? DEFAULT_UPDATES), ...patch.updates };
   }
   if (Object.hasOwn(patch, "cards")) {
     if (!isRecord(patch.cards)) throw new ConfigError("CONFIG_PATCH_INVALID", "cards 必须是对象。");

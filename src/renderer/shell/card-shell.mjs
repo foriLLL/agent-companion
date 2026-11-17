@@ -26,14 +26,16 @@ export function createCardShell({ document: doc = document, hostId = "codex-comp
       min-width:0;color:var(--cc-card-fg,CanvasText); }
     .platform-bar[hidden], .platform-bar [hidden] { display:none; }
     .platform-bar p { margin:0 auto 0 0;font-size:12px;opacity:.7; }
-    .settings-entry { display:flex;align-items:center;justify-content:center;width:28px;height:28px;padding:0;
-      border:0;border-radius:12.5px;cursor:pointer;background:transparent;
+    .settings-entry { position:relative;display:flex;align-items:center;justify-content:center;gap:4px;height:28px;padding:0 6px 0 8px;
+      border:0;border-radius:12.5px;cursor:pointer;background:transparent;font:inherit;font-size:12px;line-height:1;white-space:nowrap;
       color:var(--color-token-text-tertiary,color-mix(in srgb,currentColor 50%,transparent));transition:background-color .15s,color .15s; }
     .settings-entry:hover, .settings-entry[aria-expanded="true"] {
       background:var(--color-token-list-hover-background,color-mix(in srgb,currentColor 7%,transparent));
       color:var(--color-token-text-primary,currentColor); }
     .settings-entry:focus-visible { outline:2px solid var(--color-token-focus-border,#3a83f7);outline-offset:2px; }
-    .settings-entry svg { width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.1;stroke-linecap:round; }
+    .settings-entry[data-update]::after { content:"";position:absolute;top:4px;right:3px;width:6px;height:6px;border-radius:50%;
+      background:#e5484d;box-shadow:0 0 0 1.5px var(--cc-card-bg,Canvas); }
+    .settings-entry svg { flex:none;width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.1;stroke-linecap:round; }
   `;
   const platformBar = doc.createElement("div");
   platformBar.className = "platform-bar";
@@ -47,13 +49,23 @@ export function createCardShell({ document: doc = document, hostId = "codex-comp
   settingsButton.setAttribute("aria-expanded", "false");
   settingsButton.setAttribute("aria-controls", "companion-settings");
   settingsButton.title = "Companion 设置";
-  settingsButton.innerHTML = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 5h5.25m3.5 0h2.25M2.5 11h2.25m3.5 0h5.25"/><circle cx="9.5" cy="5" r="1.75"/><circle cx="6.5" cy="11" r="1.75"/></svg>';
+  settingsButton.innerHTML = '<span>卡片配置</span><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 5h5.25m3.5 0h2.25M2.5 11h2.25m3.5 0h5.25"/><circle cx="9.5" cy="5" r="1.75"/><circle cx="6.5" cy="11" r="1.75"/></svg>';
   platformBar.append(empty, settingsButton);
   const stack = doc.createElement("div");
   stack.className = "stack";
   root.append(style, platformBar, stack);
   const slots = new Map();
   let settings;
+  let updateTimer = null;
+  const win = doc.defaultView ?? globalThis;
+  // 有新版本要手动处理，或刚自动更新完还没看过说明时，在「卡片配置」上标红点。
+  function markUpdate(status) {
+    const manual = status?.available && (!status.canApply || !status.auto || status.error) && !status.pending;
+    const kind = status?.notice ? "updated" : manual ? "available" : "";
+    if (kind) settingsButton.dataset.update = kind; else delete settingsButton.dataset.update;
+    settingsButton.title = kind === "updated" ? `Companion 已更新到 ${status.notice.to}` : kind === "available"
+      ? `Companion 有新版本 ${status.latest.version}` : "Companion 设置";
+  }
   const toggleSettings = () => {
     if (!settings) return;
     if (!settings.element.hidden) settings.close();
@@ -124,10 +136,18 @@ export function createCardShell({ document: doc = document, hostId = "codex-comp
     host, root, add, reorder,
     configureSettings({ call, connection }) {
       if (settings) return;
-      settings = createSettingsPanel({ document: doc, call, connection, onClose() {
+      settings = createSettingsPanel({ document: doc, call, connection, onUpdateStatus: markUpdate, onClose() {
         settingsButton.setAttribute("aria-expanded", "false");
         settingsButton.focus({ preventScroll: true });
       } });
+      // 更新状态只读后台本地记录，不访问网络；后台每 6 小时检查一次，这里半小时同步一次红点。
+      const refreshUpdate = () => {
+        if (!settings || !settings.element.hidden) return;
+        Promise.resolve().then(() => call("companion.update.status", {})).then(markUpdate, () => {});
+      };
+      refreshUpdate();
+      updateTimer = win.setInterval(refreshUpdate, 30 * 60_000);
+      updateTimer?.unref?.();
       settings.element.id = "companion-settings";
       root.insertBefore(settings.element, stack);
       platformBar.hidden = false;
@@ -141,6 +161,7 @@ export function createCardShell({ document: doc = document, hostId = "codex-comp
     diagnostics: () => ({ count: slots.size, ids: [...slots.keys()] }),
     dispose() {
       settingsButton.removeEventListener("click", toggleSettings);
+      win.clearInterval(updateTimer);
       settings?.destroy();
       for (const slot of [...slots.values()]) slot.remove();
       host.remove();

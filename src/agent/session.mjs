@@ -138,5 +138,9 @@ export function createCodexSession({
     return stopping;
   }
 
-  return { start, stop, applyConfig };
+  // 会话还没注入好或已停止时视为没有播放。
+  const isMediaPlaying = () => started && !stopped && runtime?.injector?.isMediaPlaying
+    ? runtime.injector.isMediaPlaying() : Promise.resolve(false);
+
+  return { start, stop, applyConfig, isMediaPlaying };
 }

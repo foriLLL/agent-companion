@@ -171,7 +171,7 @@ to BT.709 SDR using the RPU, and HDR10/HLG is tone-mapped. This is not native HD
 ```sh
 brew tap foriLLL/codex-companion https://github.com/foriLLL/codex_companion
 brew trust --formula foriLLL/codex-companion/codex-companion
-brew install --HEAD codex-companion
+brew install codex-companion
 codex-companion agent install
 ```
 
@@ -180,14 +180,16 @@ trusts only this formula. Homebrew installs Node.js and FFmpeg, generates the ca
 the native helper on your machine; the last command registers the background service that starts at login.
 Reopen Codex afterwards to see the cards.
 
-There is no version tag yet, so `--HEAD` is required and you get the latest code on `main`. To update:
+After that, the background service keeps Companion on the latest release by itself; see [Updates](#updates).
+To upgrade by hand:
 
 ```sh
-brew upgrade --fetch-HEAD codex-companion && codex-companion agent install
+brew upgrade codex-companion && codex-companion agent install
 ```
 
-The background service points at Homebrew's stable paths, so Homebrew upgrading Node.js does not break it;
-after upgrading Companion, the second command switches the service to the new version. Homebrew and source
+To follow the latest code on `main`, install with `brew install --HEAD codex-companion` and add `--fetch-HEAD`
+when upgrading by hand; automatic updates still only run when a new release is published. The background
+service points at Homebrew's stable paths, so Homebrew upgrading Node.js does not break it. Homebrew and source
 installations share the same background service and data directory, so install only one; whichever ran
 `agent install` last is the one in use.
 
@@ -221,13 +223,14 @@ npm start
 
 Reopen Codex after installation to see the cards. The background service runs your current Node and the
 source in this repository directory, so **do not delete or move the repository after installing** (run
-`npm start` again if you move it). To update, run `git pull && npm ci && npm start` in the repository; also
+`npm start` again if you move it). To update, run `git pull && npm ci && npm start` in the repository (when a
+new release is out, the settings remind you and show this command, but never run it for you); also
 run `npm start` again after switching Node versions with nvm, fnm, or similar tools.
 
 ### Release builds (not published yet)
 
-The repository has no GitHub Release yet, so the command below does not work for now. Once a release is
-published, it will install Companion without Node.js:
+The signed `.app` and the Linux single-file backend are not attached to GitHub Releases yet, so the command below
+does not work for now. Once they are published, it will install Companion without Node.js:
 
 ```sh
 curl -fsSL https://github.com/foriLLL/codex_companion/releases/latest/download/install.sh | bash
@@ -279,6 +282,34 @@ launch proxy you also need to reopen it from the menu yourself.
 - After saving the "Codex 启动代理" (Codex launch proxy) preference, click "保存并重启" (Save and restart) to apply it.
 - Collapsing a card keeps its page state. Closing the page, cancelling a request, or stopping the backend
   releases media sessions, Blob URLs, segment caches, and transcoding processes.
+
+### Updates
+
+Versions are the [GitHub Releases](https://github.com/foriLLL/codex_companion/releases) tagged `vX.Y.Z` in this
+repository. The background service checks 2 minutes after it starts and every 6 hours after that; "更新" (Updates)
+in the settings also lets you check by hand and shows the current version and release notes.
+
+- **Homebrew installations** update automatically by default. When a new release is found, the service runs
+  `brew update` and `brew upgrade codex-companion` in the background (Homebrew may also upgrade outdated
+  dependencies such as Node.js or FFmpeg), then restarts Companion's background service on the new version.
+  Codex itself is not restarted. If a video is playing in a card, the restart waits until playback stops.
+  Afterwards a red dot on "卡片配置" (Card settings) points to the release notes. Turning off "自动更新"
+  (Automatic updates) switches to a reminder, and the update only installs when you click "立即更新" (Update now).
+- **Source installations** only get a reminder with the update command; Companion never runs `git pull` for you,
+  so local changes are safe.
+- When "通过代理启动" (Launch through proxy) is on, checking and upgrading use the same local proxy.
+
+Installations older than 0.2.0 have no automatic updates yet and need one manual upgrade:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/foriLLL/codex_companion/main/scripts/upgrade.sh | bash
+```
+
+The script picks the installation the registered background service runs. For Homebrew it upgrades the formula and
+registers the service again, switching a `--HEAD` installation to the release. For a source checkout it pulls and
+reruns `npm start` only when the checkout is on main with no uncommitted changes; otherwise it stops, explains why
+and leaves the checkout alone. If the service does not point at your checkout, pass the path
+(`| bash -s -- /path/to/codex_companion`). Add `--dry-run` to print the commands without running them.
 
 ### Task board
 
@@ -428,6 +459,9 @@ Injection depends on Codex's DOM structure and may need updating when Codex chan
   URLs, the FFmpeg command line, or logs.
 - **Media addresses.** Cross-origin media CDNs must use HTTPS and pass address, DNS, and public IP checks.
 - **Dependencies.** Versions are pinned by `package-lock.json`. No CDN scripts are loaded at runtime.
+- **Update checks.** The background service periodically asks `api.github.com` for this repository's latest
+  release. The request only carries `codex-companion/<version>` as its user agent and sends no local data; the
+  result is kept in `update-state.json` (`0600`) in the data directory.
 - **Hongguo.** The anonymous device profile is stored in `hongguo/anonymous.json` in the data directory and
   reused for later requests. Covers are only loaded from Hongguo CDN HTTPS addresses found in already loaded
   content; each connection validates and pins a public IP, and redirects are validated hop by hop. Watchlist
@@ -474,7 +508,14 @@ node scripts/build-native.mjs                   # compile the native helper
 npm run build:app                               # build Codex Companion.app
 npm run build:linux -- --target linux-x64       # build the single-file Linux backend
 npm run start:legacy                            # legacy one-shot CDP launch and injection
+npm run release -- 0.2.0                        # release: bump version, roll CHANGELOG, commit and tag (no push)
 ```
+
+To release, add the changes under `Unreleased` in `CHANGELOG.md`, run `npm run release -- X.Y.Z` on a clean
+`main`, then `git push origin main vX.Y.Z`. CI uses that CHANGELOG section as the release notes, attaches the
+source tarball, points the Formula at the new version, and only then publishes the release, after which
+installed copies update themselves. The signed `.app` and the single-file Linux backend are only released with
+a tag once the repository variable `BINARY_RELEASE=true` is set and the signing secrets are configured.
 
 Development conventions are in [AGENTS.md](AGENTS.md) and [CONTRIBUTING.md](CONTRIBUTING.md) (both in Chinese).
 

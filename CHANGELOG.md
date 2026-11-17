@@ -4,6 +4,15 @@
 
 ## Unreleased
 
+- 自动更新：后台服务定期检查 GitHub 上的最新正式版。Homebrew 安装默认在后台 `brew upgrade` 并重启后台服务
+  换上新版本（不重启 Codex，卡片里有视频在播时等播完）；源码安装只提醒并给出命令。设置新增「更新」：
+  当前版本、手动检查、立即更新、自动更新开关与更新内容；有待处理的新版本或刚更新完时「卡片配置」带红点；
+- 正式发版：`npm run release -- X.Y.Z` 改版本号并整理 CHANGELOG 后打 tag，CI 发布 Release（说明取自
+  CHANGELOG、附源码包）并把 Homebrew Formula 指向新版本，`brew install` 不再需要 `--HEAD`；
+  签名 `.app` 与 Linux 后端改为配好 `BINARY_RELEASE` 后才随 tag 发布；
+- 老安装一键升级：`curl -fsSL https://raw.githubusercontent.com/foriLLL/codex_companion/main/scripts/upgrade.sh | bash`，
+  按已注册的后台服务判断 Homebrew 或源码安装；`--HEAD` 安装换成正式版，源码仓库有改动或不在 main 时不动；
+- 卡片区设置入口在图标左侧加上「卡片配置」文字；
 - 主入口为 macOS 无感注入：launchd 后台服务在安全条件下以 loopback 随机端口重开
   Codex 并注入卡片，崩溃后自动拉起并重新连接；
 - 移除官方 Codex 插件（MCP Apps）链路及其 Windows / Linux 插件包；

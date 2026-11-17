@@ -45,6 +45,9 @@ systemd 用户服务常驻发现并注入；主进程 cmdline 被 Chromium setpr
 - 构建 Linux 后端：`npm run build:linux -- --target linux-x64|linux-arm64`；Release 由
   `scripts/prepare-installer.mjs` 把 Team ID、tag 与 Linux 归档 SHA256 写入 `install.sh`
 - 冒烟/探测：`npm run smoke` / `npm run probe:emby`
+- 发版：`npm run release -- X.Y.Z`（干净的 main；改版本号、把 CHANGELOG 的 Unreleased 改名、提交并打 tag，
+  不推送）。推送 tag 后 `release.yml` 发布 Release 并把 `Formula/codex-companion.rb` 的 url/sha256 指向新源码包，
+  这两行由 CI 维护，不要手改
 - 宿主适配自检：`npm run check:host`（只读查询正在运行的 Codex，列出入口、会话区、让位方式各落在哪一级，
   以及哪些 Codex 内部命名已缺失；有降级时退出码为 2）。Codex 升级后先跑它
 
@@ -91,6 +94,18 @@ Codex 每次升级都可能改掉类名、data 属性、DOM 层级和打包方�
   新增一种宿主结构或后备方式时，在 `scripts/smoke-codex-adapter.mjs` 里加对应夹具（含「钩子全无」的场景）。
 - 与原生 Summary 完全一致（判档阈值、平移量、动画）只在最高一级保证；后备级只保证不压住对话、
   入口不丢、关闭后原样恢复。
+
+## 自动更新（`src/updater.mjs`）
+- 版本只认打了 `vX.Y.Z` tag 的正式 Release；agent 启动 2 分钟后、之后每 6 小时查一次，状态存数据目录 `update-state.json`。
+- 只有 macOS 的 Homebrew 安装会自动装：`brew update` + `brew upgrade`（`HOMEBREW_NO_INSTALL_CLEANUP=1` 保留旧版本文件），
+  装好后等卡片里没有媒体在播，agent 正常清理并以退出码 75 结束，由 launchd（`KeepAlive.SuccessfulExit=false`）
+  拉起新版本。不重启 Codex。源码安装只提醒，不能替用户 `git pull`。
+- 配置开关是顶层 `updates.auto`（缺省 true），不要放进 `agent`：旧版本的校验拒绝 `agent` 里的未知字段。
+- 页面经 `companion.update.status|check|apply|acknowledge` 访问；`apply` 立即返回，界面轮询 `status`。
+- 测试里构造 `runAgent` 要传 `updater: false` 或假的 `updaterFactory`，否则假时钟推进会真的访问 GitHub。
+- `scripts/upgrade.sh` 给 0.2.0 之前的老安装一键升级（README 里是 raw main 地址，改路径要同步）：按 launchd plist /
+  systemd 单元登记的程序判断 Homebrew 还是源码；源码仓库不在 main 或有改动（`*.generated.mjs` 除外）时拒绝。
+  测试 `test/upgrade-script.test.mjs` 把 brew / npm 换成桩，**不要让它真的执行 `npm start` 或 `agent install`**。
 
 ## 代码约定
 - 无 lint/format 配置。风格：2 空格缩进、双引号、分号、ESM

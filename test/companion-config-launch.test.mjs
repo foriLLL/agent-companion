@@ -3,7 +3,7 @@ import { mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promise
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { CompanionConfig, DEFAULT_AGENT, DEFAULT_LAUNCH, normalizeCompanionConfigV2 } from "../src/companion-config.mjs";
+import { CompanionConfig, DEFAULT_AGENT, DEFAULT_LAUNCH, DEFAULT_UPDATES, normalizeCompanionConfigV2 } from "../src/companion-config.mjs";
 import { CARD_MANIFESTS } from "../src/card-registry.mjs";
 import { normalizeRuntimeConfig } from "../src/platform/config/runtime-config.mjs";
 import { assertMode } from "./helpers/permissions.mjs";
@@ -86,6 +86,8 @@ test("launch/agent 非法 patch 返回 CONFIG_PATCH_INVALID，文件与 revision
     ...[null, [], true, "agent", 1, undefined].map(agent => ({ agent })),
     ...[null, "true", 0, 1, undefined].map(enabled => ({ launch: { proxy: { enabled } } })),
     ...[null, "false", 0, 1, undefined].map(autoRelaunch => ({ agent: { autoRelaunch } })),
+    ...[null, [], true, "updates", 1, undefined].map(updates => ({ updates })),
+    ...[null, "false", 0, 1, undefined].map(auto => ({ updates: { auto } })), { updates: { channel: "beta" } },
     ...[0, 65536, -1, 1.5, "7890", true, null, NaN, Infinity, undefined].map(port => ({ launch: { proxy: { port } } })),
     { launch: { enabled: true } }, { launch: { proxy: { host: "127.0.0.1" } } },
     { agent: { other: true } }, { launch: { proxy: { enabled: false } }, agent: { typo: false } },
@@ -108,7 +110,8 @@ test("validateV2 拒绝显式损坏的新字段，保留 last-good，不尝试�
     { launch: null }, { launch: [] }, { launch: { proxy: false } },
     { launch: { proxy: { enabled: 1 } } }, { launch: { proxy: { port: "7890" } } },
     { launch: { proxy: { port: 65536 } } }, { launch: { proxy: { port: 0 } } },
-    { agent: null }, { agent: [] }, { agent: { autoRelaunch: "false" } }
+    { agent: null }, { agent: [] }, { agent: { autoRelaunch: "false" } },
+    { updates: null }, { updates: { auto: "true" } }, { updates: { auto: true, beta: true } }
   ]) {
     const original = JSON.stringify({ ...initial, ...fields });
     await writeFile(path, original);
@@ -304,4 +307,18 @@ test("非 macOS 平台不调用 defaults 导入旧偏好，直接使用默认启
     execFileImpl: async () => { throw new Error("不应调用 defaults"); }
   });
   assert.deepEqual(await store.readLegacyLaunchDefaults(), { proxy: { enabled: false, port: 7890 } });
+});
+
+test("自动更新缺省开启，可单独关闭，非法值回落缺省；写入后其它字段不变", async t => {
+  assert.deepEqual(normalizeCompanionConfigV2({ version: 2 }).updates, DEFAULT_UPDATES);
+  assert.deepEqual(DEFAULT_UPDATES, { auto: true });
+  assert.deepEqual(normalizeCompanionConfigV2({ version: 2, updates: { auto: false } }).updates, { auto: false });
+  assert.deepEqual(normalizeCompanionConfigV2({ version: 2, updates: { auto: "no" } }).updates, DEFAULT_UPDATES);
+  const { store } = await fixture(t);
+  const initial = await store.loadV2();
+  assert.deepEqual(initial.updates, { auto: true });
+  const next = await store.patch({ updates: { auto: false } }, { expectedRevision: 0 });
+  assert.deepEqual(next.updates, { auto: false });
+  assert.deepEqual(next.agent, initial.agent);
+  assert.deepEqual((await store.patch({ updates: {} }, { expectedRevision: next.revision })).updates, { auto: false });
 });

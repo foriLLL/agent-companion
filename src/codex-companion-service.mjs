@@ -68,6 +68,19 @@ export class CodexCompanionService {
       case "companion.agent.status":
         validateParams(params, []);
         return typeof this.platform.getAgentStatus === "function" ? this.platform.getAgentStatus() : { available: false };
+      // 更新：status 只读本地状态；check 访问 GitHub；apply 启动升级后立即返回，界面轮询 status。
+      case "companion.update.status":
+      case "companion.update.check":
+      case "companion.update.apply":
+      case "companion.update.acknowledge": {
+        validateParams(params, []);
+        const action = { "companion.update.status": "getUpdateStatus", "companion.update.check": "checkForUpdates",
+          "companion.update.apply": "applyUpdate", "companion.update.acknowledge": "acknowledgeUpdate" }[method];
+        const result = typeof this.platform[action] === "function" ? await this.platform[action]() : null;
+        if (result) return result;
+        if (method === "companion.update.status") return { supported: false };
+        throw rpcError("AGENT_UNAVAILABLE", "更新服务未运行");
+      }
       default:
         throw rpcError("RPC_METHOD_NOT_FOUND", "未知平台 RPC 方法");
     }

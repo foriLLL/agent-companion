@@ -138,6 +138,11 @@ export function createAgentAdapter({
       config = next;
       await current?.session?.applyConfig(next);
     },
+    // 没有连上 Codex 时不会有卡片在播放。
+    isMediaPlaying() {
+      const session = current?.ready ? current.session : null;
+      return typeof session?.isMediaPlaying === "function" ? session.isMediaPlaying() : Promise.resolve(false);
+    },
     async record(event, details = {}) {
       if (closed) return;
       await persist({ lastEvent: { event, at: now() },

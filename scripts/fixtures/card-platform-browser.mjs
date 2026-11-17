@@ -525,6 +525,14 @@ export async function settingsWithoutSummary() {
   } finally { await f.runtime.dispose(); native.remove(); }
 }
 
+// 有新版本、需要手动处理（自动更新关闭）的状态：说明里放长串不换行文字，检查窄宽度下不横向溢出。
+const UPDATE_STATUS = Object.freeze({
+  current: "0.2.0", channel: "homebrew", canApply: true, auto: false, phase: "idle", available: true,
+  latest: { version: "0.2.1", notes: `- 新增自动更新\n- ${"VeryLongUnbrokenReleaseNote".repeat(6)}`, url: "https://github.com/foriLLL/codex_companion/releases/tag/v0.2.1" },
+  lastCheckAt: Date.UTC(2026, 10, 17, 3, 0), error: null, pending: null, notice: null,
+  command: "brew upgrade codex-companion", releasesUrl: "https://github.com/foriLLL/codex_companion/releases"
+});
+
 export async function settingsLayout() {
   const host = document.createElement("div");
   host.style.cssText = "width:320px;color-scheme:light dark";
@@ -536,6 +544,7 @@ export async function settingsLayout() {
     calls.push({ method, params });
     if (method === "companion.settings.get") return { config, catalog: [{ id: "long-title", title: "LongUnbrokenCardTitle".repeat(5), defaultEnabled: true, defaultOrder: 0 }, { id: "tasks", title: "任务看板", defaultEnabled: true, defaultOrder: 5 }] };
     if (method === "companion.agent.status") return { available: false };
+    if (method === "companion.update.status") return structuredClone(UPDATE_STATUS);
     if (method === "companion.codex.restart") return { accepted: true };
     const tasksPatch = params.patch.cards?.tasks ?? {};
     const tasks = { ...config.cards.tasks, ...tasksPatch, settings: { ...config.cards.tasks.settings, ...tasksPatch.settings } };
@@ -565,6 +574,16 @@ export async function settingsLayout() {
       equal(getComputedStyle(panel.element).color, foreground, `${scheme} 文字 token`);
       assert(panel.element.scrollWidth <= panel.element.clientWidth, `${scheme} 320px 设置页横向滚动`);
       for (const input of panel.element.querySelectorAll("input")) assert(input.labels?.length, "表单缺少可访问 label");
+      const update = [...panel.element.querySelectorAll("legend")].find(legend => legend.textContent === "更新").parentElement;
+      const apply = [...update.querySelectorAll("button")].find(button => button.textContent === "立即更新");
+      assert(!update.hidden && update.textContent.includes("发现新版本 0.2.1") && apply && !apply.hidden, `${scheme} 更新区块未显示新版本与立即更新`);
+      assert(update.querySelector("details").open === false && update.querySelector("details summary").textContent === "更新内容", `${scheme} 更新内容默认应收起`);
+      update.querySelector("details summary").click();
+      assert(update.scrollWidth <= update.clientWidth && panel.element.scrollWidth <= panel.element.clientWidth, `${scheme} 更新说明导致横向滚动`);
+      // 切换主题会触发按钮背景色过渡，等过渡结束再取色。
+      for (const animation of apply.getAnimations()) animation.finish();
+      assert(buttonContrast(apply) >= 4.5, `${scheme} 立即更新按钮文字对比度不足`);
+      update.querySelector("details summary").click();
       planHint.click();
       assert(!confirmation.hidden && !planHint.checked, "确认前开关不能显示已开启");
       equal(calls.filter(call => call.method.endsWith("patch")).length, 0, "确认前不能保存计划提示");
@@ -597,7 +616,7 @@ export async function settingsLayout() {
     buttons.find(button => button.textContent === "确认重启").click();
     await tick();
     equal(calls.filter(call => call.method.endsWith("restart")).length, 1, "确认后只发一次重启");
-    return { width: 320, themes: 2, overflow: false, labelledInputs: panel.element.querySelectorAll("input").length, confirmedRestart: true, confirmedPlanHint: true, exactRulePreview: true };
+    return { width: 320, themes: 2, overflow: false, labelledInputs: panel.element.querySelectorAll("input").length, confirmedRestart: true, confirmedPlanHint: true, exactRulePreview: true, updateSection: true };
   } finally { panel.destroy(); host.remove(); }
 }
 
@@ -611,6 +630,7 @@ export async function settingsBundle() {
     sent.push(request);
     if (request.method === "companion.settings.get") return Promise.resolve({ config, catalog: CARD_MANIFESTS, agent: null });
     if (request.method === "companion.agent.status") return Promise.resolve({ available: false });
+    if (request.method === "companion.update.status") return Promise.resolve(structuredClone(UPDATE_STATUS));
     throw Error(`unexpected ${request.method}`);
   };
   try {
@@ -622,9 +642,14 @@ export async function settingsBundle() {
     bridge.setOpen(true);
     await until(() => bridge.isPlaced(), "bundle 设置入口打开");
     const root = document.getElementById("codex-companion-root-shell").shadowRoot.querySelector("#codex-companion-root").shadowRoot;
-    root.querySelector('[aria-label="Companion 设置"]').click();
+    const gear = root.querySelector('[aria-label="Companion 设置"]');
+    // 外框挂载即读一次更新状态：需要手动更新时「卡片配置」带红点。
+    await until(() => gear.dataset.update === "available", "bundle 更新红点");
+    equal(getComputedStyle(gear, "::after").backgroundColor, "rgb(229, 72, 77)", "红点颜色");
+    equal(gear.title, "Companion 有新版本 0.2.1", "红点提示文字");
+    gear.click();
     await until(() => root.querySelector(".cc-settings").getAttribute("aria-busy") === "false", "bundle 设置读取");
-    equal(sent.map(item => item.method), ["companion.settings.get", "companion.agent.status"], "bundle 平台 RPC");
+    equal(sent.map(item => item.method), ["companion.update.status", "companion.settings.get", "companion.agent.status", "companion.update.status"], "bundle 平台 RPC");
     assert(sent.every(item => item.cardId === "companion" && Number.isInteger(item.generation)), "bundle 平台 scope");
     equal(renderer.bootstrap({ config: { ...config, revision: 4 }, artifactHash: RENDERER_ARTIFACT_HASH }).status, "already-mounted", "重复 bundle 不重建入口");
     assert(globalThis.__CODEX_COMPANION__ === bridge, "重复注入替换了 runtime");

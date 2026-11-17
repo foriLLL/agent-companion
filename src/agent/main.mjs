@@ -16,6 +16,7 @@ import { createAgentFileLogger } from "./logger.mjs";
 import { startMainThreadWatchdog } from "./watchdog.mjs";
 import { companionDataDir } from "../platform/paths.mjs";
 import { findLinuxCodexProcesses } from "../platform/processes.mjs";
+import { createUpdater, defaultUpdateStatePath, detectInstall, RESTART_EXIT_CODE } from "../updater.mjs";
 
 const execFileAsync = promisify(execFile);
 export const AGENT_VERSION = packageInfo.version;
@@ -180,6 +181,7 @@ export async function runAgent(options = {}) {
   let retryMs = 1000;
   let polling;
   let watchdog;
+  let updater = null;
   const waits = new Map();
   const report = error => logger.warn?.(`[codex-companion] agent：${error.message ?? error}`);
   const platform = {
@@ -187,7 +189,11 @@ export async function runAgent(options = {}) {
       snapshot: adapter.snapshotValue, attachment: adapter.attachment, lastEvent: adapter.state.lastEvent,
       nativeHelper: deps.nativeBridge ? "ok" : "missing", hostPlatform: deps.hostPlatform }),
     requestCodexRestart: params => deps.nativeBridge ? controller.requestUserRestart(params)
-      : Promise.resolve({ accepted: false, reason: "native-helper-missing" })
+      : Promise.resolve({ accepted: false, reason: "native-helper-missing" }),
+    getUpdateStatus: () => updater?.status() ?? null,
+    checkForUpdates: () => updater ? updater.check({ manual: true }) : null,
+    applyUpdate: () => updater ? updater.apply() : null,
+    acknowledgeUpdate: () => updater ? updater.acknowledge() : null
   };
   const pause = ms => new Promise(resolvePause => {
     if (stopped) return resolvePause();
@@ -267,8 +273,10 @@ export async function runAgent(options = {}) {
     for (const timer of [pollTimer, pendingTimer, retryTimer]) clearTimer(timer);
     for (const [timer, resolvePause] of waits) { clearTimer(timer); resolvePause(); }
     waits.clear();
+    const updaterStopped = updater?.stop();
     stopping = (async () => {
       try {
+        await updaterStopped?.catch(report);
         try { await watcher?.close(); }
         finally { await adapter?.close(); }
       } catch (error) {
@@ -282,6 +290,15 @@ export async function runAgent(options = {}) {
     return stopping;
   }
   function onSignal() { void stop().then(() => { processRef.exitCode = 0; }, error => { report(error); processRef.exitCode = 1; }); }
+  // 新版本已装好：正常清理后以非零码退出，launchd 按 KeepAlive.SuccessfulExit=false 拉起新版本。
+  // 清理卡住时 5 秒后强制退出，避免旧版本一直占着单实例锁。
+  function restartForUpdate() {
+    if (stopped) return;
+    void stop().catch(report).finally(() => {
+      processRef.exitCode = RESTART_EXIT_CODE;
+      (options.exitImpl ?? (code => { setTimeout(() => process.exit(code), 5000).unref(); }))(RESTART_EXIT_CODE);
+    });
+  }
 
   try {
     if (options.logDir) {
@@ -311,9 +328,24 @@ export async function runAgent(options = {}) {
       onChange: async next => {
         if (stopped) return;
         try { await adapter.applyConfig(next); }
-        finally { if (!stopped) config = next; }
+        finally { if (!stopped) { config = next; updater?.applyConfig(); } }
       }, onError: report });
     if (stopped) { await watcher.close(); await stopping; return { running: false, stop }; }
+    if (options.updater !== false) {
+      try {
+        const env = options.env ?? process.env;
+        const install = await (options.detectInstallImpl ?? detectInstall)({ env, hostPlatform: deps.hostPlatform });
+        updater = (options.updaterFactory ?? createUpdater)({ currentVersion: AGENT_VERSION, install, env,
+          statePath: options.updateStatePath ?? defaultUpdateStatePath(deps.home), getConfig: () => config,
+          logger, now, hostPlatform: deps.hostPlatform, setTimer, clearTimer,
+          isMediaPlaying: () => adapter.isMediaPlaying(), restart: restartForUpdate });
+        await updater.start();
+      } catch (error) {
+        // 更新出问题不能影响卡片注入。
+        report(error);
+        updater = null;
+      }
+    }
     startWatch();
     if (!watchHealthy) { await poll(); schedulePoll(); }
     return { running: true, stop, controller, adapter, ...platform };

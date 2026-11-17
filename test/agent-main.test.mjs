@@ -22,7 +22,7 @@ async function fixture(t, options = {}) {
   const instance = await runAgent({ home, hostPlatform: "darwin", helperPath: "/fake/native", nativeBridge: bridge, configStore: config,
     runtimeState, logger, processRef, isAlive: () => false, lockSpawnImpl: fakeLockSpawn(),
     now: timer.now, setTimeoutImpl: timer.setTimeoutImpl, clearTimeoutImpl: timer.clearTimeoutImpl,
-    waitForTargets: async () => [], notifyImpl: async () => {},
+    waitForTargets: async () => [], notifyImpl: async () => {}, updater: false,
     watchConfig: async options => { onChange = options.onChange; return { close: async () => { watcherClosed = true; } }; },
     sessionFactory: options => {
       const session = { options, stopped: false, configs: [],
@@ -300,4 +300,42 @@ test("没拿到单实例锁时不启动看门狗；拿锁后启动失败会连�
     lockSpawnImpl: fakeLockSpawn(), isAlive: () => false, configStore: { loadV2: async () => { throw new Error("bad config"); } } }), /bad config/);
   assert.equal(started.calls.length, 1);
   assert.equal(started.calls[0].stops, 1);
+});
+
+test("自动更新接线：平台方法转给 updater，配置变化通知它；装好新版本后正常清理并以 75 退出", async t => {
+  const exits = [];
+  let created, configChanges = 0;
+  const f = await fixture(t, {
+    updater: undefined, exitImpl: code => exits.push(code),
+    detectInstallImpl: async ({ hostPlatform }) => ({ channel: "homebrew", brew: "/opt/homebrew/bin/brew", hostPlatform }),
+    updaterFactory: options => {
+      created = options;
+      return { started: false, stopped: false,
+        async start() { this.started = true; }, status: () => ({ current: options.currentVersion, phase: "idle" }),
+        check: async ({ manual }) => ({ checked: manual }), apply: () => ({ phase: "updating" }), acknowledge: async () => ({ notice: null }),
+        applyConfig() { configChanges += 1; }, async stop() { this.stopped = true; } };
+    }
+  });
+  assert.equal(created.currentVersion, AGENT_VERSION);
+  assert.equal(created.install.hostPlatform, "darwin");
+  assert.equal(created.getConfig(), f.config.value);
+  assert.deepEqual(f.instance.getUpdateStatus(), { current: AGENT_VERSION, phase: "idle" });
+  assert.deepEqual(await f.instance.checkForUpdates(), { checked: true });
+  assert.deepEqual(f.instance.applyUpdate(), { phase: "updating" });
+  assert.equal(await created.isMediaPlaying(), false, "没连上 Codex 时不算在播放");
+  await f.update({ ...f.config.value, revision: 1, updates: { auto: false } });
+  assert.equal(configChanges, 1);
+  assert.equal(created.getConfig().updates.auto, false);
+  created.restart();
+  await f.instance.stop();
+  await flush();
+  assert.deepEqual(exits, [75]);
+  assert.equal(f.processRef.exitCode, 75);
+  assert.equal(f.watcherClosed(), true);
+});
+
+test("updater 启动失败不影响 agent", async t => {
+  const f = await fixture(t, { updater: undefined, detectInstallImpl: async () => { throw new Error("detect failed"); } });
+  assert.equal(f.instance.getUpdateStatus(), null);
+  assert.equal(f.instance.getAgentStatus().available, true);
 });

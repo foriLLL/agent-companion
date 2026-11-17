@@ -1,9 +1,10 @@
 # Homebrew 安装（仓库本身就是 tap）：
 #   brew tap foriLLL/codex-companion https://github.com/foriLLL/codex_companion
 #   brew trust --formula foriLLL/codex-companion/codex-companion   # Homebrew 7 起需要
-#   brew install --HEAD codex-companion
+#   brew install codex-companion
 #   codex-companion agent install
-# 还没有打版本 tag，只能装 main 上的最新代码（--HEAD）；有了 Release 后再补 url / sha256。
+# 打 vX.Y.Z tag 后，CI 发布 Release 并把下面的 url / sha256 指向该版本的源码包；--HEAD 装 main 上的最新代码。
+# 后台服务会自动检查 Release，发现新版本后执行 brew upgrade 并重启自己（设置里可关闭）。
 class CodexCompanion < Formula
   desc "Card drawer for the Codex desktop app: task board, short dramas, Emby and more"
   homepage "https://github.com/foriLLL/codex_companion"
@@ -30,9 +31,12 @@ class CodexCompanion < Formula
     libexec.install Dir["*"]
 
     # 后台服务记的是这个脚本的固定路径（opt），升级 node 或本软件后都不会失效。
+    # 安装渠道与 brew 路径供自动更新使用：launchd 下的 PATH 不一定能找到 brew。
     (bin/"codex-companion").write <<~SH
       #!/bin/bash
       export CODEX_COMPANION_AGENT_PROGRAM="#{opt_bin}/codex-companion"
+      export CODEX_COMPANION_INSTALL_CHANNEL=homebrew
+      export CODEX_COMPANION_BREW="#{HOMEBREW_PREFIX}/bin/brew"
       export CODEX_COMPANION_NATIVE_HELPER="${CODEX_COMPANION_NATIVE_HELPER:-#{opt_libexec}/dist/native/#{native_target}/companion-native}"
       exec "#{node}" "#{opt_libexec}/src/cli.mjs" "$@"
     SH
@@ -42,7 +46,8 @@ class CodexCompanion < Formula
     <<~EOS
       注册登录后自动启动的后台服务，然后重新打开 Codex：
         codex-companion agent install
-      升级：brew upgrade --fetch-HEAD codex-companion，之后再执行一次 codex-companion agent install。
+      后台服务会自动更新到最新正式版（Companion 设置 › 更新 里可关闭）。
+      手动升级：brew upgrade codex-companion（--HEAD 安装加 --fetch-HEAD），之后再执行一次 codex-companion agent install。
       卸载：先执行 codex-companion agent uninstall，再 brew uninstall codex-companion。
     EOS
   end

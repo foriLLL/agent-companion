@@ -148,7 +148,7 @@ P5/P8 使用 RPU 映射到 BT.709 SDR，HDR10/HLG 做色调映射，这不是原
 ```sh
 brew tap foriLLL/codex-companion https://github.com/foriLLL/codex_companion
 brew trust --formula foriLLL/codex-companion/codex-companion
-brew install --HEAD codex-companion
+brew install codex-companion
 codex-companion agent install
 ```
 
@@ -156,13 +156,14 @@ Homebrew 7 起第三方 tap 里的 Formula 要先信任才会加载，第二条�
 Homebrew 自动装好 Node.js 与 FFmpeg，在本机生成卡片渲染器并编译原生助手；最后一条命令注册登录后自动启动的
 后台服务。装好后重新打开 Codex 即可看到卡片。
 
-仓库还没有打版本 tag，所以要加 `--HEAD`，装的是 main 分支的最新代码。更新：
+装好后由后台服务自动更新到最新正式版，见[更新](#更新)。想手动升级：
 
 ```sh
-brew upgrade --fetch-HEAD codex-companion && codex-companion agent install
+brew upgrade codex-companion && codex-companion agent install
 ```
 
-后台服务记的是 Homebrew 的固定路径，Homebrew 升级 Node.js 不影响它；升级 Companion 后由第二条命令换上新版本。
+想跟着 main 分支的最新代码，改用 `brew install --HEAD codex-companion`，手动升级时加 `--fetch-HEAD`；
+自动更新同样只在有新的正式版时才触发。后台服务记的是 Homebrew 的固定路径，Homebrew 升级 Node.js 不影响它。
 Homebrew 安装与源码安装共用同一个后台服务和数据目录，二者装一个即可，以最后执行 `agent install` 的为准。
 
 ### 从源码安装
@@ -191,12 +192,12 @@ npm start
 4. 以当前源码注册登录后自动启动的后台服务（macOS：launchd；Linux：systemd 用户服务并覆盖菜单入口）。
 
 装好后重新打开 Codex 即可看到卡片。后台服务直接运行当前 Node 与这个仓库目录里的源码，**装好后不要删除或移动
-仓库**（移动后要重新执行 `npm start`）。更新时在仓库里执行 `git pull && npm ci && npm start`；用 nvm、fnm 等
-切换 Node 版本后也要重新执行 `npm start`。
+仓库**（移动后要重新执行 `npm start`）。更新时在仓库里执行 `git pull && npm ci && npm start`（有新正式版时
+设置页会提醒并给出这条命令，但不会替你执行）；用 nvm、fnm 等切换 Node 版本后也要重新执行 `npm start`。
 
 ### 发布版（尚未发布）
 
-仓库还没有 GitHub Release，下面的命令暂时不可用；发布后可以不装 Node.js 直接安装：
+签名的 `.app` 与 Linux 单文件后端还没有随 Release 发布，下面的命令暂时不可用；发布后可以不装 Node.js 直接安装：
 
 ```sh
 curl -fsSL https://github.com/foriLLL/codex_companion/releases/latest/download/install.sh | bash
@@ -237,6 +238,28 @@ ChatGPT 若已开着，需要退出后从菜单重开一次。FFmpeg 需自行�
 - 在设置中调整卡片开关与顺序；关闭卡片保留存档。
 - 「Codex 启动代理」保存启动偏好后，点击「保存并重启」应用。
 - 收起卡片保留页面状态；关闭页面、取消请求或后台退出时回收媒体会话、Blob URL、分片缓存与转码进程。
+
+### 更新
+
+版本以本仓库打了 `vX.Y.Z` tag 的 [GitHub Release](https://github.com/foriLLL/codex_companion/releases) 为准。
+后台服务启动 2 分钟后检查一次，之后每 6 小时检查一次；设置的「更新」里也可以手动检查，并查看当前版本与更新内容。
+
+- **Homebrew 安装**：默认自动更新。发现新版本后在后台执行 `brew update` 与 `brew upgrade codex-companion`
+  （Homebrew 可能顺带升级过期的依赖，例如 Node.js、FFmpeg），装好后重启 Companion 的后台服务换上新版本，
+  不会重启 Codex。卡片里有视频在播时会等播放结束再重启，以免打断观看。更新完成后「卡片配置」上出现红点，
+  打开设置可以看到更新内容。设置里关掉「自动更新」后改为提醒，点「立即更新」才安装。
+- **源码安装**：只提醒，不会替你 `git pull`，避免冲掉本地改动；设置页给出更新命令。
+- 开启了「通过代理启动」时，检查与升级都走同一个本机代理。
+
+0.2.0 之前装的版本还没有自动更新，需要先手动升级一次：
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/foriLLL/codex_companion/main/scripts/upgrade.sh | bash
+```
+
+脚本按已注册的后台服务判断安装方式。Homebrew 安装：升级并重新注册后台服务，`--HEAD` 安装换成正式版。
+源码安装：仓库在 main 且没有未提交的改动时拉取并重新 `npm start`，否则停下说明原因、不动仓库；后台服务没指向
+仓库时，把仓库路径作为参数（`| bash -s -- /path/to/codex_companion`）。加 `--dry-run` 只打印将执行的命令。
 
 ### 任务看板
 
@@ -347,6 +370,8 @@ npm run probe:emby -- --server https://emby.example.com --username alice --searc
 - **Emby 凭证**：Token 只发往配置的 Emby origin，不进入 DOM、媒体 URL、FFmpeg 命令行或日志。
 - **媒体地址**：跨源媒体 CDN 必须使用 HTTPS，并经过地址、DNS 和公网 IP 校验。
 - **依赖**：版本由 `package-lock.json` 固定，运行时不加载 CDN 脚本。
+- **检查更新**：后台服务定期请求 `api.github.com` 上本仓库的最新 Release，请求头只带
+  `codex-companion/<版本号>`，不发送任何本机数据；状态记在数据目录的 `update-state.json`（`0600`）。
 - **红果**：匿名设备档案保存在数据目录的 `hongguo/anonymous.json`，供后续请求复用。
   封面只允许已加载内容中的红果 CDN HTTPS 地址，每次连接校验并固定公网 IP，重定向逐跳验证；
   片单输入不能添加未知封面地址。签名播放地址与内容密钥在播放期间会出现在 FFmpeg 命令行参数里。
@@ -386,7 +411,13 @@ node scripts/build-native.mjs                   # 编译原生助手
 npm run build:app                               # 构建 Codex Companion.app
 npm run build:linux -- --target linux-x64       # 构建 Linux 单文件后端
 npm run start:legacy                            # 旧一次性 CDP 启动与注入
+npm run release -- 0.2.0                        # 发版：改版本号、整理 CHANGELOG、提交并打 tag（不推送）
 ```
+
+发版：先把改动写进 `CHANGELOG.md` 的 `Unreleased`，在干净的 main 上执行 `npm run release -- X.Y.Z`，
+确认后 `git push origin main vX.Y.Z`。CI 用 CHANGELOG 这一节作为 Release 说明并附源码包，把 Formula 指向
+新版本后再公开 Release，已安装的 Companion 随后自动更新。签名的 `.app` 与 Linux 单文件后端要在仓库变量
+`BINARY_RELEASE=true` 并配好签名 secrets 后才随 tag 发布。
 
 开发约定见 [AGENTS.md](AGENTS.md) 与 [CONTRIBUTING.md](CONTRIBUTING.md)。
 

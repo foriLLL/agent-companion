@@ -75,11 +75,17 @@ const initialConfig = () => ({
   cards: { alpha: { enabled: true, settings: { keep: true } }, beta: { enabled: false, settings: {} }, future: { enabled: true, settings: { unknown: true } } },
   launch: { proxy: { enabled: false, port: 7890 } }, agent: { autoRelaunch: true }
 });
-function fixture(handler, options = {}) {
+// 更新相关 RPC 单独记录：默认回「不支持」，各用例的 calls 只含设置与状态读写。
+function fixture(handler, { updates, ...options } = {}) {
   const document = makeDocument();
   const calls = [];
+  const updateCalls = [];
   let closed = 0;
   const call = async (method, params) => {
+    if (method.startsWith("companion.update.")) {
+      updateCalls.push({ method, params });
+      return updates ? updates(method, params) : { supported: false };
+    }
     calls.push({ method, params });
     if (handler) return handler(method, params, calls);
     if (method === "companion.settings.get") return { config: initialConfig(), catalog, agent: null };
@@ -88,7 +94,7 @@ function fixture(handler, options = {}) {
   };
   const panel = createSettingsPanel({ document, call, onClose: () => { closed++; }, ...options });
   document.body.append(panel.element);
-  return { document, panel, calls, get closed() { return closed; } };
+  return { document, panel, calls, updateCalls, get closed() { return closed; } };
 }
 function taskFixture({ settings = {}, onPatch } = {}) {
   const base = initialConfig();
@@ -135,7 +141,7 @@ test("设置页首次打开才读取，渲染全部区块与 catalog 标题，�
   await f.panel.open();
   const root = f.panel.element;
   assert.deepEqual(f.calls.map(item => item.method), ["companion.settings.get", "companion.agent.status"]);
-  assert.deepEqual(descendants(root).filter(item => item.tagName === "legend").map(item => item.textContent), ["卡片", "显示方式", "任务看板", "启动", "自动加载", "状态"]);
+  assert.deepEqual(descendants(root).filter(item => item.tagName === "legend").map(item => item.textContent), ["卡片", "显示方式", "任务看板", "启动", "自动加载", "更新", "状态"]);
   assert.ok(bySetting(root, "enabled").checked);
   assert.ok(bySetting(root, "card-alpha").parentNode.textContent.includes("甲卡片"));
   assert.equal(bySetting(root, "card-beta").checked, false);
@@ -624,7 +630,8 @@ test("runtime 的平台 RPC 独立于业务卡片，总开关关闭仍保留外�
   gear.click();
   const platform = sent.filter(item => item.cardId === "companion");
   assert.equal(settingsAvailable, true);
-  assert.deepEqual(platform.map(item => item.method), ["companion.settings.get", "companion.agent.status"]);
+  // 外框挂载时读一次更新状态决定红点，打开设置再读设置、状态与更新。
+  assert.deepEqual(platform.map(item => item.method), ["companion.update.status", "companion.settings.get", "companion.agent.status", "companion.update.status"]);
   assert.ok(platform.every(item => Number.isInteger(item.generation) && item.generation === platform[0].generation));
   await runtime.applyConfig({ ...initialConfig(), enabled: false, revision: 5 });
   assert.equal(disposed, 1);
@@ -632,14 +639,16 @@ test("runtime 的平台 RPC 独立于业务卡片，总开关关闭仍保留外�
   assert.equal(shell.host.isConnected, true);
   assert.equal(byLabel(shell.root, "Companion 设置"), gear);
   assert.ok(byText(shell.root, "卡片已关闭", "p"));
-  assert.equal(client.diagnostics().pending, 2, "业务停用不能取消平台请求");
-  for (const request of platform) client.receiveRpc({ id: request.id, result: request.method.endsWith("get") ? { config: { ...initialConfig(), enabled: false }, catalog } : { available: false } });
+  assert.equal(client.diagnostics().pending, 4, "业务停用不能取消平台请求");
+  const results = { "companion.settings.get": { config: { ...initialConfig(), enabled: false }, catalog },
+    "companion.agent.status": { available: false }, "companion.update.status": { supported: false } };
+  for (const request of platform) client.receiveRpc({ id: request.id, result: results[request.method] });
   await turn();
   assert.equal(bySetting(shell.root, "enabled").checked, false);
   byLabel(shell.root, "关闭 Companion 设置").click();
   assert.equal(document.activeElement, gear);
   gear.click();
-  assert.equal(client.diagnostics().pending, 2);
+  assert.equal(client.diagnostics().pending, 3);
   await runtime.dispose();
   assert.equal(client.diagnostics().pending, 0);
   assert.equal(shell.host.isConnected, false);
@@ -822,4 +831,98 @@ test("保存超时后不重放修改：链路正常时自动重新读取配置",
   assert.equal(bySetting(f.panel.element, "enabled").disabled, false);
   assert.equal(bySetting(f.panel.element, "enabled").checked, true, "以后台读回的配置为准");
   f.panel.destroy();
+});
+
+const updateStatus = (extra = {}) => ({
+  current: "0.2.0", channel: "homebrew", canApply: true, auto: false, phase: "idle", available: true,
+  latest: { version: "0.2.1", notes: "- 修复看板提醒", url: "https://github.com/foriLLL/codex_companion/releases/tag/v0.2.1" },
+  lastCheckAt: 1_800_000_000_000, error: null, pending: null, notice: null, command: "brew upgrade codex-companion",
+  releasesUrl: "https://github.com/foriLLL/codex_companion/releases", ...extra
+});
+const updateFieldset = root => descendants(root).find(item => item.tagName === "legend" && item.textContent === "更新").parentNode;
+
+test("更新：Homebrew 有新版本时可一键更新并显示进度，自动更新开关只写 updates.auto", async () => {
+  let config = initialConfig();
+  let status = updateStatus();
+  const f = fixture((method, params) => {
+    if (method === "companion.settings.get") return { config, catalog };
+    if (method === "companion.agent.status") return { available: false };
+    config = { ...config, ...params.patch, revision: config.revision + 1 };
+    return { config };
+  }, { updates: method => {
+    if (method === "companion.update.apply") status = updateStatus({ phase: "updating" });
+    return status;
+  } });
+  await f.panel.open();
+  const root = f.panel.element;
+  const section = updateFieldset(root);
+  assert.equal(section.hidden, false);
+  assert.ok(section.textContent.includes("发现新版本 0.2.1"));
+  assert.ok(section.textContent.includes("- 修复看板提醒"));
+  const apply = byText(root, "立即更新");
+  assert.equal(apply.hidden, false);
+  assert.equal(apply.disabled, false);
+  assert.equal(bySetting(root, "auto-update").parentNode.hidden, false);
+  assert.equal(bySetting(root, "auto-update").checked, true, "开关跟随配置，缺省开启");
+  apply.click();
+  await turn();
+  assert.deepEqual(f.updateCalls.map(item => item.method), ["companion.update.status", "companion.update.apply"]);
+  assert.ok(section.textContent.includes("正在更新到 0.2.1…"));
+  assert.equal(byText(root, "立即更新").hidden, true);
+  change(bySetting(root, "auto-update"), false);
+  await turn();
+  assert.deepEqual(f.calls.at(-1).params, { expectedRevision: 4, patch: { updates: { auto: false } } });
+  f.panel.destroy();
+});
+
+test("更新：源码安装只给命令；刚更新完打开即确认提示；不支持时整组隐藏", async () => {
+  const source = fixture(null, { updates: () => updateStatus({ channel: "source", canApply: false,
+    command: 'cd "/Users/me/codex_companion" && git pull && npm ci && npm start' }) });
+  await source.panel.open();
+  const root = source.panel.element;
+  assert.ok(root.textContent.includes("在终端执行：\ncd \"/Users/me/codex_companion\" && git pull && npm ci && npm start"));
+  assert.equal(byText(root, "立即更新").hidden, true);
+  assert.equal(bySetting(root, "auto-update").parentNode.hidden, true);
+  source.panel.destroy();
+
+  const seen = [];
+  const updated = fixture(null, { onUpdateStatus: status => seen.push(status?.notice ?? null), updates: method =>
+    method === "companion.update.acknowledge" ? updateStatus({ available: false, latest: null, notice: null })
+      : updateStatus({ available: false, latest: null, current: "0.2.1", notice: { from: "0.2.0", to: "0.2.1", notes: "- 新增自动更新" } }) });
+  await updated.panel.open();
+  await turn();
+  assert.ok(updateFieldset(updated.panel.element).textContent.includes("已更新到 0.2.1"));
+  assert.ok(updated.panel.element.textContent.includes("- 新增自动更新"));
+  assert.deepEqual(updated.updateCalls.map(item => item.method), ["companion.update.status", "companion.update.acknowledge"]);
+  assert.deepEqual(seen, [{ from: "0.2.0", to: "0.2.1", notes: "- 新增自动更新" }, null], "确认后通知外框去掉红点");
+  updated.panel.destroy();
+
+  const unsupported = fixture();
+  await unsupported.panel.open();
+  assert.equal(updateFieldset(unsupported.panel.element).hidden, true);
+  unsupported.panel.destroy();
+});
+
+test("「卡片配置」红点：需要手动处理的新版本或未看过的更新说明才标，自动更新进行中不标", async () => {
+  for (const [status, expected, title] of [
+    [updateStatus(), "available", "Companion 有新版本 0.2.1"],
+    [updateStatus({ auto: true }), undefined, "Companion 设置"],
+    [updateStatus({ auto: true, error: { message: "更新失败：x", at: 1 } }), "available", "Companion 有新版本 0.2.1"],
+    [updateStatus({ canApply: false, auto: true }), "available", "Companion 有新版本 0.2.1"],
+    [updateStatus({ pending: { version: "0.2.1" } }), undefined, "Companion 设置"],
+    [updateStatus({ available: false, latest: null, notice: { from: "0.2.0", to: "0.2.1", notes: "" } }), "updated", "Companion 已更新到 0.2.1"],
+    [{ supported: false }, undefined, "Companion 设置"]
+  ]) {
+    const document = makeDocument();
+    const shell = createCardShell({ document });
+    shell.configureSettings({ call: async method => {
+      assert.equal(method, "companion.update.status");
+      return status;
+    } });
+    await turn();
+    const gear = byLabel(shell.root, "Companion 设置");
+    assert.equal(gear.dataset.update, expected, JSON.stringify(status));
+    assert.equal(gear.title, title);
+    shell.dispose();
+  }
 });

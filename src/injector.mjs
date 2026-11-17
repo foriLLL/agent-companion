@@ -16,6 +16,14 @@ const MAX_SESSION_FAILURES = 2;
 const RESET_BACKOFF_BASE_MS = 1_000;
 const RESET_BACKOFF_MAX_MS = 30_000;
 
+const MEDIA_PLAYING_SOURCE = `(() => {
+  const playing = globalThis.__CODEX_COMPANION__?.runtime?.getDiagnostics?.()?.attention?.playing;
+  if (typeof playing === "boolean") return playing;
+  const scan = root => [...root.querySelectorAll("video,audio")].some(media => !media.paused && !media.ended)
+    || [...root.querySelectorAll("*")].some(element => element.shadowRoot && scan(element.shadowRoot));
+  return [...document.querySelectorAll('[id^="codex-companion"]')].some(host => host.shadowRoot && scan(host.shadowRoot));
+})()`;
+
 export class CodexInjector {
   #port;
   #sessions = new Map();
@@ -147,6 +155,19 @@ export class CodexInjector {
       throw new Error(evaluation.exceptionDetails.exception?.description ?? evaluation.exceptionDetails.text ?? "未知 JavaScript 异常");
     }
     return evaluation;
+  }
+
+  // 卡片里是否有媒体在播（自动更新要等播放结束再重启后台服务）。优先读平台 attention 层的状态，
+  // 没有时扫描 Companion 自己宿主下的 <video>/<audio>；读不到的页面当作没有播放。
+  async isMediaPlaying() {
+    for (const { connection } of [...this.#sessions.values()]) {
+      if (!connection.isOpen) continue;
+      try {
+        const evaluation = await this.#evaluate(connection, MEDIA_PLAYING_SOURCE);
+        if (evaluation.result?.value === true) return true;
+      } catch {}
+    }
+    return false;
   }
 
   async injectOnce(action = "mount") {
