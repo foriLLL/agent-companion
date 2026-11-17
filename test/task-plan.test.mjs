@@ -5,7 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { applyPlanEvents, createPlanState, currentPlan, parseLiteral, parsePlanEvents, planSummary, plansFromItem, planFromMessage } from "../src/codex-plan.mjs";
 import { PLAN_HINT_BODY } from "../src/codex-plan-hint-text.mjs";
-import { PLAN_HINT_END, PLAN_HINT_START, createPlanHint, hasHint, withHint, withoutHint } from "../src/codex-plan-hint.mjs";
+import { PLAN_HINT_END, PLAN_HINT_START, PLAN_TOOL_MARKER, PLAN_TOOL_SNIPPET, createPlanHint, hasHint, hasPlanTool, userPlanTool, withHint,
+  withPlanTool, withoutHint, withoutPlanTool } from "../src/codex-plan-hint.mjs";
 import { CodexSessions, threadCreatedAt } from "../src/codex-sessions.mjs";
 import { createService } from "../src/cards/tasks/service.mjs";
 import { ServiceRegistry } from "../src/platform/services/registry.mjs";
@@ -317,10 +318,11 @@ test("提示开关：写进 Codex 实际读取的文件，跟随符号链接、�
   assert.equal(await hint.set(false), false, "没有文件时关闭什么也不做");
   await assert.rejects(stat(join(codexHome, "AGENTS.md")), { code: "ENOENT" });
   assert.equal(await hint.set(true), true);
-  assert.deepEqual(await hint.status(), { enabled: true, path: join(codexHome, "AGENTS.md") });
+  assert.deepEqual(await hint.status(), { enabled: true, path: join(codexHome, "AGENTS.md"), planTool: "companion" });
   assert.equal(await hint.set(true), false, "已经有了不再改写");
   assert.equal(await hint.set(false), true);
   await assert.rejects(stat(join(codexHome, "AGENTS.md")), { code: "ENOENT" }, "文件是开关新建的，关掉后删除");
+  await assert.rejects(stat(join(codexHome, "config.toml")), { code: "ENOENT" }, "config.toml 也是开关新建的");
 
   // 用户的 AGENTS.md 是指向 dotfiles 的链接，权限 0600。
   const real = join(codexHome, "dotfiles.md");
@@ -339,6 +341,81 @@ test("提示开关：写进 Codex 实际读取的文件，跟随符号链接、�
   assert.equal(await readFile(real, "utf8"), "我的规则\n");
   await hint.set(false);
   assert.equal(await readFile(join(codexHome, "AGENTS.override.md"), "utf8"), "覆盖\n");
+});
+
+const BLOCK = `${PLAN_TOOL_MARKER}\n${PLAN_TOOL_SNIPPET}\n`;
+const CODEX_CONFIG = 'model = "gpt-5"\n\n[mcp_servers.node_repl]\ncommand = "node"\ntools = ["eval"]\n\n[projects."/Users/me/app"]\ntrust_level = "trusted"\n';
+
+test("config.toml：追加到末尾、去掉后原样恢复；Codex 之后在后面追加的表保留", () => {
+  const added = withPlanTool(CODEX_CONFIG);
+  assert.equal(added, `${CODEX_CONFIG}\n${BLOCK}`);
+  assert.ok(hasPlanTool(added));
+  assert.equal(withPlanTool(added), added, "重复开启不叠加");
+  assert.equal(withoutPlanTool(added), CODEX_CONFIG);
+  assert.equal(withPlanTool(""), BLOCK);
+  assert.equal(withoutPlanTool(BLOCK), "");
+  assert.equal(withoutPlanTool(CODEX_CONFIG), CODEX_CONFIG);
+  // Codex 信任新项目时用 toml_edit 把新表加在文件末尾，也就是我们这段后面。
+  const project = '[projects."/Users/me/new"]\ntrust_level = "trusted"\n';
+  assert.equal(withoutPlanTool(`${added}${project}`), `${CODEX_CONFIG}\n${project}`);
+  assert.equal(withoutPlanTool(`${added}\n# 新项目\n${project}`), `${CODEX_CONFIG}\n# 新项目\n${project}`, "下一张表前的注释属于那张表");
+  const crowded = `${CODEX_CONFIG}${PLAN_TOOL_MARKER}\n[tools.update_plan]\n\nenabled = true\n\n\n${project}`;
+  assert.ok(hasPlanTool(crowded));
+  assert.equal(withoutPlanTool(crowded), `${CODEX_CONFIG}\n${project}`);
+});
+
+test("config.toml：用户自己配过 update_plan 或改过这张表，开关不碰", () => {
+  for (const own of [
+    `${CODEX_CONFIG}\n[tools.update_plan]\nenabled = false\n`,
+    `${CODEX_CONFIG}\n${PLAN_TOOL_MARKER}\n[tools.update_plan]\nenabled = true\nextra = 1\n`,
+    `${CODEX_CONFIG}\n${PLAN_TOOL_MARKER}\n[tools.update_plan]\nenabled = false\n`,
+    `[tools]\nupdate_plan = { enabled = true }\n${CODEX_CONFIG}`,
+    `tools = { web_search = true }\n${CODEX_CONFIG}`,
+    `tools.web_search = true\n${CODEX_CONFIG}`
+  ]) {
+    assert.equal(hasPlanTool(own), false, own);
+    assert.equal(userPlanTool(own), true, own);
+    assert.equal(withPlanTool(own), own, own);
+    assert.equal(withoutPlanTool(own), own, own);
+  }
+  for (const fine of [`[tools]\nweb_search = true\n${CODEX_CONFIG}`, `# 以后试试 update_plan\n${CODEX_CONFIG}`]) {
+    assert.equal(userPlanTool(fine), false, fine);
+    assert.equal(withoutPlanTool(withPlanTool(fine)), fine);
+  }
+});
+
+test("config.toml 开关：保留原内容与 0600 权限、跟随符号链接；用户自己配置的不改；写不了时提示仍生效并报错", async (t) => {
+  const codexHome = await withDir(t);
+  const hint = createPlanHint({ codexHome });
+  const real = join(codexHome, "dotfiles-config.toml");
+  await writeFile(real, CODEX_CONFIG, { mode: 0o600 });
+  await symlink(real, join(codexHome, "config.toml"));
+  assert.equal(await hint.set(true), true);
+  assert.equal(await readFile(real, "utf8"), `${CODEX_CONFIG}\n${BLOCK}`);
+  assertMode(await stat(real), 0o600);
+  assert.equal((await hint.status()).planTool, "companion");
+  await hint.set(false);
+  assert.equal(await readFile(real, "utf8"), CODEX_CONFIG);
+  assert.equal((await hint.status()).planTool, "off");
+
+  const own = `${CODEX_CONFIG}\n[tools.update_plan]\nenabled = false\n`;
+  await writeFile(real, own);
+  await hint.set(true);
+  assert.equal(await readFile(real, "utf8"), own, "以用户的设置为准");
+  assert.equal((await hint.status()).planTool, "user");
+  await hint.set(false);
+  assert.equal(await readFile(real, "utf8"), own);
+
+  const fresh = await withDir(t);
+  const created = createPlanHint({ codexHome: fresh });
+  await created.set(true);
+  assertMode(await stat(join(fresh, "config.toml")), 0o600);
+
+  const broken = await withDir(t);
+  await symlink(join(broken, "missing.toml"), join(broken, "config.toml"));
+  const partial = createPlanHint({ codexHome: broken });
+  await assert.rejects(partial.set(true), { code: "PLAN_TOOL_CONFIG" });
+  assert.ok(hasHint(await readFile(join(broken, "AGENTS.md"), "utf8")), "提示照常写入");
 });
 
 test("任务看板服务：只在配置明确给出开关时动文件，看板或 Companion 停用时删除；平台把配置转给卡片服务", async () => {

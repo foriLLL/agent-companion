@@ -4,7 +4,7 @@ import { createSettingsPanel } from "../src/renderer/shell/settings-panel.mjs";
 import { createCardShell } from "../src/renderer/shell/card-shell.mjs";
 import { createCardRuntime } from "../src/renderer/runtime/card-runtime.mjs";
 import { createRpcClient } from "../src/renderer/platform/rpc-client.mjs";
-import { PLAN_HINT_BODY } from "../src/codex-plan-hint-text.mjs";
+import { PLAN_HINT_BODY, PLAN_TOOL_SNIPPET } from "../src/codex-plan-hint-text.mjs";
 
 // 只实现面板用到的 DOM；布局、原生输入行为与 Shadow DOM 另由 Chromium 冒烟验证。
 class Element extends EventTarget {
@@ -297,11 +297,13 @@ test("计划提示开启前告知全局影响与实际规则；取消、Esc、�
   change(input, true);
   assert.equal(input.checked, false);
   assert.equal(confirmation.hidden, false);
-  assert.ok(confirmation.textContent.includes("进入模型上下文，影响所有新会话"));
+  assert.ok(confirmation.textContent.includes("规则会进入模型上下文，两处都影响所有新会话"));
+  assert.ok(confirmation.textContent.includes("config.toml 里开启它自带的 update_plan 计划工具"));
+  assert.ok(confirmation.textContent.includes("你在 config.toml 里自己设置过 update_plan 的，以你的设置为准"));
   assert.ok(confirmation.textContent.includes("AGENTS.override.md"));
   assert.ok(confirmation.textContent.includes("已加载规则的会话不会自动撤回"));
   assert.ok(confirmation.textContent.includes("不保证任务完成正确"));
-  assert.equal(confirmation.querySelector("pre").textContent, PLAN_HINT_BODY);
+  assert.deepEqual(descendants(confirmation).filter(child => child.tagName === "pre").map(pre => pre.textContent), [PLAN_HINT_BODY, PLAN_TOOL_SNIPPET]);
   assert.equal(settingsFixture.document.activeElement, byText(root, "暂不开启"));
   byText(root, "暂不开启").click();
   assert.equal(confirmation.hidden, true);

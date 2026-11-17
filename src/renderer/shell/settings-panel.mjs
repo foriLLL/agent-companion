@@ -1,5 +1,5 @@
 import { completeCardOrder } from "../../platform/config/runtime-config.mjs";
-import { PLAN_HINT_BODY } from "../../codex-plan-hint-text.mjs";
+import { PLAN_HINT_BODY, PLAN_TOOL_SNIPPET } from "../../codex-plan-hint-text.mjs";
 import { alertLevel } from "../../cards/tasks/alerts.mjs";
 
 // agent 拒绝重启时返回机器原因码，这里只展示对用户有意义的说明。
@@ -274,7 +274,7 @@ export function createSettingsPanel({ document: doc, call, connection, onClose =
     listen(input, "change", () => { if (input.checked) void save({ placement: value }); });
   }
   // 任务看板的设置写在卡片 settings 里；没有任务看板卡片时整组隐藏。
-  // 「长任务先列计划」由后台写进 Codex 的全局指令文件（AGENTS.md），关闭即删除。
+  // 「长任务先列计划」由后台写进 Codex 的全局指令文件（AGENTS.md），并在 config.toml 打开自带的 update_plan 工具；关闭即删除。
   // 快捷键只在 macOS 显示（Linux 桌面环境自己占用 Alt+Tab）。
   const tasksSection = section("任务看板");
   const tasksOff = () => config.cards?.tasks?.enabled === false;
@@ -288,7 +288,7 @@ export function createSettingsPanel({ document: doc, call, connection, onClose =
   const planHintTitle = node("p");
   planHintTitle.append(node("strong", "开启将修改 Codex 全局指令"));
   const planHintPreview = node("details");
-  planHintPreview.append(node("summary", "查看将追加的完整规则"), node("pre", PLAN_HINT_BODY));
+  planHintPreview.append(node("summary", "查看将追加的完整规则与配置"), node("pre", PLAN_HINT_BODY), node("pre", PLAN_TOOL_SNIPPET));
   const confirmPlanHint = control(button("同意修改并开启", () => {
     if (!planHintConfirming || busy || !config || destroyed || tasksOff() || element.hidden) return;
     planHint.focus({ preventScroll: true });
@@ -299,9 +299,9 @@ export function createSettingsPanel({ document: doc, call, connection, onClose =
   const planHintActions = node("div", null, "cc-settings-actions");
   planHintActions.append(cancelPlanHint, confirmPlanHint);
   planHintConfirmation.append(planHintTitle,
-    node("p", "将向 Codex 的全局 AGENTS.md 追加计划规则；若 AGENTS.override.md 非空，则写入它。这段规则会进入模型上下文，影响所有新会话，而不只是看板中的任务。"),
-    node("p", "用途：要求长任务先列计划并同步步骤状态；有 update_plan 时用工具，没有时通过专用进度消息报告，供看板显示进度。不会改写你的输入消息，也不保证任务完成正确。"),
-    node("p", "关闭后只删除这段规则，保留原有指令；已加载规则的会话不会自动撤回。"),
+    node("p", "将向 Codex 的全局 AGENTS.md 追加计划规则（若 AGENTS.override.md 非空，则写入它），并在 Codex 的 config.toml 里开启它自带的 update_plan 计划工具。规则会进入模型上下文，两处都影响所有新会话，而不只是看板中的任务。"),
+    node("p", "用途：要求长任务先列计划并同步步骤状态。Codex 用 update_plan 工具报告进度，不会出现在对话里；工具不可用时才通过专用进度消息报告，供看板显示进度。不会改写你的输入消息，也不保证任务完成正确。"),
+    node("p", "关闭后只删除这段规则和 Companion 写入的 update_plan 设置，保留原有指令与配置；你在 config.toml 里自己设置过 update_plan 的，以你的设置为准。已加载规则的会话不会自动撤回。"),
     planHintPreview, planHintActions);
   tasksSection.append(planHintConfirmation);
   const switcherHint = node("small");
@@ -514,7 +514,7 @@ export function createSettingsPanel({ document: doc, call, connection, onClose =
     proxyEnabled.checked = config.launch?.proxy?.enabled ?? false;
     tasksSection.parentElement.hidden = !catalog.some(card => card.id === "tasks");
     planHint.checked = config.cards?.tasks?.settings?.planHint === true;
-    planHintHint.textContent = tasksOff() ? "需先启用任务看板" : "会修改 Codex 全局 AGENTS.md，影响所有新会话；仅用于列计划和同步进度。开启前需确认，关闭删除规则";
+    planHintHint.textContent = tasksOff() ? "需先启用任务看板" : "会修改 Codex 全局 AGENTS.md 并开启 update_plan 工具，影响所有新会话；仅用于列计划和同步进度。开启前需确认，关闭即删除";
     switcher.checked = config.cards?.tasks?.settings?.switcher !== false;
     switcherHint.textContent = tasksOff() ? "需先启用任务看板" : "按住 Option 连按 Tab 选择，松开即切换";
     alertNote.textContent = tasksOff() ? "需先启用任务看板" : "卡片里有视频在播时，任务状态变化会弹出提醒；「暂停」会先暂停播放";

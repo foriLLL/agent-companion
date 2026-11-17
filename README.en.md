@@ -346,7 +346,9 @@ and leaves the checkout alone. If the service does not point at your checkout, p
   task in progress shows the current step on its second line. The trace gains a "计划" (Plan) section
   (status and duration of each step) and a plan lane. Without a plan, the trace lists the phases Codex went
   through based on its progress notes.
-- Sessions without `update_plan` can still report a plan: the assistant emits one `companion-plan` code
+- With "长任务先列计划" on, Companion turns on Codex's built-in `update_plan` tool (off by default) in
+  `config.toml`, so progress goes through tool calls and stays out of the conversation. Only when the tool is
+  unavailable does the assistant fall back to a progress message: it emits one `companion-plan` code
   block in a progress message (`commentary`) containing a complete JSON snapshot, for example
   `{"plan":[{"step":"Check current state","status":"completed"},{"step":"Verify results","status":"in_progress"}]}`.
   Progress notes may appear before and after the block. Only a single, complete, non-quoted, non-nested plan
@@ -368,9 +370,15 @@ take three or more steps or more than five minutes, and to update the plan after
 becomes part of the model context and affects all new sessions, not only the current project or the tasks
 on the board. It does not rewrite your input and does not guarantee that a task is completed correctly. Its
 only purpose is to give the board structured step progress; it does not enable Plan Mode or change
-permissions. Only the content between the markers is added or removed. The block is removed when you turn
-the switch off, disable the task board, or uninstall Companion. Sessions that already loaded the rules are
-not reverted.
+permissions.
+
+It also appends `[tools.update_plan]` with `enabled = true`, under a marker comment, to the end of
+`~/.codex/config.toml`. This turns on Codex's built-in plan tool, which is off by default, so plan progress no
+longer appears as code blocks in the conversation. If you already configured `update_plan` yourself (or wrote
+`tools` as an inline table or dotted keys at the top level), Companion leaves it alone and your setting wins.
+
+In both files Companion only adds or removes its own content, and removes it when you turn the switch off,
+disable the task board, or uninstall Companion. Sessions that already loaded the rules are not reverted.
 
 ### Hongguo
 
@@ -469,8 +477,8 @@ Injection depends on Codex's DOM structure and may need updating when Codex chan
   input cannot add unknown cover addresses. During playback, the signed URL and the content key appear in
   FFmpeg's command-line arguments.
 - **Task board.** It only reads session records, `session_index.jsonl`, and `.codex-global-state.json` in the
-  local Codex data directory (`~/.codex`, or `CODEX_HOME`), and uploads nothing. The only write is the marked
-  block in `AGENTS.md` after you turn on "长任务先列计划". The board's own task list is stored in
+  local Codex data directory (`~/.codex`, or `CODEX_HOME`), and uploads nothing. The only writes are the marked
+  blocks in `AGENTS.md` and `config.toml` after you turn on "长任务先列计划". The board's own task list is stored in
   `task-board.json` in the data directory.
 
 Please report security issues privately as described in [SECURITY.md](SECURITY.md). Do not post tokens,

@@ -137,6 +137,9 @@ Codex 每次升级都可能改掉类名、data 属性、DOM 层级和打包方�
 - 跨平台：平台分支函数接受 `platform` 参数，测试显式传入；macOS 专属能力（launchd、
   通过代理重启 Codex、`/bin/ps`、`defaults`）在其它平台返回「不支持」而非抛 ENOENT；
   文件权限断言用 `test/helpers/permissions.mjs` 的 `assertMode`
+- 「长任务先列计划」除了 AGENTS.md 的提示块，还在 `~/.codex/config.toml` 写 `[tools.update_plan] enabled = true`
+  （`src/codex-plan-hint.mjs`）。Codex 用 toml_edit 改写这个文件、新表追加在末尾，**不能用成对的开始/结束标记**
+  （新表会落进标记之间被一起删掉）；只认「标记注释 + 表头 + enabled = true」，用户改过或自己配过 update_plan 就不碰。
 - 常驻 agent 带主线程看门狗：主线程 30 秒无响应即以 SIGABRT 退出、由 launchd / systemd 重启。
   调试 agent 时在断点停住会被它终止，用 `CODEX_COMPANION_WATCHDOG=0` 关闭
 - `npm run inject` 是一次性注入后退出，RPC 随之结束，只能看静态布局，

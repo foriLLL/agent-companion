@@ -284,7 +284,8 @@ curl -fsSL https://raw.githubusercontent.com/foriLLL/codex_companion/main/script
 - Codex 用计划工具（`update_plan`）或专用进度消息（`companion-plan`）列了步骤时，任务下方出现按步分格的进度条和完成数，
   进行中的任务第二行显示正在做的那一步；Trace 里多一个「计划」区（每步状态与用时）和「计划」泳道。
   没列计划时，Trace 按 Codex 干活途中的进度说明列出做过的阶段。
-- 当前会话没有 `update_plan` 时也能报告计划：在助手进度消息（`commentary`）中输出一个 `companion-plan`
+- 开启「长任务先列计划」后，Companion 在 Codex 的 `config.toml` 里打开它自带、默认关闭的 `update_plan`，
+  进度走工具调用，不出现在对话里。工具不可用时才改用进度消息：在助手进度消息（`commentary`）中输出一个 `companion-plan`
   代码块，内容为完整 JSON 快照，例如 `{"plan":[{"step":"检查现状","status":"completed"},{"step":"验证结果","status":"in_progress"}]}`。
   代码块前后可以附带进度说明，只接受一个完整的非引用、非嵌套计划块；不把用户消息、工具输出或最终回复当作计划。
   `companion-plan` 标记专用于真实进度报告，协议示例应使用普通 `json` 代码块，避免把示例当作当前进度；
@@ -299,7 +300,12 @@ curl -fsSL https://raw.githubusercontent.com/foriLLL/codex_companion/main/script
 末尾加一段带标记的提示，要求预计 3 步以上或超过 5 分钟的任务先列计划、每完成一步就更新。
 这段提示会进入模型上下文，影响所有新会话，不限于当前项目或看板中的任务；不改写用户输入，
 也不保证任务完成正确。它仅用于让看板取得结构化步骤进度，不开启 Plan Mode，也不改变权限。
-只增删标记之间的内容，关闭开关、停用任务看板或卸载 Companion 时删除；已加载规则的会话不会自动撤回。
+
+同时在 `~/.codex/config.toml` 末尾加上带标记注释的 `[tools.update_plan]` 与 `enabled = true`，打开 Codex
+自带、默认关闭的计划工具，计划进度不再以代码块出现在对话里。你已经在 `config.toml` 里自己配置过 `update_plan`
+（或在根上用内联表、点号键写了 `tools`）时不动它，以你的为准。
+
+两处都只增删 Companion 自己写的内容，关闭开关、停用任务看板或卸载 Companion 时删除；已加载规则的会话不会自动撤回。
 
 ### 红果短剧
 
@@ -378,7 +384,7 @@ npm run probe:emby -- --server https://emby.example.com --username alice --searc
   片单输入不能添加未知封面地址。签名播放地址与内容密钥在播放期间会出现在 FFmpeg 命令行参数里。
 - **任务看板**：只读本机 Codex 数据目录（`~/.codex`，或 `CODEX_HOME`）下的会话记录、
   `session_index.jsonl` 与 `.codex-global-state.json`，不上传；唯一的写入是你打开
-  「长任务先列计划」后对 `AGENTS.md` 那一段带标记的提示。看板自身的任务列表保存在数据目录下的 `task-board.json`。
+  「长任务先列计划」后在 `AGENTS.md` 与 `config.toml` 里各加的一段带标记的内容。看板自身的任务列表保存在数据目录下的 `task-board.json`。
 
 安全问题请按 [SECURITY.md](SECURITY.md) 私下报告，不要在公开 issue 中提交 Token、
 服务器地址、日志原文或其他隐私信息。
