@@ -136,7 +136,10 @@ test("send() 在套接字发送抛错时立即拒绝且不留下悬挂的 pendin
   connection.close();
 });
 
-test("send() 支持单次调用的超时，不影响其它调用的默认超时", async () => {
+test("send() 支持单次调用的超时，不影响其它调用的默认超时", async (t) => {
+  // CDP 调用的超时定时器是 unref 的；Node 22 的测试运行器会在事件循环空闲时直接取消测试。
+  const keepAlive = setInterval(() => {}, 1000);
+  t.after(() => clearInterval(keepAlive));
   const { connection, socket } = await openConnection();
   await assert.rejects(connection.send("Runtime.evaluate", {}, { timeoutMs: 5 }), /CDP 调用超时：Runtime.evaluate/);
   const ok = connection.send("Runtime.enable");
