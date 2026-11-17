@@ -460,7 +460,8 @@ Injection depends on Codex's DOM structure and may need updating when Codex chan
 - **Media addresses.** Cross-origin media CDNs must use HTTPS and pass address, DNS, and public IP checks.
 - **Dependencies.** Versions are pinned by `package-lock.json`. No CDN scripts are loaded at runtime.
 - **Update checks.** The background service periodically asks `api.github.com` for this repository's latest
-  release. The request only carries `codex-companion/<version>` as its user agent and sends no local data; the
+  release. When the GitHub API is rate limited, it reads the `releases/latest` redirect on `github.com` and that
+  version's CHANGELOG on `raw.githubusercontent.com` instead. The requests only carry `codex-companion/<version>` as its user agent and sends no local data; the
   result is kept in `update-state.json` (`0600`) in the data directory.
 - **Hongguo.** The anonymous device profile is stored in `hongguo/anonymous.json` in the data directory and
   reused for later requests. Covers are only loaded from Hongguo CDN HTTPS addresses found in already loaded

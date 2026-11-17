@@ -1,4 +1,5 @@
 // 发版用到的纯文本处理：CHANGELOG 段落、Formula 的 url/sha256。release.mjs 与 CI 共用，便于测试。
+import { changelogSection } from "../src/changelog.mjs";
 
 const VERSION = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 export const REPOSITORY = "foriLLL/codex_companion";
@@ -11,11 +12,8 @@ export function assertVersion(version) {
 /** 取出 CHANGELOG 里 `## <version>` 这一节的正文（不含标题），找不到或为空时报错。 */
 export function extractReleaseNotes(changelog, version) {
   assertVersion(version);
-  const lines = changelog.split("\n");
-  const start = lines.findIndex(line => new RegExp(`^## ${version.replaceAll(".", "\\.")}(?:\\s|$)`).test(line));
-  if (start < 0) throw new Error(`CHANGELOG 里没有 ${version} 这一节`);
-  const end = lines.findIndex((line, index) => index > start && line.startsWith("## "));
-  const notes = lines.slice(start + 1, end < 0 ? undefined : end).join("\n").trim();
+  if (!new RegExp(`^## ${version.replaceAll(".", "\\.")}(?:\\s|$)`, "m").test(changelog)) throw new Error(`CHANGELOG 里没有 ${version} 这一节`);
+  const notes = changelogSection(changelog, version);
   if (!notes) throw new Error(`CHANGELOG 的 ${version} 一节是空的`);
   return `${notes}\n`;
 }

@@ -5,6 +5,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+import { changelogSection } from "./changelog.mjs";
 import { companionDataDir } from "./platform/paths.mjs";
 
 // 自动更新：版本以 GitHub 上打了 vX.Y.Z tag 的正式 Release 为准。
@@ -86,11 +87,11 @@ export async function detectInstall({ env = process.env, root = PACKAGE_ROOT, ho
 
 /** 读取最新正式 Release；还没有任何 Release 时返回 null。只信任指向本仓库的链接。 */
 export async function fetchLatestRelease({ fetchImpl = globalThis.fetch, signal, userAgent = "codex-companion", dispatcher } = {}) {
-  const response = await fetchImpl(RELEASE_API, {
-    headers: { accept: "application/vnd.github+json", "user-agent": userAgent, "x-github-api-version": "2022-11-28" },
-    signal, ...(dispatcher ? { dispatcher } : {})
-  });
+  const init = (headers = {}) => ({ headers: { "user-agent": userAgent, ...headers }, signal, ...(dispatcher ? { dispatcher } : {}) });
+  const response = await fetchImpl(RELEASE_API, init({ accept: "application/vnd.github+json", "x-github-api-version": "2022-11-28" }));
   if (response.status === 404) return null;
+  // 未登录的 API 每个出口 IP 每小时只有 60 次，公司或运营商 NAT 后面常被别人用完。
+  if (response.status === 403 || response.status === 429) return fetchLatestFromPage({ fetchImpl, init });
   if (!response.ok) throw new Error(`GitHub 返回 HTTP ${response.status}`);
   const body = await response.json();
   if (!body || typeof body !== "object" || body.draft || body.prerelease || !parseVersion(body.tag_name)) return null;
@@ -102,6 +103,22 @@ export async function fetchLatestRelease({ fetchImpl = globalThis.fetch, signal,
     notes: typeof body.body === "string" ? body.body.slice(0, NOTES_LIMIT) : "",
     url, publishedAt: Number.isFinite(publishedAt) ? publishedAt : null
   };
+}
+
+// API 被限流时的兜底：github.com 的 releases/latest 跳到最新正式版的 tag 页（没有 Release 时跳回列表），
+// 说明取该 tag 上 CHANGELOG 的对应一节，与 CI 生成的 Release 说明同源；说明拿不到不影响更新。
+async function fetchLatestFromPage({ fetchImpl, init }) {
+  const page = await fetchImpl(`${RELEASES_PAGE}/latest`, { ...init(), method: "HEAD", redirect: "follow" });
+  if (!page.ok) throw new Error(`GitHub 返回 HTTP ${page.status}`);
+  const tag = String(page.url ?? "").startsWith(`${RELEASES_PAGE}/tag/`) ? decodeURIComponent(page.url.slice(RELEASES_PAGE.length + 5)) : "";
+  if (!parseVersion(tag)) return null;
+  const version = tag.replace(/^v/, "");
+  let notes = "";
+  try {
+    const changelog = await fetchImpl(`https://raw.githubusercontent.com/${REPOSITORY}/${tag}/CHANGELOG.md`, init());
+    if (changelog.ok) notes = changelogSection(await changelog.text(), version);
+  } catch { /* 说明是附带的 */ }
+  return { version, notes: notes.slice(0, NOTES_LIMIT), url: `${RELEASES_PAGE}/tag/${tag}`, publishedAt: null };
 }
 
 function proxyUrl(config) {

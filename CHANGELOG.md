@@ -4,6 +4,9 @@
 
 ## Unreleased
 
+- 修复：检查更新时 GitHub API 被限流（公司或运营商 NAT 共用出口 IP，未登录每小时 60 次）会一直报 HTTP 403、
+  永远不更新；现在改看 `github.com` 的 `releases/latest` 跳转拿版本号，更新内容取该版本 CHANGELOG 的对应一节。
+
 ## 0.2.0 - 2026-11-17
 
 - 自动更新：后台服务定期检查 GitHub 上的最新正式版。Homebrew 安装默认在后台 `brew upgrade` 并重启后台服务

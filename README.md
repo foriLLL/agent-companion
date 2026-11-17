@@ -370,7 +370,8 @@ npm run probe:emby -- --server https://emby.example.com --username alice --searc
 - **Emby 凭证**：Token 只发往配置的 Emby origin，不进入 DOM、媒体 URL、FFmpeg 命令行或日志。
 - **媒体地址**：跨源媒体 CDN 必须使用 HTTPS，并经过地址、DNS 和公网 IP 校验。
 - **依赖**：版本由 `package-lock.json` 固定，运行时不加载 CDN 脚本。
-- **检查更新**：后台服务定期请求 `api.github.com` 上本仓库的最新 Release，请求头只带
+- **检查更新**：后台服务定期请求 `api.github.com` 上本仓库的最新 Release；GitHub API 被限流时改为读取
+  `github.com` 上 `releases/latest` 的跳转和 `raw.githubusercontent.com` 上该版本的 CHANGELOG。请求头只带
   `codex-companion/<版本号>`，不发送任何本机数据；状态记在数据目录的 `update-state.json`（`0600`）。
 - **红果**：匿名设备档案保存在数据目录的 `hongguo/anonymous.json`，供后续请求复用。
   封面只允许已加载内容中的红果 CDN HTTPS 地址，每次连接校验并固定公网 IP，重定向逐跳验证；

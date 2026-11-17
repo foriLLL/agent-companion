@@ -84,7 +84,7 @@ test("识别安装方式：Cellar 真实路径与声明的 Homebrew、HEAD 安�
     realpathImpl: async path => path, accessImpl: access([]) }), { channel: "release" });
 });
 
-test("读取最新 Release：没有发布返回 null，预发布与非本仓库链接不信任，HTTP 错误抛出", async () => {
+test("读取最新 Release：没有发布返回 null，预发布与非本仓库链接不信任，其它 HTTP 错误抛出", async () => {
   const respond = (status, body) => async (url, init) => {
     assert.equal(url, RELEASE_API);
     assert.equal(init.headers["user-agent"], "codex-companion/0.2.0");
@@ -97,7 +97,36 @@ test("读取最新 Release：没有发布返回 null，预发布与非本仓库�
   assert.deepEqual(await fetchLatestRelease({ ...options, fetchImpl: respond(200, {
     tag_name: "v0.3.0", body: "说明", html_url: "https://evil.example/releases/v0.3.0", published_at: "2026-11-17T00:00:00Z" }) }),
   { version: "0.3.0", notes: "说明", url: RELEASES_PAGE, publishedAt: Date.parse("2026-11-17T00:00:00Z") });
-  await assert.rejects(fetchLatestRelease({ ...options, fetchImpl: respond(403, {}) }), /HTTP 403/);
+  await assert.rejects(fetchLatestRelease({ ...options, fetchImpl: respond(500, {}) }), /HTTP 500/);
+});
+
+test("API 被限流（403/429）时改看 releases/latest 的跳转，说明取 tag 上 CHANGELOG 的对应一节", async () => {
+  const CHANGELOG = "# Changelog\n\n## Unreleased\n\n## 0.3.0 - 2026-11-18\n\n- 限流兜底\n\n## 0.2.0 - 2026-11-17\n\n- 自动更新\n";
+  const site = ({ api = 403, page = 200, landing = `${RELEASES_PAGE}/tag/v0.3.0`, changelog = CHANGELOG } = {}) => {
+    const requests = [];
+    const fetchImpl = async (url, init) => {
+      requests.push({ url, method: init.method ?? "GET", agent: init.headers["user-agent"] });
+      if (url === RELEASE_API) return { status: api, ok: false, json: async () => ({ message: "API rate limit exceeded" }) };
+      if (url === `${RELEASES_PAGE}/latest`) return { status: page, ok: page === 200, url: landing };
+      if (changelog instanceof Error) throw changelog;
+      return { status: 200, ok: true, text: async () => changelog };
+    };
+    return { requests, fetchImpl };
+  };
+  const options = { userAgent: "codex-companion/0.2.0" };
+  const limited = site();
+  assert.deepEqual(await fetchLatestRelease({ ...options, fetchImpl: limited.fetchImpl }),
+    { version: "0.3.0", notes: "- 限流兜底", url: `${RELEASES_PAGE}/tag/v0.3.0`, publishedAt: null });
+  assert.deepEqual(limited.requests, [
+    { url: RELEASE_API, method: "GET", agent: "codex-companion/0.2.0" },
+    { url: `${RELEASES_PAGE}/latest`, method: "HEAD", agent: "codex-companion/0.2.0" },
+    { url: "https://raw.githubusercontent.com/foriLLL/codex_companion/v0.3.0/CHANGELOG.md", method: "GET", agent: "codex-companion/0.2.0" }
+  ]);
+  assert.equal(await fetchLatestRelease({ ...options, fetchImpl: site({ api: 429, landing: RELEASES_PAGE }).fetchImpl }), null, "还没有 Release 时跳回列表");
+  assert.equal(await fetchLatestRelease({ ...options, fetchImpl: site({ landing: "https://evil.example/foriLLL/codex_companion/releases/tag/v9.9.9" }).fetchImpl }), null);
+  assert.equal(await fetchLatestRelease({ ...options, fetchImpl: site({ landing: `${RELEASES_PAGE}/tag/nightly` }).fetchImpl }), null);
+  assert.equal((await fetchLatestRelease({ ...options, fetchImpl: site({ changelog: new Error("offline") }).fetchImpl })).notes, "", "说明拿不到也照常返回版本");
+  await assert.rejects(fetchLatestRelease({ ...options, fetchImpl: site({ page: 403 }).fetchImpl }), /HTTP 403/);
 });
 
 test("Homebrew 自动更新：发现新版本后 brew update + upgrade，等视频播完再以重启换上新版本", async t => {
