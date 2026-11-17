@@ -12,6 +12,7 @@ const execFileAsync = promisify(execFile);
 const SCRIPT = fileURLToPath(new URL("../scripts/upgrade.sh", import.meta.url));
 const REPO_URL = "https://github.com/foriLLL/codex_companion.git";
 const darwinOnly = { skip: process.platform !== "darwin" && "后台服务登记在 launchd plist 里，只在 macOS 上能读" };
+const posixOnly = { skip: process.platform === "win32" && "升级脚本只支持 macOS / Linux" };
 // 只看会改动东西的调用；list / info / --prefix / trust --help 是查询。
 const MUTATING = /^(?:brew (?:update|trust --formula|uninstall|install|upgrade)|codex-companion |npm |git )/;
 
@@ -151,7 +152,7 @@ test("升级脚本：后台服务没注册时只升级 Homebrew 包，提示自�
   assert.deepEqual((await f.calls()).slice(2), ["brew upgrade codex-companion"]);
 });
 
-test("升级脚本：源码安装快进 main 并 npm ci / npm start，生成文件的改动先还原", async t => {
+test("升级脚本：源码安装快进 main 并 npm ci / npm start，生成文件的改动先还原", posixOnly, async t => {
   const f = await fixture(t);
   const { clone, upstream, gitEnv } = await f.sourceInstall();
   const generated = join(clone, "src", "renderer-embedded.generated.mjs");
@@ -166,7 +167,7 @@ test("升级脚本：源码安装快进 main 并 npm ci / npm start，生成文�
   ]);
 });
 
-test("升级脚本：源码仓库有改动或不在 main 时不动仓库；--dry-run 只打印", async t => {
+test("升级脚本：源码仓库有改动或不在 main 时不动仓库；--dry-run 只打印", posixOnly, async t => {
   const f = await fixture(t);
   const { clone, gitEnv } = await f.sourceInstall();
   const before = await f.git(clone, "rev-parse", "HEAD");
@@ -190,7 +191,7 @@ test("升级脚本：源码仓库有改动或不在 main 时不动仓库；--dry
   assert.deepEqual(await f.calls(), [], "三次都没有执行任何改动");
 });
 
-test("升级脚本：找不到安装时说明怎么带上仓库路径", async t => {
+test("升级脚本：找不到安装时说明怎么带上仓库路径", posixOnly, async t => {
   const f = await fixture(t);
   await f.stub(join(f.bin, "uname"), "echo Linux");
   const result = await f.run([], { CODEX_COMPANION_BREW: join(f.root, "no-brew") });
