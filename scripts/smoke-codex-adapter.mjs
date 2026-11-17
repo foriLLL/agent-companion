@@ -472,6 +472,41 @@ try {
   await evaluate(`dotAdapter.dispose()`);
   assert.deepEqual(await evaluate(`errors`), []);
 
+  // 只在会话页提供入口：设置页（有输入框也不算会话）、插件等管理页右侧都是原生控件，不显示入口与抽屉；
+  // 回到会话后按原开关恢复。认不出应用外框（宿主改版）时保留悬浮入口，抽屉高度随内容，卡片下方不挡原生按钮。
+  await evaluate(`(() => {
+    const frame=(body)=>'<div data-app-shell-frame="true" style="position:absolute;inset:0">'+body+'</div>';
+    const action=(id,text)=>'<button id="'+id+'" style="position:absolute;right:40px;bottom:60px;width:56px;height:30px">'+text+'</button>';
+    globalThis.shellThreadPage=frame(threadPage);
+    globalThis.settingsPage=frame('<nav style="position:absolute;left:0;top:0;bottom:0;width:300px"><div data-settings-nav-scroll-container="true"><button data-settings-panel-slug="data-controls">存储</button></div></nav>'
+      + '<main style="position:absolute;left:300px;right:0;top:0;bottom:0"><textarea>自定义指令</textarea>'+action('settings-manage','管理')+'</main>');
+    globalThis.pluginsPage=frame('<main style="position:absolute;inset:0">'+action('plugin-install','安装')+'</main>');
+    globalThis.barePage='<main>'+action('bare-action','按钮')+'</main>';
+    globalThis.hitsSelf=(id)=>{const box=document.getElementById(id).getBoundingClientRect();return document.elementFromPoint(box.x+box.width/2,box.y+box.height/2)?.id===id;};
+    host.style.height='400px';
+    document.body.innerHTML=shellThreadPage;
+    globalThis.pageVisibility=[];
+    globalThis.pageAdapter=createCodexAdapter({host,onError:error=>errors.push(error.message),onVisibilityChange:({visible,reason})=>pageVisibility.push([visible,reason])});
+  })()`);
+  await evaluate(`pageAdapter.setOpen(true)`);
+  for (const [page, kind, button] of [["settingsPage", "settings", "settings-manage"], ["pluginsPage", "other", "plugin-install"]]) {
+    await evaluate(`document.body.innerHTML=shellThreadPage`);
+    await waitFor(`pageAdapter.isOpen() && pageAdapter.getDiagnostics().page === 'conversation'`, "会话页抽屉打开");
+    await evaluate(`document.body.innerHTML=${page}`);
+    await waitFor(`!pageAdapter.isOpen() && ${entryShown}.drawer === false && pageAdapter.getDiagnostics().page === '${kind}'`, `${kind} 页收起抽屉`);
+    assert.deepEqual(await evaluate(entryShown), { toolbar: false, floating: false, drawer: false }, `${kind} 页不显示入口`);
+    assert.equal(await evaluate(`hitsSelf('${button}')`), true, `${kind} 页原生按钮可点`);
+    assert.deepEqual(await evaluate(`pageVisibility.at(-1)`), [false, `${kind}-page`]);
+  }
+  await evaluate(`document.body.innerHTML=shellThreadPage`);
+  await waitFor(`pageAdapter.isOpen() && ${entryShown}.toolbar && ${entryShown}.drawer`, "回到会话按原开关恢复");
+  await evaluate(`document.body.innerHTML=barePage`);
+  await waitFor(`pageAdapter.isOpen() && pageAdapter.getDiagnostics().page === 'unknown' && drawerOf().dataset.state === 'open'`, "认不出应用外框时保留悬浮抽屉");
+  assert.deepEqual(await evaluate(`(() => { const drawer=drawerOf().getBoundingClientRect(); return {floating:${entryShown}.floating, short:drawer.bottom < innerHeight - 100, clickable:hitsSelf('bare-action')}; })()`),
+    { floating: true, short: true, clickable: true }, "抽屉高度随内容，卡片下方的原生按钮可点");
+  await evaluate(`pageAdapter.dispose(); host.style.height='1100px'`);
+  assert.deepEqual(await evaluate(`errors`), []);
+
   // 宿主改版保障：Codex 的具名钩子一个都没有 → 按输入框找到主面板，判档照旧；给面板加右侧留白让位，
   // 会话与输入框由页面自己的布局重新居中，不被抽屉压住；滚动内容里的按钮不推低抽屉。
   await evaluate(`(() => {

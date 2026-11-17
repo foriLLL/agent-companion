@@ -425,8 +425,9 @@ export function createCodexAdapter({ host, placement = "standalone-button", onVi
       button[hidden] { display:none; }
       button[aria-expanded="true"] { outline:2px solid #8888; }
       button:focus-visible { outline:2px solid #4b91e2; outline-offset:2px; }
+      /* 高度随内容，最多到窗口底部：卡片下方的空白不能拦截原生页面的点击。 */
       .drawer {
-        position:absolute; top:88px; right:0; bottom:0;
+        position:absolute; top:88px; right:0; max-height:calc(100% - 88px);
         width:min(${PANEL_WIDTH + 24}px, 100%); padding:12px 8px 16px 16px;
         overflow:auto; overscroll-behavior:contain; pointer-events:auto;
         -webkit-app-region:no-drag; transform-origin:top right;
@@ -820,9 +821,23 @@ export function createCodexAdapter({ host, placement = "standalone-button", onVi
     const bounds = node.getBoundingClientRect();
     return bounds.width > 0 && bounds.height > 0;
   };
-  // Dot 页也有输入框，这里只按具名钩子判断「不是普通会话」。
-  const onDotPage = () => !measureHooks().bounds
-    && Array.from(document.querySelectorAll(".messaging-root")).some(isShown);
+  // 设置页左侧导航的自动化属性，Codex 自己也按它查找；已挂载但隐藏的页面不算。
+  const SETTINGS_HOOK = "[data-settings-nav-scroll-container], [data-settings-panel-slug]";
+  // Codex 应用外框。认得它，「找不到会话」才说明当前是别的页面，而不是宿主改版后钩子全失效。
+  const APP_SHELL_HOOK = "[data-app-shell-frame]";
+  // 只在会话页提供入口。conversation：会话（含新建会话页）；dot：Dot 会话，右上角有原生通话等浮动按钮；
+  // settings：设置页；other：插件、技能等其余页面，右侧都是原生控件，抽屉会挡住点击；
+  // unknown：连应用外框都认不出，按「自有界面不依赖宿主」保留入口。
+  const classifyPage = () => {
+    const shown = (selector) => Array.from(document.querySelectorAll(selector)).some(isShown);
+    if (shown(SETTINGS_HOOK)) return "settings";
+    const hooked = Boolean(measureHooks().bounds);
+    // Dot 页也有输入框，这里只按具名钩子判断「不是普通会话」。
+    if (!hooked && shown(".messaging-root")) return "dot";
+    if (hooked || findComposer()) return "conversation";
+    return shown(APP_SHELL_HOOK) ? "other" : "unknown";
+  };
+  let pageKind = null;
   const layoutResizeObserver = new ResizeObserver(() => schedulePlacement());
   let layoutObserved = null;
   const observeLayout = (element) => {
@@ -1004,7 +1019,9 @@ export function createCodexAdapter({ host, placement = "standalone-button", onVi
     // 等界面渲染出按钮后由 observer 重新放置。
     const appReady = Boolean(document.querySelector("button"));
     companionButton.hidden = inToolbar || !appReady;
-    ownedRail.style.top = inToolbar ? "48px" : "88px";
+    const drawerTop = inToolbar ? "48px" : "88px";
+    ownedRail.style.top = drawerTop;
+    ownedRail.style.maxHeight = `calc(100% - ${drawerTop})`;
     const nativeOpen = openSummaryTrigger();
     if (closingSummary && !nativeOpen) clearSummaryClose();
     if (wantsOpen() && nativeOpen && !closingSummary) setCompanionOpen(false, { everywhere: true });
@@ -1054,12 +1071,12 @@ export function createCodexAdapter({ host, placement = "standalone-button", onVi
       notifyVisibility(false, "no-cards");
       return false;
     }
-    // Dot 会话（.messaging-root）右上角有原生通话等浮动按钮，与抽屉位置冲突：此页不提供入口。
-    // 开关状态保留，回到普通会话后照常恢复。
-    if (onDotPage()) {
+    // 不是会话页（见 classifyPage）就不提供入口与抽屉；开关状态保留，回到会话后照常恢复。
+    pageKind = classifyPage();
+    if (pageKind !== "conversation" && pageKind !== "unknown") {
       resetLayout(false);
       companionButton.hidden = true;
-      notifyVisibility(false, "dot-page");
+      notifyVisibility(false, `${pageKind}-page`);
       return false;
     }
     // 新版/空会话可能没有 Summary。设置入口不能因此失联；原生入口出现后恢复原 placement。
@@ -1276,7 +1293,8 @@ export function createCodexAdapter({ host, placement = "standalone-button", onVi
       nativeLayout: Boolean(nativeLayout), layoutSource: nativeLayoutSource ?? "builtin", displayMode, drawerSurface: ownedRail.dataset.surface ?? "none", dockShift,
       // 宿主适配落在哪一级：entry 入口锚点，thread 会话区来源（hooks 具名钩子 / composer 按输入框），
       // room 当前让位方式（native / pad / clamp），roomFallbacks 实测不生效而降级的次数。
-      entry: entryAnchor, thread: threadSource, room: dockKind, roomFallbacks, placementStats: { ...placementStats } }),
+      // page 当前页面类型（conversation / dot / settings / other / unknown），只有会话页显示入口。
+      entry: entryAnchor, thread: threadSource, room: dockKind, roomFallbacks, page: pageKind, placementStats: { ...placementStats } }),
     dispose() {
       if (disposed) return;
       disposed = true;
