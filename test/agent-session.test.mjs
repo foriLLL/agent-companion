@@ -96,3 +96,14 @@ test("waitForCodexTargets 取消后不会再查询 CDP，等待定时器也能�
     assert.equal(calls, 1);
   }
 });
+
+test("createEmbyRuntime 把会话事件回调交给 injector", async () => {
+  let received;
+  const onEvent = () => {};
+  const runtime = await createEmbyRuntime(51234, {
+    configStore: { loadV2: async () => ({ version: 2, cards: {}, order: [] }) },
+    InjectorClass: class { constructor(_port, options) { received = options; } }, logger, onEvent
+  });
+  assert.equal(received.onEvent, onEvent);
+  await runtime.service.dispose();
+});

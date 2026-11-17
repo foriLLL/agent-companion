@@ -1,5 +1,7 @@
 export const RPC_BINDING_NAME = "__CODEX_COMPANION_RPC__";
 export const RPC_CANCEL_METHOD = "rpc.cancel";
+// 传输层自检：页面经 binding 发出、后台收到、回包投递回页面，整条链路走一遍，不进入任何业务服务。
+export const RPC_PING_METHOD = "rpc.ping";
 // Subtitle burn-in may need to download a track and wait up to 40 seconds for
 // FFmpeg's first fragmented-MP4 initialization box. Keep the bridge deadline
 // above that end-to-end path; renderer requests still cancel shorter methods.
@@ -292,6 +294,11 @@ export class CdpRpcBridge {
           error: sanitizeRpcError(error)
         });
       }
+      return;
+    }
+
+    if (request.method === RPC_PING_METHOD) {
+      await this.#sendResponse(executionContextId, { id: request.id, ok: true, result: { pong: true } });
       return;
     }
 

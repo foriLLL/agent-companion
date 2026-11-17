@@ -142,3 +142,17 @@ test("adapter 默认通知器透传假 execFile，osascript 无独立真实调�
   assert.equal(calls[0][1][2], AGENT_NOTIFICATIONS["needs-restart"]);
   await instance.close();
 });
+
+test("会话自愈事件经 record 记为最近事件", async () => {
+  const state = stateStore();
+  let options;
+  const instance = adapter({ runtimeState: state, now: () => 4321, waitForTargets: async () => {},
+    sessionFactory: received => { options = received; return { start: async () => {}, stop: async () => {}, applyConfig: async () => {} }; } });
+  await instance.initialize();
+  await instance.attach({ pid: 42, key: "42:1", port: 51234 });
+  await flush();
+  assert.equal(typeof options.onEvent, "function");
+  await options.onEvent("session-reset", { targetId: "main", attempts: 1, reason: "RPC 自检失败：RPC_TIMEOUT" });
+  assert.deepEqual(state.value.lastEvent, { event: "session-reset", at: 4321 });
+  await instance.close();
+});

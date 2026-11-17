@@ -251,6 +251,7 @@ export function createCardRuntime({
   void applyConfig(initialConfig);
   return {
     artifactHash, applyConfig, receiveRpc: rpcClient.receiveRpc, retry, dispose,
+    probeRpc: (timeoutMs) => rpcClient.ping(timeoutMs),
     getCardApi: (id) => records.get(id)?.handle?.api,
     isMounted: () => !disposed,
     isPlaced: () => adapter.isPlaced(),

@@ -135,3 +135,14 @@ test("send() 在套接字发送抛错时立即拒绝且不留下悬挂的 pendin
   assert.deepEqual(await ok, { enabled: true });
   connection.close();
 });
+
+test("send() 支持单次调用的超时，不影响其它调用的默认超时", async () => {
+  const { connection, socket } = await openConnection();
+  await assert.rejects(connection.send("Runtime.evaluate", {}, { timeoutMs: 5 }), /CDP 调用超时：Runtime.evaluate/);
+  const ok = connection.send("Runtime.enable");
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  socket.message({ id: socket.sent.at(-1).id, result: { enabled: true } });
+  assert.deepEqual(await ok, { enabled: true }, "默认超时仍是构造时的值");
+  await assert.rejects(connection.send("Page.enable", {}, { timeoutMs: 0 }), TypeError);
+  connection.close();
+});

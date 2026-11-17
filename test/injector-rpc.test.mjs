@@ -17,6 +17,8 @@ class AutoReplyWebSocket {
   readyState = 0;
   calls = [];
   health = null;
+  probe = { ok: true };
+  hang = false;
   scripts = new Map();
   nextScriptId = 0;
   #listeners = new Map();
@@ -42,6 +44,8 @@ class AutoReplyWebSocket {
     const message = JSON.parse(serialized);
     this.calls.push(message);
     AutoReplyWebSocket.onSend?.(message);
+    // 半开连接：套接字仍是 OPEN，但再也收不到任何回复。
+    if (this.hang) return;
     let result = {};
     if (message.method === "Page.addScriptToEvaluateOnNewDocument") {
       const identifier = `script-${++this.nextScriptId}`;
@@ -59,6 +63,8 @@ class AutoReplyWebSocket {
           config: normalizeRuntimeConfig(payload.config, CARD_MANIFESTS),
         };
         result = { result: { value: { status: payload.action === "unmount" ? "unmounted" : "mounted" } } };
+      } else if (source.includes("probeRpc(")) {
+        result = { result: { value: this.probe } };
       } else if (source.startsWith('globalThis["__CODEX_COMPANION__"]?.runtime?.applyConfig(')) {
         this.health.config = JSON.parse(source.slice(source.indexOf("applyConfig(") + "applyConfig(".length, -1));
         result = { result: { value: true } };
@@ -474,4 +480,149 @@ test("start 在首次扫描中 stop，不会复活定时器", async t => {
   await injector.start();
   assert.equal(intervals, 0);
   assert.ok(AutoReplyWebSocket.instances.every(socket => socket.readyState === 3));
+});
+
+function probeCalls(socket) {
+  return socket.calls.filter(({ method, params }) => method === "Runtime.evaluate" && params.expression.includes("probeRpc("));
+}
+
+function manualClock(start = 1_000) {
+  let value = start;
+  return { now: () => value, advance: (ms) => { value += ms; } };
+}
+
+// 不启动扫描定时器，每一轮都由测试显式驱动。
+async function steppedInjector(t, options = {}) {
+  cdpTargets = [mainTarget];
+  AutoReplyWebSocket.instances = [];
+  const clock = manualClock();
+  const events = [];
+  const injector = new CodexInjector(9222, { logger: quietLogger, now: clock.now,
+    onEvent: (event, details) => events.push({ event, ...details }), ...options });
+  t.after(() => injector.stop());
+  await injector.scanNow();
+  return { injector, clock, events, socket: AutoReplyWebSocket.instances.at(-1) };
+}
+
+test("探活按间隔执行，走页面 runtime 的 probeRpc，带独立超时", async (t) => {
+  const { injector, clock, socket } = await steppedInjector(t);
+  await injector.scanNow();
+  assert.equal(probeCalls(socket).length, 0, "未到间隔不探活");
+  clock.advance(5_000);
+  await injector.scanNow();
+  assert.equal(probeCalls(socket).length, 1);
+  assert.match(probeCalls(socket)[0].params.expression, /probeRpc\(3000\)/);
+  assert.equal(probeCalls(socket)[0].params.awaitPromise, true);
+  await injector.scanNow();
+  assert.equal(probeCalls(socket).length, 1, "成功后回到正常间隔");
+});
+
+test("RPC 不通连续两次才拆会话；中间恢复则清零，不误伤", async (t) => {
+  const { injector, clock, events, socket } = await steppedInjector(t);
+  socket.probe = { ok: false, reason: "RPC_TIMEOUT" };
+  clock.advance(5_000);
+  await injector.scanNow();
+  assert.equal(socket.readyState, 1, "一次失败不断开");
+  socket.probe = { ok: true };
+  await injector.scanNow();
+  assert.equal(probeCalls(socket).length, 2, "失败后下一轮立即复查");
+  socket.probe = { ok: false, reason: "RPC_TIMEOUT" };
+  clock.advance(5_000);
+  await injector.scanNow();
+  assert.equal(socket.readyState, 1, "复查成功已清零，这是新的第一次失败");
+  assert.deepEqual(events, []);
+  await injector.scanNow();
+  assert.equal(socket.readyState, 3, "连续第二次失败断开会话");
+  assert.equal(events.length, 1);
+  assert.deepEqual({ ...events[0], reason: undefined }, { event: "session-reset", targetId: "main", attempts: 1, reason: undefined });
+  assert.match(events[0].reason, /RPC_TIMEOUT/);
+});
+
+test("会话被拆后按退避重连：重新注册 binding、导航脚本并挂载；探活成功清零退避", async (t) => {
+  const { injector, clock, events, socket } = await steppedInjector(t);
+  socket.probe = { ok: false, reason: "BRIDGE_UNAVAILABLE" };
+  clock.advance(5_000);
+  await injector.scanNow();
+  await injector.scanNow();
+  assert.equal(socket.readyState, 3);
+  await injector.scanNow();
+  assert.equal(AutoReplyWebSocket.instances.length, 1, "退避期内不重连");
+  clock.advance(1_000);
+  await injector.scanNow();
+  const second = AutoReplyWebSocket.instances.at(-1);
+  assert.notEqual(second, socket);
+  assert.equal(second.calls.filter(({ method }) => method === "Runtime.addBinding").length, 1);
+  assert.equal(second.calls.filter(({ method }) => method === "Page.addScriptToEvaluateOnNewDocument").length, 1);
+  assert.equal(mountCalls(second).length, 1);
+
+  // 新会话仍然不通：退避翻倍。
+  second.probe = { ok: false, reason: "RPC_TIMEOUT" };
+  clock.advance(5_000);
+  await injector.scanNow();
+  await injector.scanNow();
+  assert.equal(second.readyState, 3);
+  assert.deepEqual(events.map(({ attempts }) => attempts), [1, 2]);
+  clock.advance(1_000);
+  await injector.scanNow();
+  assert.equal(AutoReplyWebSocket.instances.length, 2);
+  clock.advance(1_000);
+  await injector.scanNow();
+  const third = AutoReplyWebSocket.instances.at(-1);
+  assert.notEqual(third, second);
+
+  // 恢复后探活成功，退避清零：再次出问题从 1 秒开始。
+  clock.advance(5_000);
+  await injector.scanNow();
+  assert.equal(probeCalls(third).length, 1);
+  third.probe = { ok: false, reason: "RPC_TIMEOUT" };
+  clock.advance(5_000);
+  await injector.scanNow();
+  await injector.scanNow();
+  assert.deepEqual(events.map(({ attempts }) => attempts), [1, 2, 1]);
+});
+
+test("连接半开（OPEN 但不再回复）时，健康检查短超时失败两次即重连", async (t) => {
+  const { injector, clock, events, socket } = await steppedInjector(t, { healthTimeoutMs: 10 });
+  socket.hang = true;
+  await injector.scanNow();
+  assert.equal(socket.readyState, 1);
+  await injector.scanNow();
+  assert.equal(socket.readyState, 3);
+  assert.equal(events[0].event, "session-reset");
+  assert.match(events[0].reason, /CDP 调用超时/);
+  clock.advance(1_000);
+  await injector.scanNow();
+  const reconnected = AutoReplyWebSocket.instances.at(-1);
+  assert.notEqual(reconnected, socket);
+  assert.equal(mountCalls(reconnected).length, 1);
+});
+
+test("页面重新挂载后推迟探活，给新 runtime 留出就绪时间", async (t) => {
+  const { injector, clock, socket } = await steppedInjector(t);
+  clock.advance(5_000);
+  socket.health = null;
+  await injector.scanNow();
+  assert.equal(mountCalls(socket).length, 2);
+  assert.equal(probeCalls(socket).length, 0);
+  clock.advance(4_999);
+  await injector.scanNow();
+  assert.equal(probeCalls(socket).length, 0);
+  clock.advance(1);
+  await injector.scanNow();
+  assert.equal(probeCalls(socket).length, 1);
+});
+
+test("onEvent 抛错或拒绝都不影响会话重建", async (t) => {
+  for (const onEvent of [() => { throw new Error("boom"); }, async () => { throw new Error("boom"); }]) {
+    const { injector, clock, socket } = await steppedInjector(t, { onEvent });
+    socket.probe = { ok: false, reason: "RPC_TIMEOUT" };
+    clock.advance(5_000);
+    await injector.scanNow();
+    await injector.scanNow();
+    assert.equal(socket.readyState, 3);
+    clock.advance(1_000);
+    await injector.scanNow();
+    assert.notEqual(AutoReplyWebSocket.instances.at(-1), socket);
+    injector.stop();
+  }
 });

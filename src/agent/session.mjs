@@ -14,7 +14,8 @@ export async function createEmbyRuntime(port, {
     inspectCodexProxy: () => detectCodexProxy({ executable, cdpPort: port })
   }),
   loadConfig = () => configStore.loadV2(),
-  logger = console
+  logger = console,
+  onEvent
 } = {}) {
   const [runtimePrelude, config] = await Promise.all([loadRuntimeSource(), loadConfig()]);
   const service = serviceFactory({ logger, configStore, platform });
@@ -26,7 +27,8 @@ export async function createEmbyRuntime(port, {
     placement: config.placement,
     cardOrder: config.cardOrder,
     enabled: config.enabled,
-    logger
+    logger,
+    ...(onEvent ? { onEvent } : {})
   });
   return { injector, service, embyService: service, runtimePrelude, config };
 }
