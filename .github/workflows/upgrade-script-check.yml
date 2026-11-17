@@ -41,7 +41,8 @@ jobs:
         run: |
           set -x
           latest=$(gh release view --repo foriLLL/codex_companion --json tagName --jq .tagName); latest=${latest#v}
-          test "$(brew list --versions codex-companion)" = "codex-companion $latest"
+          test "$(brew info --json=v2 codex-companion | jq -r '.formulae[0].linked_keg')" = "$latest"
+          brew list --versions codex-companion | grep -qv HEAD
           test "$(plutil -extract ProgramArguments.0 raw -o - ~/Library/LaunchAgents/com.codexcompanion.agent.plist)" = "$(brew --prefix)/opt/codex-companion/bin/codex-companion"
           for _ in $(seq 30); do
             status=$(codex-companion agent status 2>/dev/null || true); echo "$status"
@@ -73,7 +74,7 @@ jobs:
         run: |
           set -x
           latest=$(gh release view --repo foriLLL/codex_companion --json tagName --jq .tagName); latest=${latest#v}
-          test "$(brew list --versions codex-companion)" = "codex-companion $latest"
+          test "$(brew info --json=v2 codex-companion | jq -r '.formulae[0].linked_keg')" = "$latest"
           grep -q "codex-companion agent install" upgrade.log
           test ! -e ~/Library/LaunchAgents/com.codexcompanion.agent.plist
 
@@ -114,3 +115,41 @@ jobs:
       - name: 失败时的日志
         if: failure()
         run: tail -n 80 ~/Library/Logs/codex-companion/* || true
+
+  homebrew-auto-update:
+    name: brew 0.2.0 + 后台服务，不执行脚本，等它自动更新
+    runs-on: macos-latest
+    timeout-minutes: 40
+    steps:
+      - name: 装出 0.2.0 并注册后台服务
+        run: |
+          set -x
+          brew tap foriLLL/codex-companion https://github.com/foriLLL/codex_companion
+          TAP=$(brew --repository foriLLL/codex-companion)
+          git -C "$TAP" reset -q --hard "$(git -C "$TAP" log --format=%H -1 --grep '^chore: Formula 更新到 v0.2.0$')"
+          brew trust --formula foriLLL/codex-companion/codex-companion || true
+          HOMEBREW_NO_AUTO_UPDATE=1 brew install codex-companion
+          codex-companion agent install
+          sleep 5
+          codex-companion agent status | tee status-before.json
+      - name: 等后台服务自己发现新版本、brew upgrade 并重启（启动 2 分钟后检查）
+        run: |
+          latest=$(gh release view --repo foriLLL/codex_companion --json tagName --jq .tagName); latest=${latest#v}
+          before=$(jq -r .pid status-before.json)
+          for _ in $(seq 90); do
+            status=$(codex-companion agent status 2>/dev/null || true)
+            linked=$(brew info --json=v2 codex-companion 2>/dev/null | jq -r '.formulae[0].linked_keg' || true)
+            echo "$(date +%T) linked=$linked $(echo "$status" | jq -c '{available, pid}' 2>/dev/null)"
+            if [ "$linked" = "$latest" ] && echo "$status" | jq -e --argjson before "$before" '.available == true and .pid != $before' >/dev/null \
+              && grep -q "已安装 $latest，重启后台服务" ~/Library/Logs/codex-companion/agent.log 2>/dev/null; then
+              grep -E "发现新版本|开始更新|已安装|重启" ~/Library/Logs/codex-companion/agent.log | tail -5
+              exit 0
+            fi
+            sleep 10
+          done
+          exit 1
+      - name: 失败时的日志
+        if: failure()
+        run: |
+          tail -n 80 ~/Library/Logs/codex-companion/* || true
+          find ~/Library -name update-state.json -exec cat {} \; 2>/dev/null || true
