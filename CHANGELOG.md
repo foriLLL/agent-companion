@@ -86,6 +86,9 @@
   启动脚本通过 `CODEX_COMPANION_AGENT_PROGRAM` 让后台服务记 Homebrew 的固定入口，升级 Node.js 后不失效。
 - 修复重新注册后台服务（再次 `npm start` 或 `agent install`）时偶尔失败、服务随之停掉：旧进程还没退完时
   `launchctl bootstrap` 返回 5，现在稍等重试。
+- 后台服务新增主线程看门狗：agent 主线程卡住（死循环、长时间同步计算）超过 30 秒时，写一行日志后异常退出，
+  由 launchd / systemd 约 10 秒后重启并重新注入，不再出现进程还在、卡片请求却一直超时的情况；
+  整机睡眠或进程被整体挂起不算卡住。
 
 ## 0.0.1 - 2026-07-30
 

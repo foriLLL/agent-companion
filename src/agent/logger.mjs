@@ -46,6 +46,8 @@ export async function createAgentFileLogger({ logDir, home = homedir(), now = Da
     return writes;
   }
   return {
+    // 主线程看门狗在主线程卡死时直接同步追加这个文件。
+    path,
     info: (...args) => write("INFO", args),
     warn: (...args) => write("WARN", args),
     error: (...args) => write("ERROR", args),

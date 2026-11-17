@@ -345,8 +345,9 @@ export async function runCli(argv = process.argv.slice(2), dependencies = {}) {
 }
 
 // Bun 编译时多个模块共用入口 URL；import.meta.main 才能区分被导入与直接执行。
+// 只有真实进程入口为常驻 agent 开启主线程看门狗；测试直接调用 runCli 时不启用。
 if (import.meta.main ?? (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href)) {
-  runCli().catch((error) => {
+  runCli(process.argv.slice(2), { mainThreadWatchdog: true }).catch((error) => {
     console.error(JSON.stringify({ error: { code: error.code ?? "CLI_ERROR", message: error.message, ...(error.revision === undefined ? {} : { revision: error.revision }) } }));
     process.exitCode = 1;
   });
