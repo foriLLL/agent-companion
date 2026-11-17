@@ -595,6 +595,7 @@ ${TRACE_STYLE}
     threads?.setMarks(board.tasks.flatMap((task) => idsOf(task).map((id) => ({ id, color: task.color }))));
     render();
     switcher?.refresh();
+    void removeArchived();
   }
 
   async function mutate(method, params) {
@@ -703,23 +704,58 @@ ${TRACE_STYLE}
     try { await rpc("open", { threadId: task.threadId }); } catch (error) { fail(error); }
   }
 
-  async function complete(task) {
-    const next = await mutate("remove", { threadId: task.threadId });
-    if (!next?.removed) return;
+  // undo：可撤销的一批移出，{ entries: [{ task, index }], keepArchived }。
+  function offerUndo(entries, text, { keepArchived = false } = {}) {
     cancelUndo();
-    undo = next.removed;
-    toastText.textContent = `已完成「${displayName(task)}」`;
+    undo = { entries, keepArchived };
+    toastText.textContent = text;
     toast.hidden = false;
     cancelUndo = effects.timeout(() => { undo = null; toast.hidden = true; }, UNDO_MS);
   }
 
+  async function complete(task) {
+    const next = await mutate("remove", { threadId: task.threadId });
+    if (!next?.removed) return;
+    offerUndo([next.removed], `已完成「${displayName(task)}」`);
+  }
+
+  // 会话在 Codex 里归档后自动移出看板，可撤销；撤销放回的任务记下 keepArchived，以后不再自动移出。
+  // 只认 archived：missing 可能只是会话文件暂时找不到，不能据此删任务。
+  const removingArchived = new Set();
+  async function removeArchived() {
+    const targets = board?.tasks.filter((task) => task.status === "archived" && !task.keepArchived && !removingArchived.has(task.threadId)) ?? [];
+    if (!targets.length) return;
+    for (const task of targets) removingArchived.add(task.threadId);
+    const removed = [];
+    try {
+      for (const task of targets) {
+        const next = await mutate("remove", { threadId: task.threadId });
+        if (signal.aborted) return;
+        if (next?.removed) removed.push({ ...next.removed, name: displayName(task) });
+      }
+    } finally {
+      for (const task of targets) removingArchived.delete(task.threadId);
+    }
+    if (!removed.length) return;
+    // 按原位置从前往后放回，撤销后顺序不变。
+    const entries = removed.map(({ task, index }) => ({ task, index })).sort((a, b) => a.index - b.index);
+    // 与「已完成」同样简短，长名字也能看到动作本身。
+    offerUndo(entries, removed.length === 1 ? `已归档「${removed[0].name}」` : `已移出 ${removed.length} 个已归档任务`,
+      { keepArchived: true });
+  }
+
   effects.listen(undoButton, "click", () => {
     if (!undo) return;
-    const restored = undo;
+    const { entries, keepArchived } = undo;
     undo = null;
     cancelUndo();
     toast.hidden = true;
-    void mutate("restore", restored);
+    void (async () => {
+      for (const { task, index } of entries) {
+        await mutate("restore", { task: keepArchived ? { ...task, keepArchived: true } : task, index });
+        if (signal.aborted) return;
+      }
+    })();
   });
   effects.listen(addButton, "click", () => {
     const current = threads?.current();

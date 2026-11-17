@@ -31,7 +31,9 @@ export function normalizeTask(value) {
   const addedAt = Number.isSafeInteger(value.addedAt) && value.addedAt > 0 ? value.addedAt : Date.now();
   // 用户最后一次在 Codex 里看过这个会话的时间；加入时用户正看着它，缺省取加入时间。
   const seenAt = Number.isSafeInteger(value.seenAt) && value.seenAt > 0 ? value.seenAt : addedAt;
-  return { threadId, suggestedName: normalizeName(value.suggestedName), customName: normalizeName(value.customName), color, projectId, addedAt, seenAt };
+  // keepArchived：会话在 Codex 归档后被自动移出、用户又撤销放回的，以后不再自动移出。
+  return { threadId, suggestedName: normalizeName(value.suggestedName), customName: normalizeName(value.customName), color, projectId, addedAt, seenAt,
+    ...(value.keepArchived === true ? { keepArchived: true } : {}) };
 }
 
 function normalizeTasks(value) {
