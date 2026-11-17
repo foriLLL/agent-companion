@@ -571,9 +571,21 @@ try {
   await evaluate(`${$(".toast button")}.click()`);
   await waitFor(`${task("s1")} && ${marked("s1")} === '1'`, "撤销后放回原位");
 
+  // 会话在 Codex 里归档：自动移出并提示，可撤销；撤销放回的不再自动移出。
+  await evaluate(`statusOf[ids.s1] = 'archived'; bump()`);
+  await waitFor(`!${task("s1")} && !${$(".toast")}.hidden && ${$(".toast span")}.textContent.startsWith('已归档「')`, "归档后自动移出");
+  assert.equal(await evaluate(marked("s1")), null, "归档移出后撤销侧栏标记");
+  await screenshot("task-board-8-archived.png");
+  await evaluate(`${$(".toast button")}.click()`);
+  await waitFor(`${task("s1")} && ${marked("s1")} === '1'`, "撤销后放回原位");
+  await new Promise((resolve) => setTimeout(resolve, 800));
+  assert.ok(await evaluate(`Boolean(${task("s1")})`), "撤销放回的归档任务不再被自动移出");
+  await evaluate(`statusOf[ids.s1] = 'interrupted'; bump()`);
+
   // 长轮询超时（收不到后台回包）：提示正在重连，下一次同步成功后自动消失，不残留。
   await evaluate(`globalThis.failWatch = 1`);
-  await waitFor(`!${$(".note")}.hidden && ${$(".note")}.textContent === '与后台的连接中断，正在自动重连…'`, "同步失败提示为正在重连");
+  // 空闲时一轮长轮询最长约 5 秒（挂起 2 秒 + 重试间隔 3 秒），下一次 watch 才会失败。
+  await waitFor(`!${$(".note")}.hidden && ${$(".note")}.textContent === '与后台的连接中断，正在自动重连…'`, "同步失败提示为正在重连", 8000);
   await waitFor(`${$(".note")}.hidden`, "同步恢复后清除提示", 8000);
 
   // 播放提醒：抽屉收起后，没视频在播就停止同步；有视频在播就继续同步，任务需要你时暂停并提醒，完成时只提醒。

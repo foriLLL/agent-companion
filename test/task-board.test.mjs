@@ -378,3 +378,16 @@ test("Codex 26.1111 起绑定按窗口存在 electron-owner-atoms:<hash> 下，�
   const board = await call("list");
   assert.deepEqual(board.tasks.map((task) => [task.threadId, task.status, task.aliases]), [[CLIENT, "idle", [ID]]]);
 });
+
+test("归档后撤销放回的任务带 keepArchived 存回看板；其它值不保留", async (t) => {
+  const { call, taskBoard } = await serviceFixture(t);
+  await call("add", { threadId: ID, title: "一" });
+  const removed = await call("remove", { threadId: ID });
+  const restored = await call("restore", { task: { ...removed.removed.task, keepArchived: true }, index: removed.removed.index });
+  assert.equal(restored.tasks[0].keepArchived, true, "看板视图带上标记，渲染端据此不再自动移出");
+  assert.equal((await taskBoard.load()).tasks[0].keepArchived, true, "标记写入数据文件");
+  await call("remove", { threadId: ID });
+  const plain = await call("restore", { task: { ...removed.removed.task, keepArchived: "yes" }, index: 0 });
+  assert.equal("keepArchived" in plain.tasks[0], false);
+  assert.equal("keepArchived" in (await taskBoard.load()).tasks[0], false);
+});
