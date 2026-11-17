@@ -64,7 +64,9 @@ export function createAgentAdapter({
         await abortable(() => waitForTargets(entry.port, { timeoutMs: 2000, signal }), signal);
         signal.throwIfAborted();
         entry.session = sessionFactory({ port: entry.port, configStore, executable, logger, platform,
-          initialConfig: config, processRef: {} });
+          initialConfig: config, processRef: {},
+          // 会话自愈（断开重连）记为最近事件，`agent status` 可见。
+          onEvent: (event, details) => adapter.record(event, details) });
         await entry.session.start();
         signal.throwIfAborted();
         await persist({ port: entry.port, codexPid: entry.pid, codexKey: entry.key });

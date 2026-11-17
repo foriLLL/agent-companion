@@ -6,6 +6,16 @@ import { normalizeRuntimeConfig } from "./platform/config/runtime-config.mjs";
 import { CdpRpcBridge, DEFAULT_RPC_TIMEOUT_MS } from "./rpc-bridge.mjs";
 import { filterCodexTargets, isCodexAppTarget, listCdpTargets, waitForCodexTargets } from "./targets.mjs";
 
+// 会话自愈：WebSocket 仍是 OPEN 不代表 RPC 还通（binding 失效、回包投递失败、连接半开）。
+// 定期从页面发一次 rpc.ping 走完整条链路；连续失败就拆掉会话，下一轮扫描重新连接、注册 binding 并挂载。
+// 超时取 5 秒：页面主线程偶尔卡几秒不该触发重连，连续两次都卡满才算真的断了。
+const HEALTH_TIMEOUT_MS = 5_000;
+const PROBE_INTERVAL_MS = 5_000;
+const PROBE_TIMEOUT_MS = 3_000;
+const MAX_SESSION_FAILURES = 2;
+const RESET_BACKOFF_BASE_MS = 1_000;
+const RESET_BACKOFF_MAX_MS = 30_000;
+
 export class CodexInjector {
   #port;
   #sessions = new Map();
@@ -19,6 +29,14 @@ export class CodexInjector {
   #scanning = null;
   #stopped = false;
   #config;
+  #now;
+  #onEvent;
+  #healthTimeoutMs;
+  #probeIntervalMs;
+  #probeTimeoutMs;
+  #maxFailures;
+  // targetId → { attempts, notBefore }：会话被拆后重连的退避，探活成功才清零。
+  #resets = new Map();
 
   constructor(port, {
     logger = console,
@@ -32,7 +50,13 @@ export class CodexInjector {
     order,
     revision,
     config,
-    enabled
+    enabled,
+    now = Date.now,
+    onEvent = () => {},
+    healthTimeoutMs = HEALTH_TIMEOUT_MS,
+    probeIntervalMs = PROBE_INTERVAL_MS,
+    probeTimeoutMs = PROBE_TIMEOUT_MS,
+    maxSessionFailures = MAX_SESSION_FAILURES
   } = {}) {
     if (rpcHandler !== undefined && embyService !== undefined && rpcHandler !== embyService) {
       throw new TypeError("rpcHandler 和 embyService 不能同时配置");
@@ -45,6 +69,12 @@ export class CodexInjector {
       throw new TypeError("runtimePrelude 必须是字符串");
     }
     this.#runtimePrelude = runtimePrelude;
+    this.#now = now;
+    this.#onEvent = onEvent;
+    this.#healthTimeoutMs = healthTimeoutMs;
+    this.#probeIntervalMs = probeIntervalMs;
+    this.#probeTimeoutMs = probeTimeoutMs;
+    this.#maxFailures = maxSessionFailures;
     this.#config = normalizeRuntimeConfig(config ?? { cards, placement, cardOrder, order, revision, enabled }, CARD_MANIFESTS);
   }
 
@@ -109,10 +139,10 @@ export class CodexInjector {
     if (registered?.identifier) this.#newDocumentScripts.set(target.id, { identifier: registered.identifier, configKey });
   }
 
-  async #evaluate(connection, expression) {
+  async #evaluate(connection, expression, options) {
     const evaluation = await connection.send("Runtime.evaluate", {
       expression, awaitPromise: true, returnByValue: true, userGesture: false,
-    });
+    }, options);
     if (evaluation.exceptionDetails) {
       throw new Error(evaluation.exceptionDetails.exception?.description ?? evaluation.exceptionDetails.text ?? "未知 JavaScript 异常");
     }
@@ -164,6 +194,7 @@ export class CodexInjector {
       connection.close();
     }
     this.#sessions.clear();
+    this.#resets.clear();
     this.#cleanedAuxiliaryTargets.clear();
     this.#newDocumentScripts.clear();
   }
@@ -192,6 +223,9 @@ export class CodexInjector {
     const targets = filterCodexTargets(allTargets);
     const liveIds = new Set(targets.map((target) => target.id));
 
+    for (const targetId of this.#resets.keys()) {
+      if (!liveIds.has(targetId)) this.#resets.delete(targetId);
+    }
     for (const [targetId, session] of this.#sessions) {
       if (!liveIds.has(targetId) || !session.connection.isOpen) {
         session.rpcBridge?.detach();
@@ -207,7 +241,7 @@ export class CodexInjector {
           return { artifactHash: bridge?.artifactHash ?? null,
             mounted: bridge?.runtime?.isMounted?.() === true,
             config: bridge?.runtime?.getConfig?.() ?? null };
-        })()`);
+        })()`, { timeoutMs: this.#healthTimeoutMs });
         if (this.#stopped) return;
         await this.#registerNewDocument(session.connection, session.target, config);
         if (this.#stopped) return;
@@ -217,20 +251,31 @@ export class CodexInjector {
           if (JSON.stringify(health.config) !== JSON.stringify(config)) {
             await this.#evaluate(session.connection, buildConfigUpdateSource(config));
           }
+          // 上次失败后每轮都复查，尽快确认是偶发还是真的断了。
+          if (session.failures > 0 || this.#now() - session.probedAt >= this.#probeIntervalMs) {
+            session.probedAt = this.#now();
+            await this.#probe(session.connection);
+            if (this.#stopped) return;
+            session.failures = 0;
+            this.#resets.delete(targetId);
+          }
         } else {
           this.#logger.info(`[codex-companion] 重新注入页面：${targetId}`);
           await this.#evaluate(session.connection, this.#buildMountSource(config));
+          session.probedAt = this.#now();
         }
       } catch (error) {
-        // 健康检查失败通常意味着这条连接已经不可用；记录下来便于诊断“卡片在但按钮无响应”，
-        // 下一轮扫描会通过 isOpen 检查回收并重建会话。
-        this.#logger.debug?.(`[codex-companion] 会话健康检查失败 ${targetId}：${error.message}`);
+        if (this.#stopped) return;
+        session.failures += 1;
+        this.#logger.warn(`[codex-companion] 会话健康检查失败 ${targetId}（连续 ${session.failures} 次）：${error.message}`);
+        if (session.failures >= this.#maxFailures) this.#resetSession(targetId, session, error);
       }
     }
 
     for (const target of targets) {
       // 总开关只控制业务卡片；新页面仍需挂载平台设置入口，供用户重新启用。
       if (this.#sessions.has(target.id)) continue;
+      if (this.#now() < (this.#resets.get(target.id)?.notBefore ?? 0)) continue;
 
       const connection = new CdpConnection(target.webSocketDebuggerUrl);
       try {
@@ -247,13 +292,37 @@ export class CodexInjector {
           connection.close();
           return;
         }
-        this.#sessions.set(target.id, { connection, target, rpcBridge });
+        this.#sessions.set(target.id, { connection, target, rpcBridge, failures: 0, probedAt: this.#now() });
         this.#logger.info(`[codex-companion] 已注入 ${target.title || target.url}：${result.status}`);
       } catch (error) {
         connection.close();
         this.#logger.warn(`[codex-companion] 注入 target ${target.id} 失败：${error.message}`);
       }
     }
+  }
+
+  // 在页面里经 rpc-client 发 rpc.ping，等后台回包；不通时抛错，由调用方计入失败次数。
+  async #probe(connection) {
+    const evaluation = await this.#evaluate(connection, `(() => {
+      const runtime = globalThis[${JSON.stringify(BRIDGE_KEY)}]?.runtime;
+      return typeof runtime?.probeRpc === "function" ? runtime.probeRpc(${this.#probeTimeoutMs}) : { ok: true, unsupported: true };
+    })()`, { timeoutMs: this.#probeTimeoutMs + 2_000 });
+    const result = evaluation.result?.value;
+    if (result?.ok !== true) throw new Error(`RPC 自检失败：${result?.reason ?? "无结果"}`);
+  }
+
+  // 拆掉无响应的会话；下一轮扫描（受退避限制）重新连接、注册 binding 与导航脚本并挂载。
+  #resetSession(targetId, session, error) {
+    const attempts = (this.#resets.get(targetId)?.attempts ?? 0) + 1;
+    const delay = Math.min(RESET_BACKOFF_BASE_MS * 2 ** (attempts - 1), RESET_BACKOFF_MAX_MS);
+    this.#resets.set(targetId, { attempts, notBefore: this.#now() + delay });
+    this.#sessions.delete(targetId);
+    session.rpcBridge?.detach();
+    session.connection.close();
+    this.#logger.warn(`[codex-companion] 会话 ${targetId} 无响应，已断开，${delay}ms 后重连（第 ${attempts} 次）`);
+    try {
+      Promise.resolve(this.#onEvent("session-reset", { targetId, attempts, reason: error.message })).catch(() => {});
+    } catch {}
   }
 
   async #cleanupAuxiliaryTargets(allTargets) {

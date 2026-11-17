@@ -8,6 +8,7 @@ import {
   DEFAULT_RPC_TIMEOUT_MS,
   RPC_BINDING_NAME,
   RPC_CANCEL_METHOD,
+  RPC_PING_METHOD,
   sanitizeRpcError
 } from "../src/rpc-bridge.mjs";
 
@@ -507,5 +508,29 @@ test("上下文销毁后重新校验；校验时 CDP 失败不缓存，下一次
   await new Promise((resolve) => setTimeout(resolve, 5));
   assert.deepEqual(handled, ["tasks.list"]);
   assert.equal(connection.responses.length, 1);
+  bridge.detach();
+});
+
+test("rpc.ping 由 bridge 直接回包，不进入业务服务，也不受服务不可用影响", async () => {
+  for (const handler of [undefined, async () => { throw new Error("不应调用业务服务"); }]) {
+    const connection = new FakeConnection();
+    const bridge = new CdpRpcBridge(connection, { handler, targetId: "main" });
+    await bridge.attach();
+    emitRequest(connection, { id: "ping-1", method: RPC_PING_METHOD }, 9);
+    await waitFor(() => connection.responses.length === 1);
+    assert.deepEqual(connection.responses[0], { contextId: 9, response: { id: "ping-1", ok: true, result: { pong: true } } });
+    bridge.detach();
+  }
+});
+
+test("rpc.ping 同样只接受顶层页面", async () => {
+  const connection = new FakeConnection();
+  connection.subframeContexts.add(11);
+  const bridge = new CdpRpcBridge(connection, { handler: async () => ({}), targetId: "main" });
+  await bridge.attach();
+  emitRequest(connection, { id: "ping-sub", method: RPC_PING_METHOD }, 11);
+  await waitFor(() => connection.contextChecks.includes(11));
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  assert.equal(connection.responses.length, 0);
   bridge.detach();
 });

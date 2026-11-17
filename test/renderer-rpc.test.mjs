@@ -44,3 +44,28 @@ test("超时、直接返回与已中止上下文均正确结束 pending", async 
   assert.equal(await direct.scoped("alpha", 1)("load"), 42);
   assert.equal(direct.diagnostics().pending, 0);
 });
+
+test("ping 不带卡片命名空间，回包到达即通；超时、无 binding、卸载都只返回不通", async () => {
+  const frames = [];
+  const client = createRpcClient({ binding: () => raw => { frames.push(JSON.parse(raw)); } });
+  const ok = client.ping(1000);
+  assert.deepEqual(frames[0], { id: frames[0].id, method: "rpc.ping", params: {} });
+  assert.equal(client.receiveRpc({ id: frames[0].id, ok: true, result: { pong: true } }), true);
+  assert.deepEqual(await ok, { ok: true });
+  assert.equal(client.diagnostics().pending, 0);
+
+  assert.deepEqual(await client.ping(5), { ok: false, reason: "RPC_TIMEOUT" });
+  assert.equal(client.receiveRpc({ id: frames[1].id, ok: true }), false, "超时后迟到的回包被丢弃");
+
+  const failed = client.ping(1000);
+  client.receiveRpc({ id: frames[2].id, ok: false, error: { code: "RPC_DELIVERY_FAILED", message: "x" } });
+  assert.deepEqual(await failed, { ok: false, reason: "RPC_DELIVERY_FAILED" });
+
+  const missing = createRpcClient({ binding: () => undefined });
+  assert.deepEqual(await missing.ping(1000), { ok: false, reason: "BRIDGE_UNAVAILABLE" });
+
+  const disposed = client.ping(1000);
+  client.dispose();
+  assert.deepEqual(await disposed, { ok: false, reason: "ABORTED" });
+  assert.equal(client.diagnostics().pending, 0);
+});

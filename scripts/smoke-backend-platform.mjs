@@ -224,6 +224,22 @@ try {
     && status.scopes[0].generation === 900001 && status.scopes[0].disposed && status.errors.length === 0,
   "后端发送一成功一错误响应，仅创建并清理夹具卡独立 scope，无媒体 scope");
   verify(rpc.cardRetained, "后端独立 generation 清理与未知请求均不重建卡片或 runtime");
+
+  // 会话自愈：页面里的 binding 失效时 WebSocket 仍是 OPEN，只有端到端探活能发现；
+  // 后端应自行断开重连、重新注册 binding，且不重建页面 runtime。
+  verify((await evaluate("__CODEX_COMPANION__.runtime.probeRpc(3000)"))?.ok === true, "页面 probeRpc 经真实 binding→Bun bridge→CDP 回包");
+  const beforeHeal = (await command("status")).counters;
+  await evaluate("globalThis.__healRuntime = __CODEX_COMPANION__.runtime; globalThis.__CODEX_COMPANION_RPC__ = () => {}; true");
+  verify((await evaluate("__CODEX_COMPANION__.runtime.probeRpc(300)"))?.reason === "RPC_TIMEOUT", "binding 失效后页面 RPC 不通");
+  const healed = await wait(async () => {
+    const { counters } = await command("status");
+    return counters.bindings > beforeHeal.bindings ? counters : false;
+  }, "后端发现 RPC 不通并重连", 30000);
+  verify(healed.socketsOpen === 1 && healed.socketsCreated === beforeHeal.socketsCreated + 1, "旧会话已关闭，只新建一条 CDP 连接");
+  verify((await evaluate("__CODEX_COMPANION__.runtime.probeRpc(3000)"))?.ok === true, "重连后新 binding 生效，页面 RPC 恢复");
+  verify(await evaluate("__CODEX_COMPANION__.runtime === globalThis.__healRuntime && Boolean(__find('.fixture-static'))"), "自愈不重建页面 runtime 与卡片");
+  verify((await command("status")).errors.some((message) => message.includes("无响应，已断开")), "自愈过程写入 warn 日志");
+
   const stopped = await command("stop");
   verify(stopped.stopped && stopped.serviceClosed && stopped.counters.socketsOpen === 0, "stop 关闭 watcher、真实 CDP session 与服务 registry");
   const exited = await Promise.race([backendExited, pause(3000).then(() => ({ timeout: true }))]);

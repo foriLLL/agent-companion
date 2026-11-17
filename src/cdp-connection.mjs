@@ -78,7 +78,9 @@ export class CdpConnection {
     });
   }
 
-  async send(method, params = {}) {
+  // timeoutMs 只影响本次调用：健康检查要尽快判定连接已失效，不能沿用默认的 10 秒。
+  async send(method, params = {}, { timeoutMs = this.#timeoutMs } = {}) {
+    if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) throw new TypeError("CDP 调用 timeoutMs 必须是正数");
     if (!this.isOpen) throw new Error("CDP 连接尚未建立");
 
     const id = this.#nextId++;
@@ -88,7 +90,7 @@ export class CdpConnection {
       const timeout = setTimeout(() => {
         this.#pending.delete(id);
         reject(new Error(`CDP 调用超时：${method}`));
-      }, this.#timeoutMs);
+      }, timeoutMs);
       // 不要让一个悬挂的 CDP 调用把常驻进程的事件循环钉住，避免 Ctrl-C 后无法退出。
       timeout.unref?.();
 
