@@ -120,7 +120,7 @@ test("升级脚本：--HEAD 装的 Homebrew 换成正式版并重新注册后台
     "brew update",
     "brew trust --formula foriLLL/codex-companion/codex-companion",
     "brew uninstall --ignore-dependencies codex-companion",
-    "brew install codex-companion",
+    "brew install foriLLL/codex-companion/codex-companion",
     "codex-companion agent install"
   ]);
 });
@@ -130,7 +130,7 @@ test("升级脚本：正式版 brew upgrade；正式版装不上时恢复 --HEAD
   await f.registerLaunchAgent(["/usr/local/opt/codex-companion/bin/codex-companion", "agent"]);
   const stable = await f.run([], { STUB_BREW_VERSIONS: "0.1.3", STUB_BREW_STABLE: '"0.2.0"' });
   assert.equal(stable.code, 0, stable.stderr);
-  assert.deepEqual((await f.calls()).slice(2), ["brew upgrade codex-companion", "codex-companion agent install"]);
+  assert.deepEqual((await f.calls()).slice(2), ["brew upgrade foriLLL/codex-companion/codex-companion", "codex-companion agent install"]);
 
   const g = await fixture(t);
   await g.registerLaunchAgent(["/opt/homebrew/opt/codex-companion/bin/codex-companion", "agent"]);
@@ -139,8 +139,8 @@ test("升级脚本：正式版 brew upgrade；正式版装不上时恢复 --HEAD
   assert.match(failed.stderr, /安装正式版失败/);
   assert.deepEqual((await g.calls()).slice(2), [
     "brew uninstall --ignore-dependencies codex-companion",
-    "brew install codex-companion",
-    "brew install --HEAD codex-companion"
+    "brew install foriLLL/codex-companion/codex-companion",
+    "brew install --HEAD foriLLL/codex-companion/codex-companion"
   ], "失败后不注册后台服务");
 });
 
@@ -149,7 +149,7 @@ test("升级脚本：后台服务没注册时只升级 Homebrew 包，提示自�
   const result = await f.run([], { STUB_BREW_VERSIONS: "0.1.3", STUB_BREW_STABLE: '"0.2.0"' });
   assert.equal(result.code, 0, result.stderr);
   assert.match(result.stdout, /还没注册，需要时执行：codex-companion agent install/);
-  assert.deepEqual((await f.calls()).slice(2), ["brew upgrade codex-companion"]);
+  assert.deepEqual((await f.calls()).slice(2), ["brew upgrade foriLLL/codex-companion/codex-companion"]);
 });
 
 test("升级脚本：源码安装快进 main 并 npm ci / npm start，生成文件的改动先还原", posixOnly, async t => {

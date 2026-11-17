@@ -11,6 +11,9 @@ set -euo pipefail
 
 FORMULA=codex-companion
 TAP=foriLLL/codex-companion
+# 装、升级都用完整名：Homebrew 7 的 brew uninstall 会删掉这个 Formula 的信任记录，
+# 而 brew install / upgrade 带完整名时会先自动信任再加载。
+QUALIFIED=$TAP/$FORMULA
 REPOSITORY=foriLLL/codex_companion
 AGENT_LABEL=com.codexcompanion.agent
 SYSTEMD_UNIT=codex-companion-agent.service
@@ -105,23 +108,23 @@ upgrade_brew() {
   export HOMEBREW_NO_AUTO_UPDATE=1
   # Homebrew 7 起第三方 tap 的 Formula 要信任后才能加载；按名字信任，重复执行无副作用。
   if "$brew" trust --help >/dev/null 2>&1 </dev/null; then
-    run "$brew" trust --formula "$TAP/$FORMULA"
+    run "$brew" trust --formula "$QUALIFIED"
   fi
 
   if [[ " $versions " == *" HEAD"* ]]; then
-    if "$brew" info --json=v2 "$FORMULA" </dev/null 2>/dev/null | grep -qE '"stable": *"[0-9]'; then
+    if "$brew" info --json=v2 "$QUALIFIED" </dev/null 2>/dev/null | grep -qE '"stable": *"[0-9]'; then
       say "当前是 --HEAD 安装，换成正式版，以后由后台服务自动更新"
       run "$brew" uninstall --ignore-dependencies "$FORMULA"
-      if ! run "$brew" install "$FORMULA"; then
+      if ! run "$brew" install "$QUALIFIED"; then
         say "正式版安装失败，恢复原来的 --HEAD 安装"
-        run "$brew" install --HEAD "$FORMULA" || true
+        run "$brew" install --HEAD "$QUALIFIED" || true
         die "Homebrew 安装正式版失败，见上面的输出"
       fi
     else
-      run "$brew" upgrade --fetch-HEAD "$FORMULA"
+      run "$brew" upgrade --fetch-HEAD "$QUALIFIED"
     fi
   else
-    run "$brew" upgrade "$FORMULA"
+    run "$brew" upgrade "$QUALIFIED"
   fi
 
   program="$("$brew" --prefix </dev/null)/opt/$FORMULA/bin/$FORMULA"
