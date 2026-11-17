@@ -15,6 +15,10 @@ const RESTART_REFUSALS = {
   "native-helper-missing": "缺少原生助手，请手动退出并重新打开 Codex"
 };
 
+const DISCONNECTED_MESSAGE = "后台连接已断开，正在自动恢复…";
+// 这些错误表示请求根本没有得到后台回音，可能是连接断了。
+const NO_REPLY_CODES = new Set(["BRIDGE_UNAVAILABLE", "RPC_TIMEOUT", "TIMEOUT"]);
+
 // 图标沿用 Codex 顶栏的 16px 线框规格，颜色全部继承 currentColor。
 const ICONS = {
   close: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4.5 4.5 7 7m0-7-7 7"/></svg>',
@@ -24,7 +28,8 @@ const ICONS = {
 
 // 平台设置只读写 RPC；运行时配置仍由 watcher 推送，不能在这里直接改卡片。
 // platform 缺省取页面 navigator，测试显式传入。
-export function createSettingsPanel({ document: doc, call, onClose = () => {}, platform }) {
+// connection 来自 rpc-client：断开时说明正在自动恢复，恢复后自动重新读取，不用手动点重试。
+export function createSettingsPanel({ document: doc, call, connection, onClose = () => {}, platform }) {
   const nav = doc.defaultView?.navigator;
   const mac = /mac|darwin/i.test(String(platform ?? nav?.userAgentData?.platform ?? nav?.platform ?? ""));
   const element = doc.createElement("section");
@@ -41,6 +46,9 @@ export function createSettingsPanel({ document: doc, call, onClose = () => {}, p
   // Linux 由应用菜单入口加载卡片，不能自动重开或重启 Codex。
   let menuReopen = false;
   let busyFocus = null;
+  // 恢复连接时如果还有请求在途，等它结束后再重新读取。
+  let reloadPending = false;
+  let autoReloaded = false;
   const listeners = [];
   const controls = [];
   const rows = new Map();
@@ -393,6 +401,10 @@ export function createSettingsPanel({ document: doc, call, onClose = () => {}, p
     element.setAttribute("aria-busy", String(value));
     for (const item of controls) item.value.disabled = value || !config || item.disabled();
     retry.disabled = value;
+    if (!value && reloadPending && !destroyed && !element.hidden) {
+      reloadPending = false;
+      Promise.resolve().then(load);
+    }
     if (!value) {
       const focused = element.getRootNode().activeElement;
       // 禁用原生输入会让浏览器失焦；仅当用户未移到其他控件时恢复。
@@ -563,6 +575,7 @@ export function createSettingsPanel({ document: doc, call, onClose = () => {}, p
     config = value;
   }
   function errorMessage(error) {
+    if (connection?.isConnected() === false && NO_REPLY_CODES.has(error?.code)) return DISCONNECTED_MESSAGE;
     if (error?.code === "BRIDGE_UNAVAILABLE") return "后台连接不可用，请重试";
     if (["RPC_TIMEOUT", "TIMEOUT"].includes(error?.code)) return "请求超时，请重试";
     return error?.message || "请求失败，请重试";
@@ -586,13 +599,29 @@ export function createSettingsPanel({ document: doc, call, onClose = () => {}, p
     }
     showMessage(notice);
   }
+  // 请求没有回音时先确认链路：后台已经恢复（请求是在断开期间发出、丢在了旧连接上）就自动再读一次；
+  // 仍然断开就提示正在恢复，等连接恢复事件再读。自动重读只做一次，读成功后才重置，避免慢服务下反复重试。
+  async function recoverAfter(error) {
+    if (!connection || !NO_REPLY_CODES.has(error?.code)) return;
+    const alive = await connection.check();
+    if (destroyed || element.hidden) return;
+    if (!alive) { showMessage(DISCONNECTED_MESSAGE, true); return; }
+    if (autoReloaded) return;
+    autoReloaded = true;
+    reloadPending = true;
+  }
   async function load() {
     if (busy || destroyed) return;
     setBusy(true);
     showMessage("正在读取…");
-    try { await readSettings(); }
-    catch (error) { if (!destroyed) showMessage(errorMessage(error), true); }
-    finally { if (!destroyed) setBusy(false); }
+    try {
+      await readSettings();
+      autoReloaded = false;
+    } catch (error) {
+      if (destroyed) return;
+      showMessage(errorMessage(error), true);
+      await recoverAfter(error);
+    } finally { if (!destroyed) setBusy(false); }
   }
   async function refreshStatus() {
     if (busy || destroyed) return;
@@ -646,6 +675,7 @@ export function createSettingsPanel({ document: doc, call, onClose = () => {}, p
         // 超时可能已写成功；重试先读取，不重放修改。
         config = null;
         showMessage(errorMessage(error), true);
+        await recoverAfter(error);
       }
     } finally { if (!destroyed) setBusy(false); }
   }
@@ -693,6 +723,18 @@ export function createSettingsPanel({ document: doc, call, onClose = () => {}, p
     else if (confirming && !busy) cancelConfirmation();
     else close();
   });
+  if (connection) {
+    const unsubscribe = connection.subscribe((connected) => {
+      if (destroyed || element.hidden) return;
+      if (!connected) {
+        if (!busy) showMessage(DISCONNECTED_MESSAGE, true);
+        return;
+      }
+      if (busy) reloadPending = true;
+      else void load();
+    });
+    listeners.push(unsubscribe);
+  }
   setBusy(false);
   return {
     element,

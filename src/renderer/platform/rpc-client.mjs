@@ -2,14 +2,54 @@ function rpcError(code, message) {
   return Object.assign(new Error(message), { code, retryable: code === "RPC_TIMEOUT" });
 }
 
-export function createRpcClient({ binding = () => globalThis.__CODEX_COMPANION_RPC__, timeoutMs = 70_000 } = {}) {
+// 连接中断时多久复查一次；后台恢复后由下一次复查或任意回包立即确认。
+const RECHECK_MS = 3000;
+const CHECK_TIMEOUT_MS = 3000;
+
+export function createRpcClient({ binding = () => globalThis.__CODEX_COMPANION_RPC__, timeoutMs = 70_000,
+  recheckMs = RECHECK_MS, checkTimeoutMs = CHECK_TIMEOUT_MS } = {}) {
   const pending = new Map();
   let sequence = 0;
   const prefix = `companion-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  // 连接状态：请求超时不一定是断了（业务方法可能只是慢），先发一次 ping 确认；
+  // 断开期间定时复查，收到任何回包（包括后台自己发起的探活）即视为恢复。
+  let connected = true;
+  let checking = null;
+  let recheckTimer = null;
+  let disposed = false;
+  const listeners = new Set();
+
+  function setConnected(value) {
+    if (value) { clearTimeout(recheckTimer); recheckTimer = null; }
+    else scheduleRecheck();
+    if (connected === value || disposed) return;
+    connected = value;
+    for (const listener of [...listeners]) { try { listener(value); } catch {} }
+  }
+
+  function scheduleRecheck() {
+    if (recheckTimer || disposed) return;
+    recheckTimer = setTimeout(() => { recheckTimer = null; void checkConnection(); }, recheckMs);
+    // 浏览器里没有 unref；Node 测试中不让复查定时器单独撑住进程。
+    recheckTimer.unref?.();
+  }
+
+  function checkConnection() {
+    if (disposed) return Promise.resolve(connected);
+    checking ??= ping(checkTimeoutMs).then((result) => {
+      checking = null;
+      // 卸载导致的中止不代表后台断开。
+      if (result.reason !== "ABORTED") setConnected(result.ok);
+      return connected;
+    });
+    return checking;
+  }
 
   function receiveRpc(raw) {
     let response = raw;
     if (typeof raw === "string") { try { response = JSON.parse(raw); } catch { return false; } }
+    // 迟到的回包也说明链路是通的。
+    if (typeof response?.id === "string" && response.id.startsWith(prefix)) setConnected(true);
     const request = pending.get(response?.id);
     if (!request) return false;
     request.finish(response.ok === false
@@ -46,10 +86,11 @@ export function createRpcClient({ binding = () => globalThis.__CODEX_COMPANION_R
         timer = setTimeout(() => {
           notifyCancel(id);
           finish(rpcError("RPC_TIMEOUT", `${method} 请求超时`));
+          void checkConnection();
         }, options.timeoutMs ?? timeoutMs);
         try {
           const send = binding();
-          if (typeof send !== "function") throw rpcError("BRIDGE_UNAVAILABLE", "播放器后台尚未连接");
+          if (typeof send !== "function") { setConnected(false); throw rpcError("BRIDGE_UNAVAILABLE", "播放器后台尚未连接"); }
           const qualified = method.startsWith(`${cardId}.`) ? method : `${cardId}.${method}`;
           const result = send(JSON.stringify({ id, method: qualified, params, cardId, generation }));
           // 生产 CDP binding 返回 undefined；测试后端也可直接返回 Promise/结果。
@@ -84,7 +125,7 @@ export function createRpcClient({ binding = () => globalThis.__CODEX_COMPANION_R
         clearTimeout(timer);
         resolve(error ? { ok: false, reason: error.code || error.message || "RPC_ERROR" } : { ok: true });
       };
-      pending.set(id, { finish, abort: () => finish(rpcError("ABORTED", "请求已取消")) });
+      pending.set(id, { finish, internal: true, abort: () => finish(rpcError("ABORTED", "请求已取消")) });
       timer = setTimeout(() => finish(rpcError("RPC_TIMEOUT", "rpc.ping 请求超时")), timeoutMs);
       try {
         const send = binding();
@@ -96,9 +137,26 @@ export function createRpcClient({ binding = () => globalThis.__CODEX_COMPANION_R
     });
   }
 
+  const connection = {
+    isConnected: () => connected,
+    // listener(connected: boolean) 只在状态变化时调用；返回取消订阅函数。
+    subscribe(listener) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    check: checkConnection
+  };
+
   return {
-    scoped, receiveRpc, ping,
-    diagnostics: () => ({ pending: pending.size }),
-    dispose() { for (const request of [...pending.values()]) request.abort(); }
+    scoped, receiveRpc, ping, connection,
+    // 连接检查的 ping 属于客户端内部，不计入业务在途请求。
+    diagnostics: () => ({ pending: [...pending.values()].filter(request => !request.internal).length, connected }),
+    dispose() {
+      disposed = true;
+      clearTimeout(recheckTimer);
+      recheckTimer = null;
+      listeners.clear();
+      for (const request of [...pending.values()]) request.abort();
+    }
   };
 }

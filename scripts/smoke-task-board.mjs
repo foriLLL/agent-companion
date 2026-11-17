@@ -571,9 +571,9 @@ try {
   await evaluate(`${$(".toast button")}.click()`);
   await waitFor(`${task("s1")} && ${marked("s1")} === '1'`, "撤销后放回原位");
 
-  // 长轮询偶发超时：提示一次，下一次同步成功后自动消失，不残留。
+  // 长轮询超时（收不到后台回包）：提示正在重连，下一次同步成功后自动消失，不残留。
   await evaluate(`globalThis.failWatch = 1`);
-  await waitFor(`!${$(".note")}.hidden && ${$(".note")}.textContent === 'watch 请求超时'`, "同步失败提示");
+  await waitFor(`!${$(".note")}.hidden && ${$(".note")}.textContent === '与后台的连接中断，正在自动重连…'`, "同步失败提示为正在重连");
   await waitFor(`${$(".note")}.hidden`, "同步恢复后清除提示", 8000);
 
   // 播放提醒：抽屉收起后，没视频在播就停止同步；有视频在播就继续同步，任务需要你时暂停并提醒，完成时只提醒。
