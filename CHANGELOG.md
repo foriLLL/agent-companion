@@ -4,6 +4,8 @@
 
 ## Unreleased
 
+## 0.2.3 - 2026-11-17
+
 - 修复：「长任务先列计划」靠模型在对话里写 `companion-plan` 代码块报告进度，模型偶尔把它写进最终回答、
   结尾的 ``` 又没换行，整段回答被渲染成代码。现在开关同时在 Codex 的 `config.toml` 打开它自带、默认关闭的
   `update_plan` 工具（带标记注释的 `[tools.update_plan] enabled = true`），进度走工具调用，不再出现在对话里；
