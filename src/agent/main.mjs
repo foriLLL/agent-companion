@@ -13,6 +13,7 @@ import { isCompanionDebugInstance, parseCodexDebugArgs } from "./codex-args.mjs"
 import { createNativeBridge, resolveNativeHelperPath } from "./native-bridge.mjs";
 import { createAgentAdapter } from "./adapter.mjs";
 import { createAgentFileLogger } from "./logger.mjs";
+import { startMainThreadWatchdog } from "./watchdog.mjs";
 import { companionDataDir } from "../platform/paths.mjs";
 import { findLinuxCodexProcesses } from "../platform/processes.mjs";
 
@@ -178,6 +179,7 @@ export async function runAgent(options = {}) {
   let retryTimer;
   let retryMs = 1000;
   let polling;
+  let watchdog;
   const waits = new Map();
   const report = error => logger.warn?.(`[codex-companion] agent：${error.message ?? error}`);
   const platform = {
@@ -255,6 +257,9 @@ export async function runAgent(options = {}) {
   function stop() {
     if (stopping) return stopping;
     stopped = true;
+    // 先停看门狗：正常退出期间的清理不应触发卡死判定。
+    watchdog?.stop();
+    watchdog = null;
     controller?.stop();
     for (const signal of ["SIGTERM", "SIGINT"]) processRef.removeListener(signal, onSignal);
     nativeWatch?.close();
@@ -282,6 +287,15 @@ export async function runAgent(options = {}) {
     if (options.logDir) {
       fileLogger = await createAgentFileLogger({ logDir: options.logDir, home: deps.home, now, fallbackLogger: logger });
       logger = fileLogger;
+    }
+    // 主线程看门狗只由真实进程入口显式开启（cli.mjs），测试与其它子命令不启用。
+    if (options.mainThreadWatchdog) {
+      try {
+        watchdog = (options.startWatchdogImpl ?? startMainThreadWatchdog)({
+          ...(options.mainThreadWatchdog === true ? {} : options.mainThreadWatchdog), logPath: fileLogger?.path ?? null,
+          onError: error => logger.warn?.(`[codex-companion] agent 主线程看门狗异常：${error.message ?? error}`)
+        });
+      } catch (error) { logger.warn?.(`[codex-companion] agent 主线程看门狗启动失败：${error.message ?? error}`); }
     }
     config = await deps.configStore.loadV2({ strict: true });
     const initialState = await deps.runtimeState.load();

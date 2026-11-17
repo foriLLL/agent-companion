@@ -242,3 +242,62 @@ test("agent 启动配置失败会释放锁，内核锁错误不会冒充已运�
   assert.equal(await readFile(defaultAgentLockPath(home), "utf8"), "");
   await assert.rejects(acquireAgentLock({ path: defaultAgentLockPath(home), spawnImpl: fakeLockSpawn([], 64) }), { code: "AGENT_LOCK_FAILED" });
 });
+
+function fakeWatchdog({ fail = false } = {}) {
+  const calls = [];
+  return { calls, start: options => {
+    if (fail) throw new Error("worker unavailable");
+    const entry = { options, stops: 0 };
+    calls.push(entry);
+    return { stop: () => { entry.stops += 1; } };
+  } };
+}
+
+test("主线程看门狗默认不启用；显式开启时透传阈值与 agent.log 路径，SIGTERM 正常退出前先停掉", async t => {
+  const off = fakeWatchdog();
+  const plain = await fixture(t, { startWatchdogImpl: off.start });
+  await plain.instance.stop();
+  assert.equal(off.calls.length, 0);
+
+  const on = fakeWatchdog();
+  const f = await fixture(t, { mainThreadWatchdog: { stallMs: 1234, intervalMs: 56 }, startWatchdogImpl: on.start, logDir: "~/logs" });
+  assert.equal(on.calls.length, 1);
+  const { onError, ...options } = on.calls[0].options;
+  assert.deepEqual(options, { stallMs: 1234, intervalMs: 56, logPath: join(f.home, "logs", "agent.log") });
+  assert.equal(typeof onError, "function");
+  assert.equal(on.calls[0].stops, 0);
+  f.processRef.emit("SIGTERM");
+  await f.instance.stop();
+  await flush();
+  assert.equal(on.calls[0].stops, 1);
+  assert.equal(f.processRef.exitCode, 0);
+});
+
+test("看门狗启动失败或线程出错只记警告，agent 照常运行；没有日志目录时 logPath 为 null", async t => {
+  const warnings = [];
+  const warnLogger = { ...logger, warn: message => warnings.push(message) };
+  const broken = await fixture(t, { mainThreadWatchdog: true, startWatchdogImpl: fakeWatchdog({ fail: true }).start, logger: warnLogger });
+  assert.equal(broken.instance.running, true);
+  assert.match(warnings.join("\n"), /主线程看门狗启动失败：worker unavailable/);
+
+  const watchdog = fakeWatchdog();
+  await fixture(t, { mainThreadWatchdog: true, startWatchdogImpl: watchdog.start, logger: warnLogger });
+  assert.equal(watchdog.calls[0].options.logPath, null);
+  watchdog.calls[0].options.onError(new Error("worker crashed"));
+  assert.match(warnings.join("\n"), /主线程看门狗异常：worker crashed/);
+});
+
+test("没拿到单实例锁时不启动看门狗；拿锁后启动失败会连同看门狗一起停止", async t => {
+  const home = await temporary(t);
+  const skipped = fakeWatchdog();
+  const result = await runAgent({ home, helperPath: null, env: {}, mainThreadWatchdog: true, startWatchdogImpl: skipped.start,
+    lockSpawnImpl: fakeLockSpawn([], process.platform === "darwin" ? 75 : 1), configStore: { loadV2() { throw new Error("must not load"); } } });
+  assert.equal(result.running, false);
+  assert.equal(skipped.calls.length, 0);
+
+  const started = fakeWatchdog();
+  await assert.rejects(runAgent({ home, helperPath: null, env: {}, mainThreadWatchdog: true, startWatchdogImpl: started.start,
+    lockSpawnImpl: fakeLockSpawn(), isAlive: () => false, configStore: { loadV2: async () => { throw new Error("bad config"); } } }), /bad config/);
+  assert.equal(started.calls.length, 1);
+  assert.equal(started.calls[0].stops, 1);
+});
