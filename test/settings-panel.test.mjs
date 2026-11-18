@@ -905,6 +905,42 @@ test("更新：源码安装只给命令；刚更新完打开即确认提示；�
   unsupported.panel.destroy();
 });
 
+test("更新：有新版本或刚更新完时整组提到最上面并换强调色，已是最新时回到「状态」上方", async () => {
+  const legends = root => descendants(root).filter(item => item.tagName === "legend").map(item => item.textContent);
+  const usual = ["卡片", "显示方式", "任务看板", "启动", "自动加载", "更新", "状态"];
+  let status = updateStatus();
+  const f = fixture(null, { updates: method => {
+    if (method === "companion.update.check") status = updateStatus({ available: false, latest: null, current: "0.2.1" });
+    return status;
+  } });
+  await f.panel.open();
+  const root = f.panel.element;
+  assert.deepEqual(legends(root), ["更新", ...usual.filter(title => title !== "更新")]);
+  assert.equal(updateFieldset(root).dataset.attention, "new");
+
+  // 回到最新：整组移回原位，点过的「检查更新」仍保持焦点。
+  const check = byText(root, "检查更新");
+  check.focus();
+  check.click();
+  await turn();
+  assert.deepEqual(legends(root), usual);
+  assert.equal(updateFieldset(root).dataset.attention, undefined);
+  assert.equal(f.document.activeElement, check);
+  f.panel.destroy();
+
+  for (const [extra, attention] of [
+    [{ available: false, latest: null, notice: { from: "0.2.0", to: "0.2.1", notes: "" } }, "updated"],
+    [{ available: false, pending: { version: "0.2.1" } }, "new"],
+    [{ available: false, latest: null, error: { message: "检查更新失败：网络", at: 1 } }, undefined]
+  ]) {
+    const g = fixture(null, { updates: () => updateStatus(extra) });
+    await g.panel.open();
+    assert.equal(updateFieldset(g.panel.element).dataset.attention, attention, JSON.stringify(extra));
+    assert.equal(legends(g.panel.element)[0] === "更新", Boolean(attention));
+    g.panel.destroy();
+  }
+});
+
 test("「卡片配置」红点：需要手动处理的新版本或未看过的更新说明才标，自动更新进行中不标", async () => {
   for (const [status, expected, title] of [
     [updateStatus(), "available", "Companion 有新版本 0.2.1"],
@@ -927,4 +963,48 @@ test("「卡片配置」红点：需要手动处理的新版本或未看过的�
     assert.equal(gear.title, title);
     shell.dispose();
   }
+});
+
+test("「卡片配置」红点：每 5 分钟和 Codex 窗口回到前台时同步，后台刚发现的新版本不用等半小时", async () => {
+  const intervals = [];
+  const view = Object.assign(new EventTarget(), {
+    setInterval: (callback, delay) => { intervals.push({ callback, delay }); return intervals.length; },
+    clearInterval: id => { if (intervals[id - 1]) intervals[id - 1].cleared = true; }
+  });
+  const document = makeDocument();
+  const events = new EventTarget();
+  for (const key of ["addEventListener", "removeEventListener", "dispatchEvent"]) document[key] = events[key].bind(events);
+  document.defaultView = view;
+  document.visibilityState = "visible";
+  let status = updateStatus({ available: false, latest: null });
+  let reads = 0;
+  const shell = createCardShell({ document });
+  shell.configureSettings({ call: async () => { reads++; return status; } });
+  await turn();
+  const gear = byLabel(shell.root, "Companion 设置");
+  assert.equal(gear.dataset.update, undefined);
+  assert.deepEqual(intervals.map(item => item.delay), [5 * 60_000]);
+
+  status = updateStatus();
+  view.dispatchEvent(new Event("focus"));
+  await turn();
+  assert.equal(gear.dataset.update, "available");
+
+  // 窗口在后台时不读；切回可见再读。
+  document.visibilityState = "hidden";
+  document.dispatchEvent(new Event("visibilitychange"));
+  await turn();
+  assert.equal(reads, 2);
+  document.visibilityState = "visible";
+  document.dispatchEvent(new Event("visibilitychange"));
+  intervals[0].callback();
+  await turn();
+  assert.equal(reads, 4);
+
+  shell.dispose();
+  assert.equal(intervals[0].cleared, true);
+  view.dispatchEvent(new Event("focus"));
+  document.dispatchEvent(new Event("visibilitychange"));
+  await turn();
+  assert.equal(reads, 4, "卸载后不再同步");
 });

@@ -57,6 +57,7 @@ export function createCardShell({ document: doc = document, hostId = "codex-comp
   const slots = new Map();
   let settings;
   let updateTimer = null;
+  let stopUpdateRefresh = () => {};
   const win = doc.defaultView ?? globalThis;
   // 有新版本要手动处理，或刚自动更新完还没看过说明时，在「卡片配置」上标红点。
   function markUpdate(status) {
@@ -140,14 +141,23 @@ export function createCardShell({ document: doc = document, hostId = "codex-comp
         settingsButton.setAttribute("aria-expanded", "false");
         settingsButton.focus({ preventScroll: true });
       } });
-      // 更新状态只读后台本地记录，不访问网络；后台每 6 小时检查一次，这里半小时同步一次红点。
+      // 更新状态只读后台本地记录，不访问网络。后台每 6 小时检查一次，结果不会推给页面：
+      // 红点在挂载时、每 5 分钟、Codex 窗口回到前台时各同步一次，后台刚发现新版本也能很快标上。
       const refreshUpdate = () => {
         if (!settings || !settings.element.hidden) return;
         Promise.resolve().then(() => call("companion.update.status", {})).then(markUpdate, () => {});
       };
+      const refreshVisible = () => { if (doc.visibilityState !== "hidden") refreshUpdate(); };
       refreshUpdate();
-      updateTimer = win.setInterval(refreshUpdate, 30 * 60_000);
+      updateTimer = win.setInterval(refreshUpdate, 5 * 60_000);
       updateTimer?.unref?.();
+      win.addEventListener?.("focus", refreshVisible);
+      doc.addEventListener?.("visibilitychange", refreshVisible);
+      stopUpdateRefresh = () => {
+        win.clearInterval(updateTimer);
+        win.removeEventListener?.("focus", refreshVisible);
+        doc.removeEventListener?.("visibilitychange", refreshVisible);
+      };
       settings.element.id = "companion-settings";
       root.insertBefore(settings.element, stack);
       platformBar.hidden = false;
@@ -161,7 +171,7 @@ export function createCardShell({ document: doc = document, hostId = "codex-comp
     diagnostics: () => ({ count: slots.size, ids: [...slots.keys()] }),
     dispose() {
       settingsButton.removeEventListener("click", toggleSettings);
-      win.clearInterval(updateTimer);
+      stopUpdateRefresh();
       settings?.destroy();
       for (const slot of [...slots.values()]) slot.remove();
       host.remove();

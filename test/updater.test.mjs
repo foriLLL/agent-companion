@@ -167,6 +167,30 @@ test("重启后换上新版本：转成一次性「已更新」提示，确认�
   const saved = JSON.parse(await readFile(f.statePath, "utf8"));
   assert.equal(saved.installed.seen, true);
   assert.equal(saved.pending, null);
+  // 旧版本升级时为旧进程保留，换上新版本后清掉。
+  await until(() => f.execCalls.length > 0);
+  assert.deepEqual(f.execCalls.map(item => item.args), [["cleanup", "codex-companion"]]);
+  assert.equal(f.execCalls[0].file, "/opt/homebrew/bin/brew");
+});
+
+test("清理旧版本：失败只记日志；没换上新版本或不是 Homebrew 安装时不清理", async t => {
+  const failed = await fixture(t, { current: "0.2.1", latest: release("0.2.1"), execFail: "cleanup",
+    state: { pending: { from: "0.2.0", to: "0.2.1", notes: "", at: 5 } } });
+  const status = await failed.updater.start();
+  await until(() => failed.execCalls.length > 0);
+  await flush();
+  assert.equal(status.notice.to, "0.2.1");
+  assert.equal(failed.updater.status().error, null, "清理失败不算更新失败");
+
+  for (const options of [
+    { current: "0.2.0", state: { pending: { from: "0.2.0", to: "0.2.1", notes: "", at: 5 } } },
+    { current: "0.2.1", install: { channel: "source", root: "/repo" }, state: { pending: { from: "0.2.0", to: "0.2.1", notes: "", at: 5 } } }
+  ]) {
+    const f = await fixture(t, options);
+    await f.updater.start();
+    await flush();
+    assert.deepEqual(f.execCalls, [], JSON.stringify(options));
+  }
 });
 
 test("Formula 还没同步新版本：记录错误、不重启，下个周期再试", async t => {

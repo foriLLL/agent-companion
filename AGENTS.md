@@ -97,9 +97,11 @@ Codex 每次升级都可能改掉类名、data 属性、DOM 层级和打包方�
 
 ## 自动更新（`src/updater.mjs`）
 - 版本只认打了 `vX.Y.Z` tag 的正式 Release（API 403/429 时改读 `releases/latest` 跳转 + tag 上的 CHANGELOG，未登录 API 按出口 IP 限流）；agent 启动 2 分钟后、之后每 6 小时查一次，状态存数据目录 `update-state.json`。
-- 只有 macOS 的 Homebrew 安装会自动装：`brew update` + `brew upgrade`（`HOMEBREW_NO_INSTALL_CLEANUP=1` 保留旧版本文件），
-  装好后等卡片里没有媒体在播，agent 正常清理并以退出码 75 结束，由 launchd（`KeepAlive.SuccessfulExit=false`）
-  拉起新版本。不重启 Codex。源码安装只提醒，不能替用户 `git pull`。
+- 只有 macOS 的 Homebrew 安装会自动装：`brew update` + `brew upgrade`（`HOMEBREW_NO_INSTALL_CLEANUP=1` 保留旧版本文件，
+  旧进程还会懒加载自己目录里的模块），装好后等卡片里没有媒体在播，agent 正常清理并以退出码 75 结束，
+  由 launchd（`KeepAlive.SuccessfulExit=false`）拉起新版本；新进程确认换上新版本后才 `brew cleanup codex-companion`。
+  不重启 Codex。源码安装只提醒，不能替用户 `git pull`。
+- 检查结果不推给页面：卡片外框在挂载时、每 5 分钟和窗口回到前台（focus / visibilitychange）时读 `status` 更新红点。
 - 配置开关是顶层 `updates.auto`（缺省 true），不要放进 `agent`：旧版本的校验拒绝 `agent` 里的未知字段。
 - 页面经 `companion.update.status|check|apply|acknowledge` 访问；`apply` 立即返回，界面轮询 `status`。
 - 测试里构造 `runAgent` 要传 `updater: false` 或假的 `updaterFactory`，否则假时钟推进会真的访问 GitHub。

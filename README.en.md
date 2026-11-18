@@ -293,8 +293,11 @@ in the settings also lets you check by hand and shows the current version and re
   `brew update` and `brew upgrade codex-companion` in the background (Homebrew may also upgrade outdated
   dependencies such as Node.js or FFmpeg), then restarts Companion's background service on the new version.
   Codex itself is not restarted. If a video is playing in a card, the restart waits until playback stops.
-  Afterwards a red dot on "卡片配置" (Card settings) points to the release notes. Turning off "自动更新"
-  (Automatic updates) switches to a reminder, and the update only installs when you click "立即更新" (Update now).
+  Once the new version is running, the old version is removed from Homebrew.
+  Afterwards a red dot on "卡片配置" (Card settings) points to the release notes, which the settings show in the
+  "更新" (Updates) group moved to the top. Turning off "自动更新" (Automatic updates) switches to a reminder: the red
+  dot appears within a few minutes of a release being found (or when you switch back to Codex), and the update
+  only installs when you click "立即更新" (Update now).
 - **Source installations** only get a reminder with the update command; Companion never runs `git pull` for you,
   so local changes are safe.
 - When "通过代理启动" (Launch through proxy) is on, checking and upgrading use the same local proxy.

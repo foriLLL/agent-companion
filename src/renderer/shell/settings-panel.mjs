@@ -127,6 +127,7 @@ export function createSettingsPanel({ document: doc, call, connection, onClose =
 
   const style = node("style");
   // 颜色优先取 Codex 设计变量（随宿主明暗切换），缺失时回退到 currentColor 混色。
+  // Codex 的开关选中色和焦点色是黑白的，「更新」提醒要醒目，单独用 Codex 调色板里的蓝 / 绿。
   style.textContent = `
     .cc-settings { --fg:var(--color-token-text-primary,currentColor);
       --fg2:var(--color-token-text-secondary,color-mix(in srgb,currentColor 65%,transparent));
@@ -244,6 +245,17 @@ export function createSettingsPanel({ document: doc, call, connection, onClose =
     .cc-update-notes pre, .cc-update-command { margin:0;padding:0 12px 10px;max-height:200px;overflow:auto;white-space:pre-wrap;
       overflow-wrap:anywhere;font:12px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:var(--fg2); }
     .cc-update-command { padding-top:8px;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:11px;user-select:text; }
+    .cc-settings fieldset[data-attention] { --attn:var(--color-blue-400,#0285ff); }
+    .cc-settings fieldset[data-attention="updated"] { --attn:var(--color-green-500,#00a240); }
+    .cc-settings fieldset[data-attention] legend { color:color-mix(in srgb,var(--attn) 75%,var(--fg));font-weight:600; }
+    .cc-settings fieldset[data-attention] .cc-status[data-state="new"] p::before { background:var(--attn);
+      box-shadow:0 0 0 3px color-mix(in srgb,var(--attn) 22%,transparent); }
+    .cc-settings fieldset[data-attention] .cc-group { border-color:color-mix(in srgb,var(--attn) 40%,transparent);
+      background:color-mix(in srgb,var(--attn) 9%,var(--surface)); }
+    .cc-settings fieldset[data-attention] .cc-group > * + * { border-top-color:color-mix(in srgb,var(--attn) 20%,transparent); }
+    .cc-settings fieldset[data-attention] .cc-status p { font-weight:600; }
+    .cc-settings fieldset[data-attention] button.cc-primary,
+    .cc-settings fieldset[data-attention] button.cc-primary:hover:not(:disabled) { background:var(--attn);color:#fff; }
     @media (prefers-reduced-motion:reduce) { .cc-settings * { transition:none !important; } }
   `;
   const header = node("header");
@@ -599,12 +611,26 @@ export function createSettingsPanel({ document: doc, call, connection, onClose =
     }
   }
   const UPDATE_BUSY = ["checking", "updating", "waiting-restart", "restarting"];
+  // 有新版本、正在更新或刚更新完时，「更新」整组提到面板最上面并换成强调色；平时留在「状态」上方。
+  // 移动节点会让组内按钮失焦（比如点「检查更新」后整组上移），移完把焦点还回去。
+  function placeUpdate(attention) {
+    const fieldset = updateSection.parentNode;
+    if (attention) fieldset.dataset.attention = attention; else delete fieldset.dataset.attention;
+    const anchor = attention ? general.parentNode : statusSection.parentNode;
+    if (fieldset.nextSibling === anchor) return;
+    const focused = element.getRootNode?.().activeElement;
+    const refocus = focused && fieldset.contains(focused) ? focused : null;
+    element.insertBefore(fieldset, anchor);
+    refocus?.focus({ preventScroll: true });
+  }
   function renderUpdate(status) {
     updateStatus = status && status.supported !== false && typeof status.current === "string" ? status : null;
     updateSection.parentElement.hidden = !updateStatus;
     onUpdateStatus(updateStatus);
-    if (!updateStatus) return;
+    if (!updateStatus) { placeUpdate(""); return; }
     const { current, latest, notice, pending, phase, error, canApply, available, command, releasesUrl, lastCheckAt } = updateStatus;
+    const installing = Boolean(pending) || (phase !== "checking" && UPDATE_BUSY.includes(phase));
+    placeUpdate(notice ? "updated" : available || installing ? "new" : "");
     let text = `已是最新版本 ${current}`;
     let state = "ok";
     if (notice) text = `已更新到 ${notice.to}`;

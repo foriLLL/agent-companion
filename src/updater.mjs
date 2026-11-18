@@ -26,6 +26,7 @@ export const RESTART_POLL_MS = 60_000;
 const FETCH_TIMEOUT_MS = 10_000;
 const BREW_UPDATE_TIMEOUT_MS = 5 * 60_000;
 const BREW_UPGRADE_TIMEOUT_MS = 20 * 60_000;
+const BREW_CLEANUP_TIMEOUT_MS = 5 * 60_000;
 const NOTES_LIMIT = 8000;
 const MESSAGE_LIMIT = 300;
 const PACKAGE_ROOT = fileURLToPath(new URL("..", import.meta.url));
@@ -333,6 +334,14 @@ export function createUpdater({
     return status();
   }
 
+  // 升级时保留了旧版本（旧进程还要懒加载自己的模块）；换上新版本后旧进程已退出，删掉旧版本和下载缓存，免得每次更新都多占几十 MB。
+  async function cleanupOldVersions() {
+    if (!canApply) return;
+    try {
+      await brew(["cleanup", FORMULA], BREW_CLEANUP_TIMEOUT_MS);
+    } catch (error) { warn(error.message); }
+  }
+
   async function start() {
     try {
       const raw = await readFileImpl(statePath, "utf8");
@@ -345,6 +354,7 @@ export function createUpdater({
       if (compareVersions(currentVersion, state.pending.to) >= 0) {
         state.installed = { from: state.pending.from, to: currentVersion, notes: state.pending.notes, at: now(), seen: false };
         info(`已更新到 ${currentVersion}`);
+        void cleanupOldVersions();
       } else warn(`重启后仍是 ${currentVersion}，未换上 ${state.pending.to}`);
       state.pending = null;
       await persist();
