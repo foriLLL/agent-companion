@@ -16,6 +16,10 @@ const CLIENT_PREFIX = "client-new-thread:";
 export const STALLED_AFTER_MS = 15 * 60_000;
 const MISS_CACHE_MS = 60_000;
 const LIFECYCLE = { task_started: "running", task_complete: "idle", turn_aborted: "interrupted" };
+// turn_aborted 的 reason：interrupted 是用户自己点停止 / 按 Esc，replaced 是发了新消息顶掉正在跑的回合，
+// 都是用户主动的，记为 stopped（已停止，不算需要处理）；没有 reason 或其它原因仍按异常中断。
+const USER_STOP_REASONS = new Set(["interrupted", "replaced"]);
+export const abortStatus = (payload) => (USER_STOP_REASONS.has(payload?.reason) ? "stopped" : "interrupted");
 // 计划快照可能远在尾部窗口之前（一步就能写出几 MB 输出）：首次按 2MB → 16MB 往前找到回合开头，之后只读新增部分。
 const PLAN_WINDOWS = [2 * 1024 * 1024, 16 * 1024 * 1024];
 const PLAN_CACHE_LIMIT = 64;
@@ -179,13 +183,14 @@ export function lastLifecycle(text, { inTurn = false } = {}) {
     const payload = record?.payload;
     let status = record?.type === "event_msg" ? LIFECYCLE[payload?.type] : undefined;
     if (!status) continue;
+    if (payload.type === "turn_aborted") status = abortStatus(payload);
     if (status === "running") { pending.clear(); asking.clear(); askedAt.clear(); activity = "思考中"; note = null; }
     if (status === "idle" && endsWithQuestion(payload.last_agent_message)) status = "asking";
     const at = Date.parse(record.timestamp);
     last = { status, at: Number.isFinite(at) ? at : null, summary: replySummary(payload.last_agent_message, status === "asking") };
   }
   if (!last && inTurn && sawItem) last = { status: "running", at: null, summary: null };
-  if (last && last.status !== "running" && last.status !== "interrupted" && asking.size) {
+  if (last && !["running", "interrupted", "stopped"].includes(last.status) && asking.size) {
     last.status = "asking";
     last.summary = [...asking.values()].findLast(Boolean) ?? last.summary;
   }
@@ -264,7 +269,7 @@ export function parseTrace(text) {
       let record;
       try { record = JSON.parse(line); } catch { record = null; }
       turn.end = at;
-      turn.status = event === "turn_aborted" ? "interrupted" : "done";
+      turn.status = event === "turn_aborted" ? abortStatus(record?.payload) : "done";
       turn.ttftMs = Number.isFinite(record?.payload?.time_to_first_token_ms) ? record.payload.time_to_first_token_ms : null;
       turn.asking = event === "task_complete" && endsWithQuestion(record?.payload?.last_agent_message);
       for (const segment of pending.values()) segment.end = at;
@@ -445,7 +450,7 @@ export class CodexSessions {
   }
 
   /**
-   * 会话当前状态：running / asking / idle / interrupted / stalled / archived / missing。
+   * 会话当前状态：running / asking / idle / stopped / interrupted / stalled / archived / missing。
    * turnAt 为最后一个回合事件的时间，用来判断用户是否已经看过这次结果。
    */
   async status(id) {

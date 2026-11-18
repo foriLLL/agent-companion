@@ -115,6 +115,13 @@ test("按创建日期定位 rollout，并区分进行中、等你回复、中断
   assert.equal((await sessions.status(ID)).status, "idle");
   await writeFile(path, `${event("2026-10-28T10:00:00Z", "task_started")}\n${event("2026-10-28T10:01:00Z", "turn_aborted")}\n`);
   assert.equal((await sessions.status(ID)).status, "interrupted");
+  // 用户自己点停止（interrupted）或发新消息顶掉回合（replaced）：已停止，不算需要处理。
+  for (const reason of ["interrupted", "replaced"]) {
+    await writeFile(path, `${event("2026-10-28T10:00:00Z", "task_started")}\n${event("2026-10-28T10:01:00Z", "turn_aborted", { reason })}\n`);
+    assert.equal((await sessions.status(ID)).status, "stopped", reason);
+  }
+  await writeFile(path, `${event("2026-10-28T10:00:00Z", "task_started")}\n${event("2026-10-28T10:01:00Z", "turn_aborted", { reason: "review_ended" })}\n`);
+  assert.equal((await sessions.status(ID)).status, "interrupted", "其它原因仍按中断");
   await writeFile(path, `${event("2026-10-28T10:00:00Z", "task_started")}\n`);
   const old = new Date(now - STALLED_AFTER_MS - 60_000);
   await utimes(path, old, old);

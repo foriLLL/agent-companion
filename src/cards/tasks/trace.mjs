@@ -35,6 +35,7 @@ const SEGMENT_ICONS = {
   call: '<path d="M6 4L2.5 8 6 12M10 4l3.5 4-3.5 4"/>',
   failed: '<path d="M5 5l6 6M11 5l-6 6"/>',
   done: '<path d="M3.5 8.4l2.9 2.9 6.1-6.6"/>',
+  stopped: '<rect x="5" y="5" width="6" height="6" rx="1" fill="currentColor" stroke="none"/>',
   pending: '<circle cx="8" cy="8" r="4.4"/>',
   // 进行中但回合已经停下（在等你回答、被中断）：半实心圆，不转。
   paused: '<circle cx="8" cy="8" r="4.4"/><path d="M8 3.6a4.4 4.4 0 0 1 0 8.8z" fill="currentColor" stroke="none"/>',
@@ -399,7 +400,8 @@ export function createTraceView({ rpc, effects, signal, threads, element, fail, 
         live.push({ kind: "status", node: text, segment: open, label: open?.kind === "tool" ? "工具运行" : open ? KIND_LABEL[open.kind] ?? "进行中" : "进行中" });
       }
     } else if (lastTurn.asking) { status.dataset.tone = "human"; status.textContent = "▲ 需要你"; }
-    else { status.dataset.tone = "idle"; status.textContent = lastTurn.status === "done" ? `已完成 · ${clock(lastTurn.end)}` : "已中断"; }
+    else { status.dataset.tone = "idle"; status.textContent = lastTurn.status === "done" ? `已完成 · ${clock(lastTurn.end)}`
+      : lastTurn.status === "stopped" ? `已停止 · ${clock(lastTurn.end)}` : "已中断"; }
     head.append(status);
 
     const stats = element("div", "stats");
@@ -533,8 +535,8 @@ export function createTraceView({ rpc, effects, signal, threads, element, fail, 
       } else if (turn.end !== null) {
         const end = element("span", "turn-end");
         end.dataset.status = turn.status;
-        end.title = `${turn.status === "done" ? "完成" : "中断"} · ${clockSec(turn.end)}`;
-        end.innerHTML = glyph(turn.status === "done" ? SEGMENT_ICONS.done : SEGMENT_ICONS.failed, 10);
+        end.title = `${turn.status === "done" ? "完成" : turn.status === "stopped" ? "你停止了这个回合" : "中断"} · ${clockSec(turn.end)}`;
+        end.innerHTML = glyph(SEGMENT_ICONS[turn.status === "done" || turn.status === "stopped" ? turn.status : "failed"], 10);
         end.style.left = `${endX + 3}px`;
         rowOf.get("model").append(end);
       }

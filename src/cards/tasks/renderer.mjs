@@ -21,6 +21,8 @@ const STATUS = {
   stalled: { label: "长时间无响应，需要你看看", icon: "alert", human: true },
   running: { label: "进行中", icon: "spin" },
   idle: { label: "已回复", icon: "reply" },
+  // 用户自己点停止：不算需要处理，排在已回复之后。
+  stopped: { label: "已停止", icon: "stopped" },
   archived: { label: "已归档", icon: "gone" },
   missing: { label: "找不到记录", icon: "gone" }
 };
@@ -28,7 +30,7 @@ function rankOf(task) {
   const status = STATUS[task.status];
   if (!status) return 5;
   if (status.human) return task.unread ? 0 : 2;
-  if (task.status === "idle") return task.unread ? 1 : 4;
+  if (task.status === "idle" || task.status === "stopped") return task.unread ? 1 : 4;
   if (task.status === "running") return 3;
   return 5;
 }
@@ -56,7 +58,8 @@ const STATUS_ICONS = {
   spin: `${gradient("cc-task-spin", "#6aa8ff", "#3b6ff0")}<circle cx="10" cy="10" r="6.8" stroke="color-mix(in srgb,#3b82f6 16%,transparent)" stroke-width="2.2"/><path class="arc" d="M10 3.2a6.8 6.8 0 0 1 6.8 6.8" stroke="url(#cc-task-spin)" stroke-width="2.2"/>`,
   reply: `${gradient("cc-task-reply", "#8fb4ff", "#5b7cf0")}${BUBBLE}`,
   unread: `${gradient("cc-task-reply", "#8fb4ff", "#5b7cf0")}${BUBBLE}<circle cx="16" cy="4.4" r="3" fill="#ff4d4f" stroke="var(--cc-card-bg,#fff)" stroke-width="1.4"/>`,
-  gone: '<circle cx="10" cy="10" r="6.8" stroke-dasharray="2.2 2.6" opacity=".45"/>'
+  gone: '<circle cx="10" cy="10" r="6.8" stroke-dasharray="2.2 2.6" opacity=".45"/>',
+  stopped: '<circle cx="10" cy="10" r="6.8" opacity=".5"/><rect x="7.4" y="7.4" width="5.2" height="5.2" rx="1" fill="currentColor" stroke="none" opacity=".6"/>'
 };
 let gradientSeq = 0;
 const icon = (name) => `<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name]}</svg>`;
@@ -365,6 +368,7 @@ ${TRACE_STYLE}
     }
     if (task.status === "archived" || task.status === "missing") return { text: STATUS[task.status].label };
     const when = withTime ? ago(task.turnAt ?? task.updatedAt) : "";
+    if (task.status === "stopped") return { text: [when, "已停止"].filter(Boolean).join(" · ") };
     if (task.status === "interrupted" || task.status === "stalled") {
       // 标题旁已有「已中断 / 没动静」标签；看板第二行改说需要你做什么。
       const text = !withTime ? STATUS[task.status].label : task.status === "interrupted" ? "已中断" : "长时间没有动静";
