@@ -580,6 +580,11 @@ try {
   await waitFor(`${task("s1")} && ${marked("s1")} === '1'`, "撤销后放回原位");
   await new Promise((resolve) => setTimeout(resolve, 800));
   assert.ok(await evaluate(`Boolean(${task("s1")})`), "撤销放回的归档任务不再被自动移出");
+  // 自己点停止：灰色「已停止」，没有「已中断」标签。
+  await evaluate(`statusOf[ids.s1] = 'stopped'; bump()`);
+  await waitFor(`${task("s1")}?.querySelector('.status')?.dataset.icon === 'stopped'`, "自己停止显示已停止");
+  assert.equal(await evaluate(`${task("s1")}.querySelector('.tag')`), null, "已停止不带需要你处理的标签");
+  await screenshot("task-board-9-stopped.png");
   await evaluate(`statusOf[ids.s1] = 'interrupted'; bump()`);
 
   // 长轮询超时（收不到后台回包）：提示正在重连，下一次同步成功后自动消失，不残留。

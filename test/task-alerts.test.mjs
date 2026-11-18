@@ -33,6 +33,7 @@ test("状态没变不重复提醒；同一状态下又结束一个回合（两�
 
 test("不是从进行中结束的状态改判（如中断改判为已回复）不算完成；回到进行中不提醒", () => {
   assert.deepEqual(taskAlerts(board(task("a", "interrupted", 2)), board(task("a", "idle", 2))), []);
+  assert.deepEqual(taskAlerts(board(task("a", "running", 1)), board(task("a", "stopped", 2))), [], "自己点停止不提醒");
   assert.deepEqual(taskAlerts(board(task("a", "asking", 2)), board(task("a", "running", 2, false))), []);
   assert.deepEqual(taskAlerts(board(task("a", "running", 2)), board(task("a", "archived", 2))), []);
 });
