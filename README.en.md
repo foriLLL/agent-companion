@@ -266,7 +266,8 @@ after launch does not prevent the reopen. A Codex instance that has been running
 automatically; you are only notified that a reopen is needed. Automatic reopens are at least two minutes apart.
 
 After injection, a Companion entry appears in the Codex top bar; click it to show the cards. In the
-settings (the gear icon in the card area) you can place the cards below the native summary instead. If
+settings (the gear icon in the card area) you can place the cards below the native summary instead; the
+top-bar entry then opens the native summary, with the cards underneath. If
 the background service crashes, launchd restarts it and it reconnects to the Codex instance that already
 has the debugging port open.
 
