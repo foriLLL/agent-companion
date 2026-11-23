@@ -68,7 +68,8 @@ When several Codex sessions are running at once, you no longer need to open each
   currently being worked on.
 - **Per-session trace.** Hover over a task to open a timeline of that session, split into lanes for the
   plan, the model, commands, files, sub-agents, and you. Failures and moments waiting for your input are highlighted.
-- **Quick switching.** On macOS, hold Option and press Tab to switch between board sessions, the same way ⌘Tab switches apps.
+- **Quick switching.** On macOS, hold Option and press Tab to switch between board sessions, the same way ⌘Tab switches apps; ⌥J jumps straight to a session that needs you.
+- **Auto-add.** Optionally, sessions you start in Codex join the board on their own.
 - **Watch while you wait.** While a video plays in a card, playback pauses with an alert when a task needs you,
   and you get a brief alert when one finishes, even in fullscreen.
 
@@ -319,6 +320,11 @@ and leaves the checkout alone. If the service does not point at your checkout, p
 - Open a session and click "加入当前会话" (Add current session). It stays on the board, and the matching
   entry in the left sidebar is marked with the same color. Click ✓ when done to remove it; you can undo
   within a few seconds. The board keeps up to 100 tasks.
+- With "新会话自动加入看板" (Add new sessions automatically) turned on under "任务看板" (Task board) in the
+  settings, sessions you start in the Codex desktop app (including forks into a new session) join the board
+  on their own and are not added again once removed. The Codex CLI in a terminal, `codex exec`, sub-agents,
+  and side chats are skipped; sessions from before the switch was turned on, or created while the background
+  service was restarting, are not added.
 - Status icons update in real time. Sessions waiting for your answer, interrupted sessions, and sessions
   with no response for more than 15 minutes come first, then unread replies, then sessions in progress.
   You are reminded about turns that finished but that you have not looked at. Clicking a task locates and
@@ -329,11 +335,20 @@ and leaves the checkout alone. If the service does not point at your checkout, p
   into lanes for the model, commands, files, sub-agents, and you, with failures and moments waiting for
   your input highlighted. Move the pointer into the panel to scroll and zoom; press Esc to close.
 - On macOS, hold Option and press Tab repeatedly to open the list of board sessions in the middle of the
-  window (most recently opened first), and release Option to switch. A single quick press returns to the
-  previous session. Shift+Tab or the arrow keys go backwards, Esc cancels, and you can also click with the
-  mouse. This works while the cards are collapsed and does not intercept keys when the board is empty. It
-  can be turned off under "任务看板" (Task board) in the settings. It is not offered on Linux, where desktop
-  environments reserve Alt+Tab.
+  window (most recently opened first; the order survives background service restarts and updates), and
+  release Option to switch. A single quick press returns to the previous session. Shift+Tab or the arrow keys
+  go backwards, 1–9 jump straight to a row, Esc cancels, and you can also click with the mouse. In the panel,
+  W removes the selected session from the board and Z undoes it. Rows show plan progress too; sessions whose
+  records can no longer be found are left out. This works while the cards are collapsed and does not
+  intercept keys when the board is empty.
+- Hold Option and press J to jump to a session that needs you: first unread ones waiting for your answer,
+  interrupted, or gone quiet, then unread replies, then ones you have seen that are still waiting. Press again
+  to move on to the next; if there is none, a short note appears at the top of the window. While a playback
+  alert is showing, ⌥J does the same as "去处理" (Handle).
+- Under "任务看板" (Task board) in the settings you can turn these shortcuts off, switch Option to Control
+  (⌃Tab / ⌃J, which takes over Codex's switch-tab shortcut; useful when a window switcher such as AltTab
+  already owns ⌥Tab), or have the panel also list recently opened sessions that are not on the board. They
+  are not offered on Linux, where desktop environments reserve Alt+Tab and Ctrl+Tab switches Codex tabs.
 - While a video plays in a card (Hongguo, Emby, and so on), a board task that is waiting for your answer, was
   interrupted, or has gone quiet for a long time pauses playback and shows an alert next to the video. A
   finished turn only shows an alert, which closes after a few seconds. In fullscreen the alert appears over
@@ -482,7 +497,9 @@ Injection depends on Codex's DOM structure and may need updating when Codex chan
 - **Task board.** It only reads session records, `session_index.jsonl`, and `.codex-global-state.json` in the
   local Codex data directory (`~/.codex`, or `CODEX_HOME`), and uploads nothing. The only writes are the marked
   blocks in `AGENTS.md` and `config.toml` after you turn on "长任务先列计划". The board's own task list is stored in
-  `task-board.json` in the data directory.
+  `task-board.json` in the data directory, and the recently-opened order used by the shortcuts in `task-recent.json`.
+  With "新会话自动加入看板" on, the background service lists today's and yesterday's folders under `sessions` every
+  2 seconds and reads only the first line of new files to tell where they came from.
 
 Please report security issues privately as described in [SECURITY.md](SECURITY.md). Do not post tokens,
 server addresses, raw logs, or other private information in public issues.

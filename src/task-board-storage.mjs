@@ -8,11 +8,32 @@ import { replaceFile } from "./platform/replace-file.mjs";
 
 const FILE_LIMIT = 1024 * 1024;
 export const MAX_TASKS = 100;
+export const MAX_RECENT = 100;
 export const NAME_LIMIT = 120;
 export const COLOR_COUNT = 8;
 
 export function defaultTaskBoardPath(home = homedir()) {
   return join(companionDataDir(home), "task-board.json");
+}
+
+export function defaultTaskRecentPath(home = homedir()) {
+  return join(companionDataDir(home), "task-recent.json");
+}
+
+// 数据目录下 0600 原子写：先写同目录临时文件再替换，失败时删掉临时文件。
+async function writePrivateJson(path, data, randomUUIDImpl, prefix) {
+  const serialized = `${JSON.stringify(data, null, 2)}\n`;
+  const directory = dirname(path);
+  await mkdir(directory, { recursive: true, mode: 0o700 });
+  const temporary = join(directory, `.${prefix}-${process.pid}-${randomUUIDImpl()}.tmp`);
+  try {
+    await writeFile(temporary, serialized, { mode: 0o600, flag: "wx" });
+    await replaceFile(temporary, path);
+    await chmod(path, 0o600);
+  } catch (error) {
+    await unlink(temporary).catch(() => {});
+    throw error;
+  }
 }
 
 export function normalizeName(value) {
@@ -79,18 +100,7 @@ export class TaskBoardStorage {
   }
 
   async save(board) {
-    const serialized = `${JSON.stringify({ version: 1, revision: board.revision, tasks: board.tasks }, null, 2)}\n`;
-    const directory = dirname(this.path);
-    await mkdir(directory, { recursive: true, mode: 0o700 });
-    const temporary = join(directory, `.task-board-${process.pid}-${this.randomUUIDImpl()}.tmp`);
-    try {
-      await writeFile(temporary, serialized, { mode: 0o600, flag: "wx" });
-      await replaceFile(temporary, this.path);
-      await chmod(this.path, 0o600);
-    } catch (error) {
-      await unlink(temporary).catch(() => {});
-      throw error;
-    }
+    await writePrivateJson(this.path, { version: 1, revision: board.revision, tasks: board.tasks }, this.randomUUIDImpl, "task-board");
   }
 
   /** update(tasks) 返回新数组，或返回 null 表示无改动（不写盘、不增加 revision）。 */
@@ -102,6 +112,51 @@ export class TaskBoardStorage {
       const saved = { revision: board.revision + 1, tasks: normalizeTasks(next) };
       await this.save(saved);
       return saved;
+    });
+    this.queue = run.catch(() => {});
+    return run;
+  }
+}
+
+/** 只保留合法会话 id，去重并限长；不是数组时为空。 */
+function normalizeRecent(value) {
+  if (!Array.isArray(value)) return [];
+  const recent = [];
+  for (const id of value) {
+    if (typeof id !== "string" || !THREAD_ID_PATTERN.test(id) || recent.includes(id)) continue;
+    recent.push(id);
+    if (recent.length >= MAX_RECENT) break;
+  }
+  return recent;
+}
+
+/**
+ * 最近在 Codex 里打开过的会话（Option+Tab 的顺序），越近越前。单独存一个文件：
+ * 看板文件的 mtime 驱动看板长轮询，写进去会让每次切换会话都触发看板整体重绘。
+ * id 原样保存（可能是看板任务的 id，也可能是侧栏里不在看板上的会话），文件缺失或损坏时回退为空。
+ */
+export class TaskRecentStorage {
+  constructor({ path = defaultTaskRecentPath(), randomUUIDImpl = randomUUID } = {}) {
+    this.path = path;
+    this.randomUUIDImpl = randomUUIDImpl;
+    this.queue = Promise.resolve();
+  }
+
+  async load() {
+    let contents;
+    try { contents = await readFile(this.path, "utf8"); } catch { return []; }
+    if (Buffer.byteLength(contents) > FILE_LIMIT) return [];
+    try { return normalizeRecent(JSON.parse(contents)?.recent); } catch { return []; }
+  }
+
+  /** 记一次打开：移到最前。已经在最前时不写盘。返回新的列表。 */
+  visit(id) {
+    const run = this.queue.then(async () => {
+      const recent = await this.load();
+      if (recent[0] === id) return recent;
+      const next = normalizeRecent([id, ...recent.filter((item) => item !== id)]);
+      await writePrivateJson(this.path, { version: 1, recent: next }, this.randomUUIDImpl, "task-recent");
+      return next;
     });
     this.queue = run.catch(() => {});
     return run;
