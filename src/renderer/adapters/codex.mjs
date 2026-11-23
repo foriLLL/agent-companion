@@ -277,15 +277,31 @@ export function createCodexAdapter({ host, placement = "standalone-button", onVi
       && bounds.width > 0 && bounds.height > 0 ? column : null;
   };
 
+  // 摘要面板所在的浮层根：面板往上第一个绝对 / 固定定位的祖先，它的上下边界就是面板可用的高度。
+  // 26.1117 起浮层根的类名从 right-0 改成 inset-x-0，按类名找不到；面板自己的 data-summary-panel-variant 属性更稳定，
+  // 从它出发按定位方式找，不看类名。
+  const floatingRootOf = (panel) => {
+    for (let node = panel.parentElement; node && node !== document.body; node = node.parentElement) {
+      const position = getComputedStyle(node).position;
+      if (position === "absolute" || position === "fixed") return node;
+    }
+    return null;
+  };
+
   const findFloatingSummary = () => {
     const pinnedToggle = findSummaryToggle("pinned");
     const summaryIsOpen = pinnedToggle?.getAttribute("aria-pressed") === "true";
     // 多标签页时每个标签都有一份浮层根节点，后台标签的排在前面且不可见；
-    // 逐个尝试，取第一个能定位到可见纵列的。
+    // 逐个尝试，取第一个能定位到可见纵列的。先按旧版类名找，再从可见的摘要面板出发找（见 floatingRootOf）。
     const floatingRoots = Array.from(document.querySelectorAll("div")).filter((element) => {
       const className = typeof element.className === "string" ? element.className : "";
       return className.includes("thread-floating-content-top-inset") && className.includes("right-0");
     });
+    for (const panel of document.querySelectorAll("[data-summary-panel-variant]")) {
+      const bounds = panel.getBoundingClientRect();
+      const root = bounds.width > 0 && bounds.height > 0 ? floatingRootOf(panel) : null;
+      if (root && !floatingRoots.includes(root)) floatingRoots.push(root);
+    }
     for (const floatingRoot of floatingRoots) {
       const nativeColumn = Array.from(floatingRoot.querySelectorAll("div")).find((element) => {
         const className = typeof element.className === "string" ? element.className : "";
@@ -651,7 +667,22 @@ export function createCodexAdapter({ host, placement = "standalone-button", onVi
   };
   // 捕获阶段先撤下播放器，原生点击/键盘激活照常传播，不劫持 Toggle Summary。
   document.addEventListener("click", onNativeSummaryClick, true);
-  const onEntryClick = () => setCompanionOpen(displayMode === "overlay" ? !popoverOpen : !pinned);
+  // 「摘要下方」模式下点入口：卡片挂在原生 Summary 下面，摘要没开就用原生开关打开，卡片挂好后滚进视野；
+  // 已经开着就只滚动。不在这里关摘要，关闭交给原生开关。
+  const REVEAL_WINDOW_MS = 2000;
+  let revealInlineUntil = 0;
+  const revealInlineCards = () => {
+    revealInlineUntil = performance.now() + REVEAL_WINDOW_MS;
+    if (!(findSummaryPopover() ?? findFloatingSummary())) {
+      const trigger = [findSummaryToggle("pinned"), findSummaryToggle("popover")].find((toggle) => toggle && !summaryIsOpen(toggle));
+      trigger?.click();
+    }
+    schedulePlacement();
+  };
+  const onEntryClick = () => {
+    if (!usesStandalone()) revealInlineCards();
+    else setCompanionOpen(displayMode === "overlay" ? !popoverOpen : !pinned);
+  };
   companionButton.addEventListener("click", onEntryClick);
   toolbarButton.addEventListener("click", onEntryClick);
   const onCompanionKeyDown = (event) => {
@@ -1107,8 +1138,6 @@ export function createCodexAdapter({ host, placement = "standalone-button", onVi
     if (usesStandalone()) return ensureStandalonePlacement();
     clearConversationDock();
     observeLayout(null);
-    toolbarHost.remove();
-    companionButton.hidden = true;
     // 隐藏时保留同一个已连接的 rail；只有原生自己删除父节点才迁移到停车区。
     const summary = findSummaryPopover() ?? findFloatingSummary();
     if (!summary) {
@@ -1116,17 +1145,28 @@ export function createCodexAdapter({ host, placement = "standalone-button", onVi
       restoreAnimationColumn();
       restoreOuterScroller();
       syncResizeObservation();
+      if (!shell.isConnected) document.documentElement.append(shell);
       if (!host.isConnected) {
-        if (!shell.isConnected) document.documentElement.append(shell);
         moveHost(ownedRail);
         clearInlineRail();
       }
       if (inlineRail) { inlineRail.hidden = true; inlineRail.style.display = "none"; inlineRail.inert = true; }
       ownedRail.hidden = true;
+      // 摘要没打开时卡片不显示，但入口要留着：否则在新建会话页（没有摘要开关，走独立入口）看得到入口，
+      // 进了会话入口就整个消失，像是没加载。点入口用原生开关打开摘要（见 revealInlineCards）。
+      // 顶栏放不下时同独立模式一样退到悬浮按钮。
+      const inToolbar = placeToolbarEntry();
+      companionButton.hidden = inToolbar || !document.querySelector("button");
+      toolbarButton.setAttribute("aria-expanded", "false");
+      companionButton.setAttribute("aria-expanded", "false");
       placementMode = "hidden";
       notifyVisibility(false, "summary-hidden");
       return false;
     }
+    // 摘要开着时顶栏入口照样留着，位置不跟着摘要开合跳动；悬浮按钮会压住面板，不显示。
+    placeToolbarEntry();
+    companionButton.hidden = true;
+    toolbarButton.setAttribute("aria-expanded", "true");
     const { mountParent, nativePanel, styleRoot } = summary;
     if (summary.mode === "summary-popover") {
       preservePopoverPanel(nativePanel);
@@ -1152,6 +1192,11 @@ export function createCodexAdapter({ host, placement = "standalone-button", onVi
     syncResizeObservation(mountParent, nativePanel);
     placementMode = summary.mode;
     notifyVisibility(true, "summary-visible");
+    // 从入口点进来的：卡片挂好后滚进视野一次。超过时限（摘要没能打开）就不再滚，免得之后手动开摘要时突然跳动。
+    if (revealInlineUntil) {
+      if (performance.now() <= revealInlineUntil) inlineRail.scrollIntoView?.({ block: "nearest", behavior: drawerMotion.matches ? "auto" : "smooth" });
+      revealInlineUntil = 0;
+    }
     return true;
   };
 

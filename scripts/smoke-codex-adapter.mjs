@@ -161,6 +161,19 @@ try {
   await waitFor(`!adapter.isOpen()`, "inline Summary 开关未同步");
   assert.equal(await evaluate(`host.isConnected && host.parentElement.hidden`), true, "inline 关闭保留原 rail/host");
   await waitFor(`video.currentTime > ${beforeInlineHide} + .2`, "inline 收起媒体必须继续");
+  // 「摘要下方」模式：摘要关着时顶栏入口仍在；点它用原生开关打开摘要，卡片回到摘要下方，入口不跟着消失。
+  const inlineEntry = `(() => { const entry = document.getElementById('codex-companion-root-toolbar'); const box = entry?.getBoundingClientRect(); return { shown: Boolean(entry?.isConnected && box.width > 0 && box.height > 0), expanded: entry?.shadowRoot.querySelector('button').getAttribute('aria-expanded') ?? null }; })()`;
+  assert.deepEqual(await evaluate(inlineEntry), { shown: true, expanded: "false" }, "摘要关着时顶栏入口必须保留");
+  assert.equal(await evaluate(`adapter.getDiagnostics().entry`), "summary");
+  await evaluate(`document.getElementById('codex-companion-root-toolbar').shadowRoot.querySelector('button').click()`);
+  await waitFor(`adapter.isOpen() && toggle.getAttribute('aria-pressed') === 'true' && adapter.getDiagnostics().mode === 'animated-summary'`, "点入口应打开原生摘要并显示卡片");
+  assert.deepEqual(await evaluate(inlineEntry), { shown: true, expanded: "true" }, "摘要打开后入口仍在");
+  // 摘要已经开着时再点入口不关摘要。
+  await evaluate(`document.getElementById('codex-companion-root-toolbar').shadowRoot.querySelector('button').click()`);
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  assert.equal(await evaluate(`adapter.isOpen() && toggle.getAttribute('aria-pressed') === 'true'`), true, "开着时点入口不关闭摘要");
+  await evaluate(`adapter.setOpen(false)`);
+  await waitFor(`!adapter.isOpen()`, "inline 再次收起");
   await evaluate(`adapter.setOpen(true)`);
   await waitFor(`adapter.isOpen()`, "inline 重新打开");
   assert.equal(await evaluate(`video === host.shadowRoot.querySelector('video') && !video.paused`), true);
@@ -245,6 +258,21 @@ try {
   assert.equal(await evaluate(`variantAdapter.getDiagnostics().mode`), "animated-summary", "Summary 变体应挂在摘要下方");
   assert.equal(await evaluate(`Math.round(host.getBoundingClientRect().top-document.getElementById('variant-native').getBoundingClientRect().bottom)`), 24);
   await evaluate(`variantAdapter.dispose()`);
+  // 26.1117 的结构：浮层根改成 inset-x-0（不再带 right-0），铺满会话区，面板靠右；只能从 data-summary-panel-variant 出发定位。
+  await evaluate(`(() => {
+    document.body.innerHTML='<header style="display:flex;justify-content:flex-end"><button id="inset-toggle" aria-label="Toggle pinned summary" aria-pressed="true"><svg width="16" height="16"></svg></button><button aria-label="New tab"><svg width="16" height="16"></svg></button></header><div style="position:relative;height:600px"><div id="inset-root" class="pointer-events-none absolute inset-x-0 top-(--thread-floating-content-top-inset)" style="position:absolute;left:0;right:0;top:48px;bottom:16px"><div style="position:relative;display:flex;width:fit-content;max-height:100%;margin-left:auto;padding-right:8px"><div id="inset-scroll" style="max-height:100%;min-height:0"><div id="inset-column" style="display:flex;flex-direction:column;gap:12px;max-height:100%;width:300px"><div style="display:contents"><div id="inset-native" data-summary-panel-variant="summary" style="height:152px;border-radius:16px;background:white">来源</div></div></div></div></div></div></div>';
+    globalThis.insetAdapter=createCodexAdapter({host,placement:'inline-in-summary',onError:error=>errors.push(error.message)});
+  })()`);
+  assert.equal(await evaluate(`insetAdapter.getDiagnostics().mode`), "animated-summary", "inset-x-0 浮层根：卡片应挂在摘要下方");
+  assert.equal(await evaluate(`Math.round(host.getBoundingClientRect().top-document.getElementById('inset-native').getBoundingClientRect().bottom)`), 24);
+  assert.equal(await evaluate(`Math.round(document.getElementById('inset-scroll').getBoundingClientRect().height)`), 536, "滚动高度取浮层根的可用高度");
+  assert.equal(await evaluate(`Math.round(innerWidth-host.getBoundingClientRect().right) < 60`), true, "卡片与摘要一样靠右");
+  // 摘要关着：入口留在顶栏，点它打开摘要。
+  await evaluate(`document.getElementById('inset-toggle').onclick=function(){const open=this.getAttribute('aria-pressed')!=='true';this.setAttribute('aria-pressed',String(open));document.getElementById('inset-root').style.display=open?'':'none';};document.getElementById('inset-toggle').click()`);
+  await waitFor(`insetAdapter.getDiagnostics().mode === 'hidden' && document.getElementById('codex-companion-root-toolbar')?.getBoundingClientRect().width > 0`, "摘要关着时入口保留在顶栏");
+  await evaluate(`document.getElementById('codex-companion-root-toolbar').shadowRoot.querySelector('button').click()`);
+  await waitFor(`insetAdapter.getDiagnostics().mode === 'animated-summary' && document.getElementById('inset-toggle').getAttribute('aria-pressed') === 'true'`, "点入口打开摘要并显示卡片");
+  await evaluate(`insetAdapter.dispose()`);
   // 未知结构：Summary 已打开却定位不到面板时，短暂等待后退回独立入口，不能让入口消失。
   await evaluate(`(() => {
     document.body.innerHTML='<header style="display:flex;justify-content:flex-end"><button aria-label="Toggle pinned summary" aria-pressed="true" onclick="this.setAttribute(\\'aria-pressed\\',String(this.getAttribute(\\'aria-pressed\\')!==\\'true\\'))"><svg></svg></button><button aria-label="New tab"><svg></svg></button></header><div style="position:absolute;top:48px;right:0;width:300px;height:200px;border-radius:20px;background:white">Unknown summary</div>';
