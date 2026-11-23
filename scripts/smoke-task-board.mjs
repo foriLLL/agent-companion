@@ -689,12 +689,27 @@ try {
   await waitFor(`${task("s1")} && ${marked("s1")} === '1'`, "撤销后放回原位");
 
   // 会话在 Codex 里归档：自动移出并提示，可撤销；撤销放回的不再自动移出。
+  // 会话名是整段首条消息时，提示只留开头几个字，不铺成一整条。
+  const renameS1 = (title) => evaluate(`(() => {
+    const row = document.querySelector('[data-app-action-sidebar-thread-id="local:' + ids.s1 + '"]');
+    row.setAttribute('data-app-action-sidebar-thread-title', ${JSON.stringify(title)});
+    row.querySelector('[data-thread-title]').textContent = ${JSON.stringify(title)};
+  })()`);
+  await renameS1("帮我排查一下为什么线上接口一启动就连不上数据库，\n对照几个环境之后给出修复方案并验证");
   await evaluate(`statusOf[ids.s1] = 'archived'; bump()`);
   await waitFor(`!${task("s1")} && !${$(".toast")}.hidden && ${$(".toast span")}.textContent.startsWith('已归档「')`, "归档后自动移出");
   assert.equal(await evaluate(marked("s1")), null, "归档移出后撤销侧栏标记");
-  await screenshot("task-board-8-archived.png");
-  await evaluate(`${$(".toast button")}.click()`);
+  assert.equal(await evaluate(`${$(".toast span")}.textContent`), "已归档「帮我排查一下为什么线…」", "长会话名截短");
+  assert.ok(await evaluate(`Boolean(${$(".toast .glyph svg")})`), "归档提示带图标");
+  for (const theme of ["light", "dark"]) {
+    await evaluate(`document.documentElement.dataset.theme = ${JSON.stringify(theme)}`);
+    await screenshot(`task-board-8-archived-${theme}.png`);
+    const contrast = await toastContrast();
+    assert.ok(contrast.every((ratio) => ratio >= 4.5), `${theme} 归档提示应清晰可读，实际对比度 ${contrast}`);
+  }
+  await evaluate(`delete document.documentElement.dataset.theme; ${$(".toast button")}.click()`);
   await waitFor(`${task("s1")} && ${marked("s1")} === '1'`, "撤销后放回原位");
+  await renameS1("准备周五分享");
   await new Promise((resolve) => setTimeout(resolve, 800));
   assert.ok(await evaluate(`Boolean(${task("s1")})`), "撤销放回的归档任务不再被自动移出");
   // 自己点停止：灰色「已停止」，没有「已中断」标签。

@@ -46,7 +46,14 @@ const ICONS = {
   plus: '<path d="M8 3.5v9M3.5 8h9"/>',
   edit: '<path d="M10.6 3.2l2.2 2.2-7 7H3.6v-2.2z"/>',
   done: '<path d="M3.5 8.4l2.9 2.9 6.1-6.6"/>',
-  color: '<path d="M8 2.6s4 4.2 4 6.9a4 4 0 0 1-8 0c0-2.7 4-6.9 4-6.9z"/>'
+  color: '<path d="M8 2.6s4 4.2 4 6.9a4 4 0 0 1-8 0c0-2.7 4-6.9 4-6.9z"/>',
+  archive: '<path d="M2.8 3.6h10.4v2.6H2.8zM3.8 6.2v5.9a1 1 0 0 0 1 1h6.4a1 1 0 0 0 1-1V6.2M6.6 8.8h2.8"/>'
+};
+// 撤销提示里的会话名最多这么多字：长名字（比如整段首条消息）只留开头，动作本身始终看得见。
+const TOAST_NAME_MAX = 10;
+const clipName = (name) => {
+  const chars = Array.from(String(name ?? "").replace(/\s+/g, " ").trim());
+  return chars.length > TOAST_NAME_MAX ? `${chars.slice(0, TOAST_NAME_MAX).join("")}…` : chars.join("");
 };
 // 状态图标 20×20，彩色渐变实心：状态色与任务色分开，图标底块表示是哪个任务，图标表示它在干什么。
 // 渐变 id 带 cc-task- 前缀，渲染时替换成每个图标唯一的 id。
@@ -187,12 +194,19 @@ ${ROW_STYLE}
       outline:none;box-shadow:inset 0 0 0 1px color-mix(in srgb,currentColor 30%,transparent)}
     .empty{margin:6px 8px 6px;font-size:12.5px;line-height:1.55;color:var(--muted)}
     .note{margin:6px 8px 2px;font-size:12.5px;color:var(--danger)}
-    /* 反色提示的底色取宿主文字色；currentColor 会跟着本元素的反色文字一起变化，导致同色。 */
-    .toast{display:flex;align-items:center;gap:10px;margin:8px 0 0;padding:7px 8px 7px 12px;border-radius:12px;font-size:12.5px;
-      background:color-mix(in srgb,var(--cc-card-fg,CanvasText) 90%,transparent);color:var(--cc-card-bg,Canvas);box-shadow:0 6px 20px rgba(0,0,0,.14)}
+    /* 撤销提示：与条目同一套浅底细边，不用反色；底边一道细线随倒计时缩短，到头自动收起。 */
+    .toast{position:relative;display:flex;align-items:center;gap:8px;margin:8px 0 0;padding:5px 5px 5px 10px;border-radius:10px;
+      overflow:hidden;font-size:12.5px;color:var(--text);background:var(--hover);box-shadow:inset 0 0 0 1px var(--line);
+      animation:toast-in .26s var(--ease) both}
+    .toast::after{content:"";position:absolute;left:10px;right:10px;bottom:0;height:1.5px;border-radius:1px;
+      background:color-mix(in srgb,currentColor 18%,transparent);transform-origin:left;animation:toast-drain ${UNDO_MS}ms linear both}
+    .toast .glyph{flex:none;display:grid;place-items:center}
     .toast span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-    .toast button{font-weight:600;padding:3px 8px;border-radius:7px}
-    .toast button:hover{background:color-mix(in srgb,var(--cc-card-bg,Canvas) 18%,transparent)}
+    .toast button{flex:none;font-weight:600;padding:3px 9px;border-radius:7px;color:inherit;
+      background:color-mix(in srgb,currentColor 7%,transparent);transition:background-color .12s ease}
+    .toast button:hover{background:color-mix(in srgb,currentColor 12%,transparent)}
+    @keyframes toast-in{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+    @keyframes toast-drain{from{transform:scaleX(1)}to{transform:scaleX(0)}}
     [hidden]{display:none!important}
     /* Trace 浮层放在顶层（popover），不受卡片宽度和裁剪限制，贴在看板左侧展开。 */
     .peek{position:fixed;inset:auto;margin:0;padding:14px 12px 12px;border:0;border-radius:14px;overflow:auto;max-height:calc(100vh - 24px);
@@ -233,7 +247,7 @@ ${TRACE_STYLE}
     <div class="peek" popover="manual" aria-label="会话 Trace"></div>
     <p class="empty" hidden></p>
     <p class="note" hidden></p>
-    <div class="toast" role="status" hidden><span></span><button type="button">撤销</button></div>
+    <div class="toast" role="status" hidden><i class="glyph"></i><span></span><button type="button">撤销</button></div>
   </section>`;
   const chips = root.querySelector(".chips");
   const addButton = root.querySelector(".add");
@@ -246,6 +260,7 @@ ${TRACE_STYLE}
   const empty = root.querySelector(".empty");
   const note = root.querySelector(".note");
   const toast = root.querySelector(".toast");
+  const toastGlyph = toast.querySelector(".glyph");
   const toastText = toast.querySelector("span");
   const undoButton = toast.querySelector("button");
   const colors = threads?.colors ?? [];
@@ -727,10 +742,15 @@ ${TRACE_STYLE}
   }
 
   // undo：可撤销的一批移出，{ entries: [{ task, index }], keepArchived }。
-  function offerUndo(entries, text, { keepArchived = false } = {}) {
+  // glyph 是提示左侧的小图标（ICONS 里的名字）；连续两次提示时先收起再显示，让入场和倒计时线从头开始。
+  function offerUndo(entries, text, { keepArchived = false, glyph = "done" } = {}) {
     cancelUndo();
     undo = { entries, keepArchived };
+    toastGlyph.innerHTML = icon(glyph);
     toastText.textContent = text;
+    toast.title = text;
+    toast.hidden = true;
+    void toast.offsetWidth;
     toast.hidden = false;
     cancelUndo = effects.timeout(() => { undo = null; toast.hidden = true; }, UNDO_MS);
   }
@@ -738,7 +758,7 @@ ${TRACE_STYLE}
   async function complete(task) {
     const next = await mutate("remove", { threadId: task.threadId });
     if (!next?.removed) return false;
-    offerUndo([next.removed], `已完成「${displayName(task)}」`);
+    offerUndo([next.removed], `已完成「${clipName(displayName(task))}」`);
     return true;
   }
 
@@ -763,8 +783,8 @@ ${TRACE_STYLE}
     // 按原位置从前往后放回，撤销后顺序不变。
     const entries = removed.map(({ task, index }) => ({ task, index })).sort((a, b) => a.index - b.index);
     // 与「已完成」同样简短，长名字也能看到动作本身。
-    offerUndo(entries, removed.length === 1 ? `已归档「${removed[0].name}」` : `已移出 ${removed.length} 个已归档任务`,
-      { keepArchived: true });
+    offerUndo(entries, removed.length === 1 ? `已归档「${clipName(removed[0].name)}」` : `已移出 ${removed.length} 个已归档任务`,
+      { keepArchived: true, glyph: "archive" });
   }
 
   // 撤销最近一批移出；看板提示条的按钮和切换面板里的 Z 共用。没有可撤销的返回 null，否则返回放回的任务。
