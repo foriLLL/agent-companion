@@ -7,7 +7,8 @@ import { createPlanHint } from "../../codex-plan-hint.mjs";
 import { planSummary } from "../../codex-plan.mjs";
 import { CodexSessions, THREAD_ID_PATTERN } from "../../codex-sessions.mjs";
 import { rpcError } from "../../platform/services/errors.mjs";
-import { COLOR_COUNT, MAX_TASKS, TaskBoardStorage, normalizeName, normalizeTask, pickColor } from "../../task-board-storage.mjs";
+import { createSessionWatcher } from "../../task-auto-add.mjs";
+import { COLOR_COUNT, MAX_TASKS, TaskBoardStorage, TaskRecentStorage, normalizeName, normalizeTask, pickColor } from "../../task-board-storage.mjs";
 
 const execFileAsync = promisify(execFile);
 // 长轮询：每 300ms 只比较文件指纹，有变化才重新解析；最多挂起 25 秒后照常返回。
@@ -40,10 +41,66 @@ function wantPlanHint(config) {
   return value && config?.enabled !== false && config?.cards?.tasks?.enabled !== false;
 }
 
-export function createService({ taskBoard = new TaskBoardStorage(), codexSessions = new CodexSessions(), openThread = openThreadLink, planHint = null } = {}) {
+// 「新会话自动加入看板」开关：缺省关闭；任务看板或整个 Companion 被停用时也停止。
+function wantAutoAdd(config) {
+  return config?.cards?.tasks?.settings?.autoAdd === true && config?.enabled !== false && config?.cards?.tasks?.enabled !== false;
+}
+
+export function createService({
+  taskBoard = new TaskBoardStorage(), recentStorage = new TaskRecentStorage(), codexSessions = new CodexSessions(),
+  openThread = openThreadLink, planHint = null, logger = console, autoAddIntervalMs
+} = {}) {
   let hint = planHint;
   let hintApplied = null;
-  async function view(board, signal) {
+
+  // 加入看板：客户端临时 id 已绑定时存真实 id，两个 id 都算同一任务；已在看板上返回 null（不改动）。
+  // 满了抛 TASK_BOARD_FULL。新任务放最前，颜色取最少使用的。
+  function insertTask(id, aliases, { title = null, projectId = null } = {}) {
+    return taskBoard.mutate((tasks) => {
+      if (tasks.some((task) => aliases.has(task.threadId))) return null;
+      if (tasks.length >= MAX_TASKS) throw rpcError("TASK_BOARD_FULL", `看板最多保留 ${MAX_TASKS} 个任务，请先完成一些`);
+      const task = normalizeTask({ threadId: id, suggestedName: title, customName: null, color: pickColor(tasks), projectId, addedAt: Date.now() });
+      return [task, ...tasks];
+    });
+  }
+  async function resolveIds(rawId) {
+    const id = await codexSessions.canonicalId(rawId);
+    return { id, aliases: new Set([id, ...await codexSessions.aliases(id)]) };
+  }
+
+  // 自动加入：名字留空（view 从 session_index 补），项目 id 从 Codex 的项目分配里读；看板满了只记日志。
+  const watcher = createSessionWatcher({
+    codexSessions, logger, ...(autoAddIntervalMs ? { intervalMs: autoAddIntervalMs } : {}),
+    async onSession({ threadId: rawId }) {
+      const { id, aliases } = await resolveIds(rawId);
+      const projectId = await codexSessions.projectOf(id).catch(() => null);
+      try { await insertTask(id, aliases, { projectId }); }
+      catch (error) {
+        if (error?.code !== "TASK_BOARD_FULL") throw error;
+        logger.warn?.(`[codex-companion] 看板已满（${MAX_TASKS} 个），新会话没有自动加入`);
+      }
+    }
+  });
+
+  // 同一个会话可能在看板上有两条：先用客户端临时 id 手动加入，发出第一条消息后又被自动加入用真实 id 加了一次
+  // （Codex 写 id 绑定可能比会话记录晚，自动加入当时认不出是同一个）。绑定出现后只留先加入的那条，多的从看板文件删掉。
+  async function dedupe(board) {
+    const canonical = await Promise.all(board.tasks.map((task) => codexSessions.canonicalId(task.threadId)));
+    const keep = new Map();
+    board.tasks.forEach((task, index) => {
+      const kept = keep.get(canonical[index]);
+      if (kept === undefined || task.addedAt < board.tasks[kept].addedAt) keep.set(canonical[index], index);
+    });
+    if (keep.size === board.tasks.length) return board;
+    const drop = new Set(board.tasks.filter((_, index) => keep.get(canonical[index]) !== index).map((task) => task.threadId));
+    return taskBoard.mutate((tasks) => {
+      const next = tasks.filter((task) => !drop.has(task.threadId));
+      return next.length === tasks.length ? null : next;
+    });
+  }
+
+  async function view(loaded, signal) {
+    const board = await dedupe(loaded);
     const titles = await codexSessions.titles();
     const tasks = await Promise.all(board.tasks.map(async (task) => {
       const { status, updatedAt, turnAt, activity = null, summary = null } = await codexSessions.status(task.threadId)
@@ -54,7 +111,9 @@ export function createService({ taskBoard = new TaskBoardStorage(), codexSession
       const unread = status !== "running" && Number.isFinite(turnAt) && turnAt > task.seenAt;
       // 侧栏条目可能用真实 id，也可能用新建时的客户端临时 id，看板两个都认。
       const aliases = await codexSessions.aliases(task.threadId);
-      return { ...task, aliases, suggestedName, name: task.customName ?? suggestedName ?? "未命名会话", status, updatedAt, turnAt, unread, activity, summary, plan };
+      // 自动加入时 Codex 可能还没写项目分配：没存项目 id 的按 Codex 当前的分配补上（只补返回值，不写盘）。
+      const projectId = task.projectId ?? await codexSessions.projectOf?.(task.threadId).catch(() => null) ?? null;
+      return { ...task, projectId, aliases, suggestedName, name: task.customName ?? suggestedName ?? "未命名会话", status, updatedAt, turnAt, unread, activity, summary, plan };
     }));
     signal?.throwIfAborted();
     // sig 只覆盖界面上会变的内容；mtime 每次写入都变，不放进来，免得进行中的任务每次都触发重绘。
@@ -66,12 +125,19 @@ export function createService({ taskBoard = new TaskBoardStorage(), codexSession
   return {
     // 平台在启动和配置变化时调用；只在期望值变化时改写文件，失败的下次配置变化再试。
     async applyConfig(config) {
+      if (wantAutoAdd(config)) void watcher.start();
+      else watcher.stop();
       const want = wantPlanHint(config);
       if (want === null || want === hintApplied) return;
       hint ??= createPlanHint();
       await hint.set(want);
       hintApplied = want;
     },
+    dispose() {
+      watcher.stop();
+    },
+    // 测试用：直接驱动一轮扫描，不等定时器。
+    autoAdd: watcher,
     methods: {
       async list(input, { signal }) {
         params(input, []);
@@ -128,15 +194,21 @@ export function createService({ taskBoard = new TaskBoardStorage(), codexSession
       async add(input, { signal }) {
         const { threadId: rawId, title, projectId } = params(input, ["threadId", "title", "projectId"]);
         // 新建会话的侧栏条目给的是客户端临时 id，已绑定真实 id 时存真实 id。
-        const id = await codexSessions.canonicalId(threadId(rawId));
-        const aliases = new Set([id, ...await codexSessions.aliases(id)]);
-        const board = await taskBoard.mutate((tasks) => {
-          if (tasks.some((task) => aliases.has(task.threadId))) return null;
-          if (tasks.length >= MAX_TASKS) throw rpcError("TASK_BOARD_FULL", `看板最多保留 ${MAX_TASKS} 个任务，请先完成一些`);
-          const task = normalizeTask({ threadId: id, suggestedName: title, customName: null, color: pickColor(tasks), projectId, addedAt: Date.now() });
-          return [task, ...tasks];
-        });
-        return view(board, signal);
+        const { id, aliases } = await resolveIds(threadId(rawId));
+        return view(await insertTask(id, aliases, { title, projectId }), signal);
+      },
+      // 最近在 Codex 里打开过的会话，越近越前（Option+Tab 的顺序）；后台服务重启、页面重新注入后仍在。
+      async recent(input, { signal } = {}) {
+        params(input, []);
+        const recent = await recentStorage.load();
+        signal?.throwIfAborted();
+        return { recent };
+      },
+      // 记一次打开：id 原样保存（看板任务的 id，或侧栏里不在看板上的会话），已在最前时不写盘。
+      async visit(input, { signal } = {}) {
+        const id = threadId(params(input, ["threadId"]).threadId);
+        signal?.throwIfAborted();
+        return { recent: await recentStorage.visit(id) };
       },
       // name 为空时回到推荐名（Codex 智能起名或 rename 的名字）。只改看板，不改 Codex 会话名。
       async rename(input, { signal }) {

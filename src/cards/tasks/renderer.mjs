@@ -1,5 +1,5 @@
 import { TRACE_STYLE, createTraceView } from "./trace.mjs";
-import { createSwitcher, orderByRecent, touchRecent } from "./switcher.mjs";
+import { createSwitcher, mergeRecent, modifierOf, orderByRecent, touchRecent } from "./switcher.mjs";
 import { ALERT_TEXT, alertLevel, taskAlerts } from "./alerts.mjs";
 
 // 长轮询：服务端在会话记录变化时立即返回，没变化最多挂 20 秒；出错后隔一会儿再连。
@@ -7,6 +7,8 @@ const WATCH_WAIT_MS = 20_000;
 const WATCH_RETRY_MS = 3000;
 const DISCONNECTED_CODES = new Set(["RPC_TIMEOUT", "BRIDGE_UNAVAILABLE"]);
 const UNDO_MS = 6000;
+// 切换面板最多列出这么多个看板外的会话。
+const MAX_OUTSIDE = 20;
 // 悬停多久打开 Trace 浮层、离开多久关闭；离开后的宽限让鼠标能移进浮层里滚动和缩放。
 const PEEK_OPEN_MS = 350;
 const PEEK_CLOSE_MS = 220;
@@ -59,12 +61,14 @@ const STATUS_ICONS = {
   reply: `${gradient("cc-task-reply", "#8fb4ff", "#5b7cf0")}${BUBBLE}`,
   unread: `${gradient("cc-task-reply", "#8fb4ff", "#5b7cf0")}${BUBBLE}<circle cx="16" cy="4.4" r="3" fill="#ff4d4f" stroke="var(--cc-card-bg,#fff)" stroke-width="1.4"/>`,
   gone: '<circle cx="10" cy="10" r="6.8" stroke-dasharray="2.2 2.6" opacity=".45"/>',
-  stopped: '<circle cx="10" cy="10" r="6.8" opacity=".5"/><rect x="7.4" y="7.4" width="5.2" height="5.2" rx="1" fill="currentColor" stroke="none" opacity=".6"/>'
+  stopped: '<circle cx="10" cy="10" r="6.8" opacity=".5"/><rect x="7.4" y="7.4" width="5.2" height="5.2" rx="1" fill="currentColor" stroke="none" opacity=".6"/>',
+  // 不在看板上的会话（切换面板可选列出）：空心气泡，没有状态。
+  outside: '<path d="M3.6 6.4A2.8 2.8 0 0 1 6.4 3.6h7.2a2.8 2.8 0 0 1 2.8 2.8v4.2a2.8 2.8 0 0 1-2.8 2.8H9.8l-3.3 2.5V13.4h-.1a2.8 2.8 0 0 1-2.8-2.8z" opacity=".55"/>'
 };
 let gradientSeq = 0;
 const icon = (name) => `<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name]}</svg>`;
 
-// 看板与 Option+Tab 切换面板共用：颜色变量，以及条目的状态图标、名字、标签与第二行。
+// 看板与 Option+Tab 切换面板共用：颜色变量，以及条目的状态图标、名字、标签、第二行与计划进度条。
 const TOKENS = `--text:color-mix(in srgb,currentColor 64%,transparent);--muted:color-mix(in srgb,currentColor 46%,transparent);
       --line:color-mix(in srgb,currentColor 10%,transparent);--hover:color-mix(in srgb,currentColor 5%,transparent);
       --attention:#d9661b;--danger:#d4483e;--running:#3b82f6;--ease:cubic-bezier(.22,1,.36,1)`;
@@ -91,6 +95,14 @@ const ROW_STYLE = `
     .label.live.in{animation:roll-in .46s var(--ease) both,sweep 1.8s linear infinite}
     .label.in{animation:roll-in .46s var(--ease) both}
     .label.out{animation:roll-out .32s var(--ease) both}
+    /* 计划进度：一格一步，做完的填任务色，进行中的那格明暗呼吸；右侧是完成数。 */
+    .progress{display:flex;align-items:center;gap:8px;min-width:0}
+    .progress-bar{flex:1;min-width:0;display:flex;gap:2px;height:4px}
+    .progress-bar i{flex:1;min-width:2px;border-radius:2px;background:color-mix(in srgb,currentColor 11%,transparent)}
+    .progress-bar i[data-status=completed],.progress-bar i[data-status=in_progress]{background:color-mix(in srgb,var(--task) 80%,currentColor 20%)}
+    .progress-bar i[data-status=in_progress]{animation:breathe 1.6s ease-in-out infinite}
+    .progress-count{flex:none;font-size:11px;line-height:1;color:var(--muted);font-variant-numeric:tabular-nums}
+    @keyframes breathe{0%,100%{opacity:.3}50%{opacity:1}}
     @keyframes turn{to{transform:rotate(360deg)}}
     @keyframes sweep{from{-webkit-mask-position:100% 0;mask-position:100% 0}to{-webkit-mask-position:0 0;mask-position:0 0}}
     @keyframes roll-in{from{opacity:0;transform:translateY(70%);filter:blur(3px)}to{opacity:1;transform:none;filter:none}}
@@ -107,8 +119,9 @@ function ago(ms, now = Date.now()) {
 }
 
 
-// 看板只列用户主动加入的会话；颜色与左侧会话条目呼应，点击后由平台定位、动画并打开。
-// macOS 上按住 Option 连按 Tab 在看板会话之间切换（settings.switcher 为 false 时关闭）。
+// 看板只列用户加入的会话（settings.autoAdd 打开时后台把新开的会话自动加进来）；颜色与左侧会话条目呼应，点击后由平台定位、动画并打开。
+// macOS 上按住 Option（settings.switcherKey 为 ctrl 时是 Control）连按 Tab 在看板会话之间切换，同一修饰键加 J 跳到需要你处理的会话；
+// settings.switcher 为 false 时都关闭，settings.switcherAll 为 true 时切换面板也列出看板外最近打开的会话。
 // 卡片里有视频在播时，任务需要你或完成会经平台提醒层弹出提醒（settings.alertAttention / alertDone）。
 export function mount({ root, rpc, effects, signal, threads, isVisible, overlay, attention, settings }) {
   const doc = root.ownerDocument;
@@ -148,14 +161,7 @@ ${ROW_STYLE}
     .main .meta{grid-area:meta}
     .when{grid-area:when;justify-self:end;font-size:11.5px;color:var(--muted);white-space:nowrap;font-variant-numeric:tabular-nums}
     .when:empty{display:none}
-    /* 计划进度：一格一步，做完的填任务色，进行中的那格明暗呼吸；右侧是完成数。 */
-    .progress{grid-area:plan;display:flex;align-items:center;gap:8px;min-width:0;margin-top:5px}
-    .progress-bar{flex:1;min-width:0;display:flex;gap:2px;height:4px}
-    .progress-bar i{flex:1;min-width:2px;border-radius:2px;background:color-mix(in srgb,currentColor 11%,transparent)}
-    .progress-bar i[data-status=completed],.progress-bar i[data-status=in_progress]{background:color-mix(in srgb,var(--task) 80%,currentColor 20%)}
-    .progress-bar i[data-status=in_progress]{animation:breathe 1.6s ease-in-out infinite}
-    .progress-count{flex:none;font-size:11px;line-height:1;color:var(--muted);font-variant-numeric:tabular-nums}
-    @keyframes breathe{0%,100%{opacity:.3}50%{opacity:1}}
+    .main .progress{grid-area:plan;margin-top:5px}
     /* 需要人处理且还没看过：图标跳出条目，落下时砸得条目轻晃一下。常驻动画只动 transform，交给合成器。 */
     .task[data-hop]{animation:knock 3.2s infinite;will-change:transform}
     .task[data-hop] .status{animation:hop 3.2s infinite;will-change:transform}
@@ -250,10 +256,15 @@ ${TRACE_STYLE}
   let undo = null;
   let cancelUndo = () => {};
   let loading = null;
-  // 最近在 Codex 里打开过的看板会话，最近的在前；只记在内存里，Codex 重启后从看板顺序开始。
+  // 最近在 Codex 里打开过的会话（看板上的记 task.threadId，看板外的记侧栏 id），最近的在前；
+  // 由后台存盘，后台服务重启、自动更新或页面刷新后接着用。visited 记下看板外会话打开时的标题和项目。
   let recent = [];
+  const visited = new Map();
   let switcherOn = settings?.switcher !== false;
+  let switcherKey = modifierOf(settings?.switcherKey);
+  let switcherAll = settings?.switcherAll === true;
   let switcher = null;
+  let autoAdd = settings?.autoAdd === true;
   const levelsOf = (value) => ({ attention: alertLevel(value, "alertAttention"), done: alertLevel(value, "alertDone") });
   let alertLevels = levelsOf(settings);
   // 已发出、还没撤回的提醒：会话 id → 提醒时的状态。状态一变（例如在 Codex 里回答了）就撤回。
@@ -302,6 +313,7 @@ ${TRACE_STYLE}
       }));
     }
     if (!threads) empty.textContent = "任务看板需要在 Codex 注入模式下使用。";
+    else if (autoAdd) empty.textContent = "还没有任务。新开的会话会自动加入看板，也可以把当前会话加进来。";
     else if (!current) empty.textContent = "还没有任务。打开一个会话，就能把它加入看板。";
     else empty.textContent = "加入后会一直留在这里，做完点 ✓ 移出。";
     empty.hidden = Boolean(board?.tasks.length) && Boolean(threads);
@@ -525,11 +537,17 @@ ${TRACE_STYLE}
   const displayOrder = () => board.tasks.map((task, index) => ({ task, index }))
     .sort((a, b) => rankOf(a.task) - rankOf(b.task) || a.index - b.index).map(({ task }) => task);
 
-  // 当前会话在看板里就记一次最近打开；侧栏切换、点看板和 Option+Tab 切过去都会走到这里。
+  // 记一次最近打开；侧栏切换、点看板和快捷键切过去都会走到这里。顺序有变化才告诉后台存盘。
   function noteVisit() {
     const current = threads?.current();
-    const task = current && taskFor(current.id);
-    if (task) recent = touchRecent(recent, task.threadId);
+    if (!current?.id) return;
+    const task = taskFor(current.id);
+    if (!task) visited.set(current.id, { title: current.title ?? null, projectId: current.projectId ?? null });
+    const id = task?.threadId ?? current.id;
+    const next = touchRecent(recent, id);
+    if (next === recent) return;
+    recent = next;
+    void rpc("visit", { threadId: id }).catch(() => {});
   }
 
   function render() {
@@ -719,8 +737,9 @@ ${TRACE_STYLE}
 
   async function complete(task) {
     const next = await mutate("remove", { threadId: task.threadId });
-    if (!next?.removed) return;
+    if (!next?.removed) return false;
     offerUndo([next.removed], `已完成「${displayName(task)}」`);
+    return true;
   }
 
   // 会话在 Codex 里归档后自动移出看板，可撤销；撤销放回的任务记下 keepArchived，以后不再自动移出。
@@ -748,8 +767,9 @@ ${TRACE_STYLE}
       { keepArchived: true });
   }
 
-  effects.listen(undoButton, "click", () => {
-    if (!undo) return;
+  // 撤销最近一批移出；看板提示条的按钮和切换面板里的 Z 共用。没有可撤销的返回 null，否则返回放回的任务。
+  function undoLast() {
+    if (!undo) return null;
     const { entries, keepArchived } = undo;
     undo = null;
     cancelUndo();
@@ -760,7 +780,9 @@ ${TRACE_STYLE}
         if (signal.aborted) return;
       }
     })();
-  });
+    return entries.map(({ task }) => task);
+  }
+  effects.listen(undoButton, "click", () => { undoLast(); });
   effects.listen(addButton, "click", () => {
     const current = threads?.current();
     if (!current) return;
@@ -792,29 +814,105 @@ ${TRACE_STYLE}
   const peekResize = new doc.defaultView.ResizeObserver(() => { if (peekItem?.isConnected) placePeek(peekItem); });
   peekResize.observe(peek);
   effects.add(() => peekResize.disconnect());
-  // Option+Tab：需要平台的顶层浮层（抽屉收起时也能弹出）和侧栏会话列表。
+  // 看板外最近打开的会话（settings.switcherAll）：侧栏里看得到或本页打开时记下了标题的才列，最多 MAX_OUTSIDE 个。
+  function outsideItems() {
+    const items = [];
+    for (const id of recent) {
+      if (items.length >= MAX_OUTSIDE) break;
+      if (taskFor(id)) continue;
+      const seen = visited.get(id);
+      const title = threads?.title(id) ?? seen?.title;
+      if (title) items.push({ threadId: id, outside: true, title, projectId: seen?.projectId ?? null });
+    }
+    return items;
+  }
+  function outsideRow(task, item) {
+    item.dataset.outside = "";
+    const status = element("span", "status");
+    status.dataset.icon = "outside";
+    status.setAttribute("aria-hidden", "true");
+    status.innerHTML = `<svg viewBox="0 0 20 20" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" aria-hidden="true">${STATUS_ICONS.outside}</svg>`;
+    const text = element("span", "text");
+    const title = element("span", "title");
+    title.append(element("span", "name", task.title));
+    const meta = element("span", "meta");
+    setLabel(meta, { text: [projectName(task.projectId), "不在看板"].filter(Boolean).join(" · ") });
+    text.append(title, meta);
+    item.append(status, text);
+  }
+
+  // 需要你处理的会话，按看板顺序：先是提问、中断、没动静且没看过的，再是有新结果没看的，最后是看过但还在等你的；当前会话除外。
+  // 没看过的总是优先；都看过了就从当前会话往后轮一圈，免得三个以上还在等你时只在头两个之间来回。
+  function nextWaiting() {
+    if (!board) return null;
+    const current = threads?.current();
+    const here = current ? taskFor(current.id) : null;
+    const waiting = displayOrder().filter((task) => rankOf(task) <= 2);
+    const fresh = waiting.find((task) => task !== here && rankOf(task) < 2);
+    if (fresh) return fresh;
+    const at = waiting.indexOf(here);
+    return [...waiting.slice(at + 1), ...waiting.slice(0, Math.max(at, 0))][0] ?? null;
+  }
+  async function jumpToWaiting() {
+    // 提醒弹着时等于点「去处理」。
+    if (attention?.act?.()) return;
+    closePeek();
+    // 抽屉收起时看板可能没在同步，先拿一次最新状态。
+    await refresh();
+    if (signal.aborted) return;
+    const task = nextWaiting();
+    if (task) void reveal(task);
+    else switcher?.flash("没有需要你处理的会话");
+  }
+  const nameOf = (task) => displayName(task) ?? task.suggestedName ?? "未命名会话";
+
+  // 快捷键：需要平台的顶层浮层（抽屉收起时也能弹出）和侧栏会话列表。
   if (overlay && threads) {
     switcher = createSwitcher({
       doc, overlay, effects,
       style: `.panel{${TOKENS}}${ROW_STYLE}`,
       enabled: () => switcherOn,
+      modifier: () => switcherKey,
+      // 找不到记录的会话切过去也打不开，不列；侧栏里还有条目的除外（刚新建、还没发第一条消息的会话没有记录，但打得开）。
       items: () => {
         noteVisit();
-        return board ? orderByRecent(displayOrder(), recent) : [];
+        if (!board) return [];
+        const tasks = displayOrder().filter((task) => task.status !== "missing" || idsOf(task).some((id) => threads.has(id)));
+        return orderByRecent(switcherAll ? [...tasks, ...outsideItems()] : tasks, recent);
       },
       current: () => {
         const current = threads.current();
-        return (current && taskFor(current.id)?.threadId) ?? null;
+        if (!current) return null;
+        return taskFor(current.id)?.threadId ?? (switcherAll ? current.id : null);
       },
       renderItem: (task, item) => {
+        if (task.outside) { outsideRow(task, item); return; }
         if (colors[task.color]) item.style.setProperty("--task", colors[task.color]);
-        item.append(statusIcon(task), taskText(task));
+        const text = taskText(task);
+        if (task.plan?.total) text.append(progressStrip(task.plan));
+        item.append(statusIcon(task), text);
       },
       // Trace 浮层在页面顶层，开着会盖住切换面板，先收起。
       prepare: () => { closePeek(); void refresh(); },
-      pick: (task) => { closePeek(); void reveal(task); }
+      pick: (task) => { closePeek(); void reveal(task); },
+      jump: () => { void jumpToWaiting(); },
+      remove: (task) => {
+        if (task.outside) { switcher.notice("这个会话不在看板上"); return; }
+        const name = nameOf(task);
+        void complete(task).then((done) => { if (done) switcher.notice(`已移出「${name}」，按 Z 撤销`); });
+      },
+      undo: () => {
+        const tasks = undoLast();
+        switcher.notice(tasks ? `已放回「${nameOf(tasks[0])}」${tasks.length > 1 ? ` 等 ${tasks.length} 个` : ""}` : "没有可撤销的移出");
+      }
     });
   }
+  // 接上后台存下的最近打开顺序；本页这段时间里新记的排在前面。
+  void rpc("recent").then((stored) => {
+    if (signal.aborted || !Array.isArray(stored?.recent)) return;
+    recent = mergeRecent(recent, stored.recent);
+    switcher?.refresh();
+  }, () => {});
   if (attention) attention.subscribe(() => { if (!signal.aborted) syncWatch(); });
   render();
   void refresh();
@@ -822,7 +920,13 @@ ${TRACE_STYLE}
   return {
     updateSettings(next) {
       switcherOn = next?.switcher !== false;
-      if (!switcherOn) switcher?.cancel();
+      const key = modifierOf(next?.switcherKey);
+      const all = next?.switcherAll === true;
+      if (!switcherOn || key !== switcherKey || all !== switcherAll) switcher?.cancel();
+      switcherKey = key;
+      switcherAll = all;
+      autoAdd = next?.autoAdd === true;
+      renderHeader();
       alertLevels = levelsOf(next);
       syncWatch();
     },

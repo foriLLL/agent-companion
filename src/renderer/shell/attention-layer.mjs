@@ -215,13 +215,16 @@ export function createAttentionLayer({ document: doc, onError = () => {}, autoDi
       dismissAll();
     } else if (button.classList.contains("go")) {
       const item = items.get(button.closest("li")?.dataset.key);
-      if (!item) return;
-      // 去处理：不再替用户恢复播放；先退出全屏，宿主界面才看得见。
-      paused.clear();
-      dismiss(item.id);
-      try { if (doc.fullscreenElement) await doc.exitFullscreen(); } catch {}
-      try { item.action.run?.(); } catch (error) { report(error); }
+      if (item) await go(item);
     }
+  }
+
+  // 去处理：不再替用户恢复播放；先退出全屏，宿主界面才看得见。
+  async function go(item) {
+    paused.clear();
+    dismiss(item.id);
+    try { if (doc.fullscreenElement) await doc.exitFullscreen(); } catch {}
+    try { item.action.run?.(); } catch (error) { report(error); }
   }
 
   function notify(cardId, options = {}) {
@@ -281,6 +284,13 @@ export function createAttentionLayer({ document: doc, onError = () => {}, autoDi
         dismiss: (key) => dismiss(`${cardId}${SEP}${key}`),
         isPlaying: () => playing,
         pending: () => own().length,
+        // 快捷键版的「去处理」：对本卡最新一条带操作的提醒执行，没有这样的提醒返回 false。
+        act() {
+          const item = own().filter((entry) => entry.action).at(-1);
+          if (!item) return false;
+          void go(item);
+          return true;
+        },
         // 播放状态或提醒数量变化时回调；卡片卸载时自动退订。
         subscribe(listener) {
           if (disposed || typeof listener !== "function") return () => {};

@@ -168,6 +168,9 @@ try {
       recolor: ({ threadId, color }) => { tasks.find((task) => task.threadId === threadId).color = color; revision += 1; return view(); },
       seen: ({ threadId, at }) => { const task = tasks.find((item) => item.threadId === threadId); if (task.seenAt < at) { task.seenAt = at; revision += 1; } return view(); },
       open: () => ({ opened: true }),
+      // 最近打开顺序：后台已存着一个看板外打不开的会话，页面接上后排在本页记下的之后。
+      recent: () => ({ recent: [...storedRecent] }),
+      visit: ({ threadId }) => { visits.push(threadId); storedRecent = [threadId, ...storedRecent.filter((id) => id !== threadId)]; return { recent: [...storedRecent] }; },
       // Trace：两个已结束的回合（一个以提问结束）和一个进行中的回合，最后一段还在长。
       trace: async ({ threadId, since }) => {
         if (since === 'trace-' + threadId + (globalThis.traceRevision ?? '')) await new Promise((resolve) => setTimeout(resolve, 2000));
@@ -209,6 +212,8 @@ try {
         return view();
       }
     };
+    globalThis.storedRecent = ['01a18216-3b02-7db0-b394-999999999999'];
+    globalThis.visits = [];
     globalThis.unsee = (id) => { tasks.find((task) => task.threadId === id).seenAt = 1; };
     globalThis.seed = (entries) => { for (const entry of entries) methods.add(entry); };
     const rpc = async (method, params = {}) => { rpcCalls.push(method); return structuredClone(await methods[method](params)); };
@@ -481,7 +486,7 @@ try {
   await altDown();
   await tab();
   await waitFor(panelOpen, "按住 Option 后弹出切换面板");
-  assert.deepEqual(await evaluate(switchRows), ["bHidden", "s1", "a24", "a3", "a10", "other"], "最近打开的在前，没打开过的按看板顺序");
+  assert.deepEqual(await evaluate(switchRows), ["bHidden", "s1", "a24", "a3", "other", "a10"], "最近打开的在前（接上后台存的），没打开过的按看板顺序");
   assert.equal(await evaluate(switchSelected), "s1");
   assert.equal(await evaluate(`${layer}.querySelector('.item[aria-selected=true] .name').textContent`), "准备周五分享");
   await tab();
@@ -523,7 +528,7 @@ try {
   await altDown();
   await tab();
   await waitFor(panelOpen, "抽屉收起时也能弹出面板");
-  assert.deepEqual(await evaluate(switchRows), ["a24", "bHidden", "s1", "a3", "a10", "other"]);
+  assert.deepEqual(await evaluate(switchRows), ["a24", "bHidden", "s1", "a3", "other", "a10"]);
   assert.equal(await evaluate(switchSelected), "bHidden", "鼠标没动时不改选中");
   await pointAt(`${layer}.querySelectorAll('.item')[2]`);
   await waitFor(`${switchSelected} === 's1'`, "鼠标移到条目上改选中");
@@ -544,6 +549,118 @@ try {
   await altUp();
   assert.equal(await evaluate(`threads.current()?.id === ids.s1`), true, "关闭后不切换");
   await evaluate(`handle.updateSettings({})`);
+  assert.ok(await evaluate(`['a3', 'a24', 'bHidden', 's1'].every((name) => visits.includes(ids[name]))`), "每次打开都记到后台");
+  const current = () => evaluate(`Object.keys(ids).find((name) => ids[name] === threads.current()?.id)`);
+  const press = async (name, code, keyCode, modifiers = ALT) => { await key("rawKeyDown", name, code, keyCode, modifiers); await key("keyUp", name, code, keyCode, modifiers); };
+  const footer = `${layer}.querySelector('footer').textContent`;
+
+  // 数字键直达；面板里也显示计划进度。
+  await altDown();
+  await tab();
+  await waitFor(panelOpen, "弹出面板（数字键）");
+  assert.deepEqual(await evaluate(switchRows), ["s1", "a24", "bHidden", "a3", "other", "a10"]);
+  assert.deepEqual(await evaluate(`[...${layer}.querySelectorAll('.item .key')].map((key) => key.textContent)`), ["1", "2", "3", "4", "5", "6"]);
+  assert.equal(await evaluate(`${layer}.querySelector('.item[data-id="' + ids.a24 + '"] .progress-count')?.textContent`), "2/4", "面板里也显示计划进度");
+  assert.equal(await evaluate(footer), "⌥ 松开切换⇧Tab 反向1–9 直达W 移出看板Esc 取消");
+  await screenshot("task-board-10-switcher-keys.png");
+  await press("£", "Digit3", 51);
+  await waitFor(`threads.current()?.id === ids.bHidden && !${panelOpen}`, "数字键直达第 3 个", 6000);
+  await altUp();
+
+  // 面板里 W 移出选中的会话、Z 撤销，面板一直开着；底部换成一句说明。
+  await altDown();
+  await tab();
+  await waitFor(panelOpen, "弹出面板（移出）");
+  assert.deepEqual(await evaluate(switchRows), ["bHidden", "s1", "a24", "a3", "other", "a10"]);
+  assert.equal(await evaluate(switchSelected), "s1");
+  await press("∑", "KeyW", 87);
+  await waitFor(`!${task("s1")} && ${footer} === '已移出「准备周五分享」，按 Z 撤销'`, "W 移出选中的会话");
+  assert.equal(await evaluate(panelOpen), true, "移出后面板还开着");
+  assert.equal(await evaluate(switchSelected), "a24", "选中顺延到下一个");
+  await screenshot("task-board-11-switcher-removed.png");
+  await press("Ω", "KeyZ", 90);
+  await waitFor(`${task("s1")} && ${footer} === '已放回「准备周五分享」' && ${switchRows}.at(-1) === 's1'`, "Z 撤销，放回的排在面板最后");
+  await press("Escape", "Escape", 27);
+  await altUp();
+  assert.equal(await current(), "bHidden", "取消后不切换");
+
+  // ⌥J：按看板顺序跳到需要你处理的会话（先是没看过的新结果，再是看过但还在等你的），当前会话除外；没有时提示一句。
+  const jump = async () => { await altDown(); await press("∆", "KeyJ", 74); await altUp(); };
+  await jump();
+  await waitFor(`threads.current()?.id === ids.a10`, "⌥J 先到没看过的新回复", 6000);
+  await jump();
+  await waitFor(`threads.current()?.id === ids.bHidden || threads.current()?.id === ids.s1`, "再到等你处理的会话", 6000);
+  const firstWaiting = await current();
+  await jump();
+  await waitFor(`threads.current()?.id === ids.${firstWaiting === "bHidden" ? "s1" : "bHidden"}`, "当前会话除外，跳到另一个", 6000);
+  const lastWaiting = await current();
+  assert.equal(await evaluate(`document.getElementById('composer').value`), "", "⌥J 不打出 ∆");
+  await evaluate(`statusOf[ids.bHidden] = 'running'; statusOf[ids.s1] = 'running'; bump()`);
+  await jump();
+  const flash = `${layer}.querySelector('.flash')`;
+  await waitFor(`${flash} && !${flash}.hidden && ${flash}.textContent === '没有需要你处理的会话'`, "没有需要处理的会话时提示");
+  assert.equal(await current(), lastWaiting, "没有时不切换");
+  await screenshot("task-board-12-jump-none.png");
+  await waitFor(`${flash}.hidden`, "提示自动收起");
+  await evaluate(`statusOf[ids.bHidden] = 'asking'; statusOf[ids.s1] = 'interrupted'; bump()`);
+
+  // 切换键改成 Control：⌥Tab 交还 Codex，⌃Tab 快速点按回到上一个会话。
+  await evaluate(`handle.updateSettings({ switcherKey: 'ctrl' })`);
+  await altDown();
+  await tab();
+  await altUp();
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  assert.equal(await current(), lastWaiting, "Option+Tab 不再切换");
+  const CTRL = 2;
+  await key("rawKeyDown", "Control", "ControlLeft", 17, CTRL);
+  await tab(CTRL);
+  await key("keyUp", "Control", "ControlLeft", 17, 0);
+  await waitFor(`threads.current()?.id === ids.${firstWaiting}`, "⌃Tab 回到上一个会话", 6000);
+  await evaluate(`handle.updateSettings({})`);
+
+  // 看板外的会话：缺省不列，打开它后快速点按回到看板上最近的会话；打开设置后能切回来，面板里标出「不在看板」。
+  await evaluate(`ids.out5 = '01a18216-3b02-7db0-b394-000000000005'; document.querySelector('[data-app-action-sidebar-thread-id="local:' + ids.out5 + '"]').click()`);
+  await waitFor(`threads.current()?.id === ids.out5`, "打开看板外的会话");
+  await waitFor(`visits.at(-1) === ids.out5`, "看板外的会话也记到后台");
+  await altDown();
+  await tab();
+  await altUp();
+  await waitFor(`threads.current()?.id === ids.${firstWaiting}`, "不列看板外时回到看板上最近的会话", 6000);
+  await evaluate(`handle.updateSettings({ switcherAll: true })`);
+  await altDown();
+  await tab();
+  await waitFor(panelOpen, "弹出面板（看板外）");
+  assert.deepEqual((await evaluate(switchRows)).slice(0, 2), [firstWaiting, "out5"]);
+  assert.deepEqual(await evaluate(`(() => { const item = ${layer}.querySelector('.item[data-id="' + ids.out5 + '"]'); return [item.hasAttribute('data-outside'), item.querySelector('.name').textContent, item.querySelector('.meta').textContent]; })()`),
+    [true, "Emby 字幕偏移", "codex-companion · 不在看板"]);
+  await screenshot("task-board-13-switcher-outside.png");
+  await altUp();
+  await waitFor(`threads.current()?.id === ids.out5 && !${panelOpen}`, "切回看板外的会话", 6000);
+
+  // 找不到记录的会话切过去也打不开，不列。
+  await evaluate(`statusOf['01a18216-3b02-7db0-b394-999999999999'] = 'missing'; bump()`);
+  await waitFor(`card.querySelector('.task[data-id="01a18216-3b02-7db0-b394-999999999999"] .status')?.dataset.icon === 'gone'`, "看板显示找不到记录");
+  await altDown();
+  await tab();
+  await waitFor(panelOpen, "弹出面板（找不到记录）");
+  assert.equal((await evaluate(switchRows)).includes("other"), false, "找不到记录的不列");
+  await press("Escape", "Escape", 27);
+  await altUp();
+  await evaluate(`delete statusOf['01a18216-3b02-7db0-b394-999999999999']; handle.updateSettings({}); bump()`);
+  // 三个都看过、还在等你的会话：连按 ⌥J 依次轮一圈，不在头两个之间来回。
+  await evaluate(`statusOf[ids.a3] = 'asking'; bump()`);
+  const round = [];
+  for (let step = 0; step < 4; step += 1) {
+    const before = await current();
+    await jump();
+    await waitFor(`Object.keys(ids).find((name) => ids[name] === threads.current()?.id) !== ${before === undefined ? "undefined" : JSON.stringify(before)}`, `⌥J 第 ${step + 1} 次跳转`, 6000);
+    round.push(await current());
+  }
+  assert.deepEqual(round.slice(1).toSorted(), ["a3", "bHidden", "s1"], "三个等你处理的会话轮流到");
+  await evaluate(`delete statusOf[ids.a3]; bump()`);
+  // 回到看板会话，后面的用例从这里接着走。
+  await evaluate(`document.querySelector('[data-app-action-sidebar-thread-id="local:' + ids.s1 + '"]').click()`);
+  await waitFor(`threads.current()?.id === ids.s1`, "回到 s1");
 
   // 改名：默认推荐名，可改，留空回到推荐名。
   await evaluate(`${task("a3")}.querySelectorAll('.icon')[1].click()`);
@@ -622,6 +739,17 @@ try {
   await waitFor(`${alertOpen} && ${alertPanel}.querySelector('li').dataset.tone === 'done' && !video.paused`, "完成：只提醒不暂停");
   assert.equal(await evaluate(`${alertPanel}.querySelector('.text').textContent`), "已完成");
   await waitFor(`!${alertOpen}`, "完成提醒自动收起");
+  // 提醒弹着时按 ⌥J 等于点「去处理」：在侧栏打开这个会话，不替用户恢复播放。
+  await evaluate(`unsee(ids.s1); statusOf[ids.s1] = 'asking'; bump()`);
+  await waitFor(`${alertOpen} && video.paused && ${alertPanel}.querySelector('strong').textContent === '准备周五分享'`, "s1 需要你：暂停并提醒");
+  const beforeJump = await evaluate(`clicks.length`);
+  await altDown();
+  await key("rawKeyDown", "∆", "KeyJ", 74, ALT);
+  await key("keyUp", "∆", "KeyJ", 74, ALT);
+  await altUp();
+  await waitFor(`clicks.length > ${beforeJump} && clicks.at(-1) === 'local:' + ids.s1 && !${alertOpen}`, "⌥J 去处理");
+  assert.equal(await evaluate(`video.paused`), true, "⌥J 去处理也不恢复播放");
+  await evaluate(`video.play()`);
   // 两项都关掉：收起时即使在播放也不再同步。
   await evaluate(`handle.updateSettings({ alertAttention: 'off', alertDone: 'off' })`);
   watched = await watches();

@@ -24,6 +24,9 @@ export const abortStatus = (payload) => (USER_STOP_REASONS.has(payload?.reason) 
 const PLAN_WINDOWS = [2 * 1024 * 1024, 16 * 1024 * 1024];
 const PLAN_CACHE_LIMIT = 64;
 const MAX_TURN_NOTES = 20;
+// session_meta 第一行带完整的 base_instructions，一般几十 KB；超过这个长度仍没有换行就当作读不出来。
+const META_LINE_LIMIT = 4 * 1024 * 1024;
+const DAY_MS = 86_400_000;
 
 export function defaultCodexHome({ env = process.env, home = homedir() } = {}) {
   return env.CODEX_HOME && isAbsolute(env.CODEX_HOME) ? env.CODEX_HOME : join(home, ".codex");
@@ -42,6 +45,21 @@ const dayDir = (root, ms) => {
   const date = new Date(ms);
   return join(root, String(date.getFullYear()), pad(date.getMonth() + 1), pad(date.getDate()));
 };
+
+/**
+ * 新会话自动加入看板用：session_meta 是否是用户在 Codex 桌面端自己新开的会话。
+ * - thread_source 缺省或为 user（自动化、子代理等其它来源不算）；
+ * - source 是字符串且不是 exec / mcp（子代理的 source 是对象）；桌面端的 source 本身就是 "vscode"；
+ * - 不是侧边对话（attached_thread 为 true 的分叉会话挂在原会话旁边）；
+ * - originator 不是终端或其它客户端（桌面端为 "Codex Desktop"，终端为 "codex-tui"）。
+ */
+export function isDesktopUserSession(payload) {
+  if (!payload || typeof payload !== "object") return false;
+  if (payload.thread_source !== undefined && payload.thread_source !== null && payload.thread_source !== "user") return false;
+  if (typeof payload.source !== "string" || payload.source === "exec" || payload.source === "mcp") return false;
+  if (payload.attached_thread === true) return false;
+  return !/tui|exec|cli|vscode/i.test(String(payload.originator ?? ""));
+}
 
 async function findIn(directory, suffix) {
   try {
@@ -369,7 +387,7 @@ export class CodexSessions {
     this.paths = new Map();
     this.misses = new Map();
     this.index = { mtimeMs: -1, size: -1, titles: new Map() };
-    this.state = { mtimeMs: -1, size: -1, real: new Map(), client: new Map() };
+    this.state = { mtimeMs: -1, size: -1, real: new Map(), client: new Map(), projects: new Map() };
     // rollout 路径 → { offset: 已读到的字节, state: 计划状态 }；多个长轮询并发时排队读，避免重复计入事件。
     this.plans = new Map();
     this.planQueue = Promise.resolve();
@@ -380,7 +398,8 @@ export class CodexSessions {
    * 真实会话 id 在发出第一条消息后才分配；两者的绑定由 Codex 存在 .codex-global-state.json 的
    * client-thread-bindings-v1 里。旧版放在 electron-persisted-atom-state 下，26.1111 起按窗口放在
    * electron-owner-atoms:<hash> 下；这里在根和每个顶层对象里都找一遍，换命名空间时不至于失效。
-   * 返回 { real: 客户端 id → 真实 id, client: 真实 id → 客户端 id }，按文件变化缓存。
+   * 同一个文件里还有 thread-project-assignments（会话 id → { projectId }），侧栏按这个不透明的项目 id 分组。
+   * 返回 { real: 客户端 id → 真实 id, client: 真实 id → 客户端 id, projects: 会话 id → 项目 id }，按文件变化缓存。
    */
   async bindings() {
     const path = join(this.codexHome, ".codex-global-state.json");
@@ -390,21 +409,27 @@ export class CodexSessions {
     if (info.size > STATE_FILE_LIMIT) return this.state;
     const real = new Map();
     const client = new Map();
+    const projects = new Map();
     try {
       const root = JSON.parse(await readFile(path, "utf8"));
       const scopes = [root, ...Object.values(root ?? {})].filter((value) => value && typeof value === "object" && !Array.isArray(value));
-      const entries = scopes.flatMap((scope) => {
-        const bound = scope["client-thread-bindings-v1"];
-        return bound && typeof bound === "object" && !Array.isArray(bound) ? Object.entries(bound) : [];
+      const entriesOf = (key) => scopes.flatMap((scope) => {
+        const value = scope[key];
+        return value && typeof value === "object" && !Array.isArray(value) ? Object.entries(value) : [];
       });
-      for (const [key, value] of entries) {
+      for (const [key, value] of entriesOf("client-thread-bindings-v1")) {
         const clientId = key.startsWith(CLIENT_PREFIX) ? key.slice(CLIENT_PREFIX.length) : null;
         if (!THREAD_ID_PATTERN.test(clientId ?? "") || typeof value !== "string" || !THREAD_ID_PATTERN.test(value)) continue;
         real.set(clientId, value);
         client.set(value, clientId);
       }
+      for (const [key, value] of entriesOf("thread-project-assignments")) {
+        const projectId = value?.projectId;
+        if (!THREAD_ID_PATTERN.test(key) || typeof projectId !== "string" || !projectId || projectId.length > 1024) continue;
+        projects.set(key, projectId);
+      }
     } catch { return this.state; }
-    this.state = { mtimeMs: info.mtimeMs, size: info.size, real, client };
+    this.state = { mtimeMs: info.mtimeMs, size: info.size, real, client, projects };
     return this.state;
   }
 
@@ -417,6 +442,57 @@ export class CodexSessions {
   async aliases(id) {
     const { real, client } = await this.bindings();
     return [real.get(id), client.get(id)].filter(Boolean);
+  }
+
+  /** 会话在 Codex 侧栏里所属的项目 id（真实 id 与客户端临时 id 都查）；没有分配时为 null。 */
+  async projectOf(id) {
+    const { real, client, projects } = await this.bindings();
+    return projects.get(id) ?? projects.get(real.get(id)) ?? projects.get(client.get(id)) ?? null;
+  }
+
+  /**
+   * 今天和昨天两个日期目录里的会话记录文件（跨零点时昨天新建的也在内），目录不存在时为空。
+   * 目录在但一时读不出来（如句柄用尽）时抛出：调用方靠「列表里没有」判断文件已不在，不能把读失败当成空目录。
+   */
+  async recentRollouts() {
+    const sessions = join(this.codexHome, "sessions");
+    const now = this.now();
+    const paths = [];
+    for (const directory of new Set([dayDir(sessions, now - DAY_MS), dayDir(sessions, now)])) {
+      let names;
+      try { names = await readdir(directory); }
+      catch (error) {
+        if (error?.code === "ENOENT" || error?.code === "ENOTDIR") continue;
+        throw error;
+      }
+      for (const name of names) if (name.startsWith("rollout-") && name.endsWith(".jsonl")) paths.push(join(directory, name));
+    }
+    return paths;
+  }
+
+  /**
+   * 会话记录第一行的 session_meta.payload。第一行还没写完或解析失败时为 null（调用方稍后再读）；
+   * 第一行完整但不是 session_meta 时为空对象。
+   */
+  async sessionMeta(path) {
+    const handle = await open(path, "r");
+    try {
+      const chunks = [];
+      let total = 0;
+      for (;;) {
+        const buffer = Buffer.alloc(Math.min(64 * 1024, META_LINE_LIMIT - total));
+        if (!buffer.length) return null;
+        const { bytesRead } = await handle.read(buffer, 0, buffer.length, total);
+        if (!bytesRead) return null;
+        const chunk = buffer.subarray(0, bytesRead);
+        const end = chunk.indexOf(10);
+        chunks.push(end < 0 ? chunk : chunk.subarray(0, end));
+        total += bytesRead;
+        if (end >= 0) break;
+      }
+      const line = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+      return line?.type === "session_meta" && line.payload && typeof line.payload === "object" && !Array.isArray(line.payload) ? line.payload : {};
+    } catch { return null; } finally { await handle.close(); }
   }
 
   async locate(rawId) {

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { SHOW_DELAY_MS, createSwitchController, isMac, orderByRecent, touchRecent } from "../src/cards/tasks/switcher.mjs";
+import { SHOW_DELAY_MS, createSwitchController, isMac, mergeRecent, modifierOf, orderByRecent, touchRecent } from "../src/cards/tasks/switcher.mjs";
 import { createOverlayLayer } from "../src/renderer/shell/overlay-layer.mjs";
 import { createEffects } from "../src/renderer/platform/effects.mjs";
 
@@ -9,7 +9,7 @@ const task = (n) => ({ threadId: `01a18216-3b02-7db0-b394-${String(n).padStart(1
 const down = (key, extra = {}) => ({ key, code: key, altKey: true, shiftKey: false, metaKey: false, ctrlKey: false, isComposing: false, ...extra });
 const release = { key: "Alt", code: "AltLeft", altKey: false };
 
-function fixture({ tasks = [task(1), task(2), task(3)], current, platform = "MacIntel", enabled = () => true } = {}) {
+function fixture({ tasks = [task(1), task(2), task(3)], current, platform = "MacIntel", enabled = () => true, ...options } = {}) {
   const state = { tasks, current: current === undefined ? tasks[0]?.threadId ?? null : current };
   const picked = [];
   const timers = [];
@@ -17,7 +17,7 @@ function fixture({ tasks = [task(1), task(2), task(3)], current, platform = "Mac
   let changes = 0;
   const controller = createSwitchController({
     items: () => state.tasks, current: () => state.current, pick: (item) => picked.push(item.n),
-    prepare: () => { prepared += 1; }, onChange: () => { changes += 1; }, enabled, platform,
+    prepare: () => { prepared += 1; }, onChange: () => { changes += 1; }, enabled, platform, ...options,
     schedule: (fn, ms) => {
       const timer = { fn, ms, cancelled: false };
       timers.push(timer);
@@ -42,6 +42,9 @@ test("最近打开的在前，没打开过的按看板顺序；记录去重、�
   for (let index = 0; index < 150; index += 1) long = touchRecent(long, `id-${index}`);
   assert.equal(long.length, 100);
   assert.equal(long[0], "id-149");
+  assert.deepEqual(mergeRecent(["b", "x"], ["a", "b", "c", 3, null]), ["b", "x", "a", "c"], "本页新记的在前，后台存的接在后面，去重并丢掉非字符串");
+  assert.equal(mergeRecent(long, ["extra"]).length, 100, "合并后同样限长");
+  assert.deepEqual(["alt", "ctrl", "meta", undefined].map(modifierOf), ["alt", "ctrl", "alt", "alt"]);
   for (const value of ["MacIntel", "macOS", "darwin"]) assert.equal(isMac(value), true, value);
   for (const value of ["Linux x86_64", "Win32", "linux", undefined, null]) assert.equal(isMac(value), false, String(value));
 });
@@ -215,4 +218,89 @@ test("顶层浮层第一次取 root 时才挂到文档根上，被移走后重�
   controller.abort();
   assert.equal(documentElement.children.length, 0, "卸载时移除");
   assert.throws(() => layer.root, { code: "STATE_DISPOSED" });
+});
+
+const ctrlDown = (key, extra = {}) => down(key, { altKey: false, ctrlKey: true, ...extra });
+const ctrlRelease = { key: "Control", code: "ControlLeft", ctrlKey: false, altKey: false };
+
+test("切换键改成 Control：⌃Tab 触发、松开 Control 才切换，⌥Tab 不再拦截；按住期间改设置不影响这一轮", () => {
+  let modifier = "ctrl";
+  const f = fixture({ modifier: () => modifier });
+  assert.equal(f.controller.keydown(down("Tab")), false, "Option+Tab 交还 Codex");
+  assert.equal(f.controller.keydown(down("Tab", { ctrlKey: true })), false, "同时按着两个修饰键不算");
+  assert.equal(f.controller.modifier, "ctrl");
+  assert.equal(f.controller.keydown(ctrlDown("Tab")), true);
+  modifier = "alt";
+  assert.equal(f.controller.modifier, "ctrl", "这一轮仍按 Control 判断松开");
+  assert.equal(f.controller.keyup({ key: "Alt", code: "AltLeft", altKey: false, ctrlKey: true }), true);
+  assert.equal(f.controller.phase, "held", "Control 还按着，不切换");
+  f.controller.keydown(ctrlDown("Tab"));
+  assert.equal(f.selected(), 3);
+  f.controller.keyup(ctrlRelease);
+  assert.deepEqual(f.picked, [3]);
+  assert.equal(f.controller.modifier, "alt", "空闲时跟着设置走");
+});
+
+test("数字键直达：1–9 选中对应条目立即切换，没有这一项时只拦下", () => {
+  const f = fixture({ tasks: [task(1), task(2), task(3), task(4)] });
+  f.controller.keydown(down("Tab"));
+  assert.equal(f.controller.keydown(down("¡", { code: "Digit3" })), true, "还没弹出面板也能直达");
+  assert.deepEqual(f.picked, [3]);
+  assert.equal(f.controller.phase, "idle");
+  f.controller.keydown(down("Tab"));
+  f.elapse();
+  assert.equal(f.controller.keydown(down("ª", { code: "Digit9" })), true);
+  assert.equal(f.controller.phase, "open", "超出列表的数字不切换");
+  assert.equal(f.controller.keydown(down("º", { code: "Digit0" })), true, "0 不对应条目");
+  f.controller.keydown(down("™", { code: "Digit1" }));
+  assert.deepEqual(f.picked, [3, 1]);
+  assert.equal(fixture().controller.keydown(down("¡", { code: "Digit1" })), false, "空闲时 Option+数字交还 Codex");
+});
+
+test("面板里 W 移出选中的会话、Z 撤销；还没弹出面板时不生效，自动重复不连删", () => {
+  const removed = [];
+  let undone = 0;
+  const f = fixture({ remove: (item) => removed.push(item.n), undo: () => { undone += 1; } });
+  f.controller.keydown(down("Tab"));
+  assert.equal(f.controller.keydown(down("∑", { code: "KeyW" })), true);
+  assert.deepEqual(removed, [], "看不见面板时不删");
+  f.elapse();
+  f.controller.keydown(down("∑", { code: "KeyW" }));
+  f.controller.keydown(down("∑", { code: "KeyW", repeat: true }));
+  assert.deepEqual(removed, [2]);
+  assert.equal(f.controller.phase, "open", "移出后面板继续开着");
+  f.controller.keydown(down("Ω", { code: "KeyZ" }));
+  assert.equal(undone, 1);
+  assert.deepEqual(f.picked, []);
+  const plain = fixture();
+  plain.controller.keydown(down("Tab"));
+  plain.elapse();
+  assert.equal(plain.controller.keydown(down("∑", { code: "KeyW" })), true, "没提供移出时照样拦下");
+});
+
+test("修饰键 + J 跳到需要你处理的会话：只在空闲时、按物理键位认，自动重复只拦下", () => {
+  let jumps = 0;
+  const jump = () => { jumps += 1; };
+  const f = fixture({ jump });
+  assert.equal(f.controller.keydown(down("∆", { code: "KeyJ" })), true);
+  assert.equal(jumps, 1);
+  assert.equal(f.controller.phase, "idle", "不弹面板");
+  assert.equal(f.controller.keydown(down("∆", { code: "KeyJ", repeat: true })), true);
+  assert.equal(jumps, 1, "按住不放不连跳");
+  for (const event of [down("Ô", { code: "KeyJ", shiftKey: true }), down("∆", { code: "KeyJ", metaKey: true }), down("j", { code: "KeyJ", altKey: false }), down("∆", { code: "KeyJ", isComposing: true })]) {
+    assert.equal(f.controller.keydown(event), false, JSON.stringify(event));
+  }
+  assert.equal(jumps, 1);
+  assert.equal(fixture().controller.keydown(down("∆", { code: "KeyJ" })), false, "卡片没提供时交还 Codex");
+  assert.equal(fixture({ jump, enabled: () => false }).controller.keydown(down("∆", { code: "KeyJ" })), false, "开关关闭时不拦截");
+  assert.equal(fixture({ jump, platform: "Linux x86_64" }).controller.keydown(down("∆", { code: "KeyJ" })), false, "非 macOS 不拦截");
+  const ctrl = fixture({ jump, modifier: () => "ctrl" });
+  assert.equal(ctrl.controller.keydown(down("∆", { code: "KeyJ" })), false, "切换键是 Control 时 Option+J 交还 Codex");
+  assert.equal(ctrl.controller.keydown(ctrlDown("j", { code: "KeyJ" })), true);
+  assert.equal(jumps, 2);
+  f.controller.keydown(down("Tab"));
+  f.elapse();
+  f.controller.keydown(down("∆", { code: "KeyJ" }));
+  assert.equal(jumps, 2, "面板开着时 J 只拦下");
+  assert.equal(f.controller.phase, "open");
 });

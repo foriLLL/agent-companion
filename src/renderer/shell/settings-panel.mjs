@@ -99,7 +99,7 @@ export function createSettingsPanel({ document: doc, call, connection, onClose =
     return input;
   }
 
-  // 几档单选，外观同「显示方式」的分段控件；原生 radio 保留键盘与表单语义。返回 值 → input。
+  // 几档单选，外观同「显示方式」的分段控件；原生 radio 保留键盘与表单语义。返回 值 → input，.row 是整行。
   function choice(parent, title, hint, key, options, patch, disabled) {
     const row = node("div", null, "cc-settings-row");
     const text = node("span", title);
@@ -122,6 +122,7 @@ export function createSettingsPanel({ document: doc, call, connection, onClose =
     }
     row.append(text, group);
     parent.append(row);
+    inputs.row = row;
     return inputs;
   }
 
@@ -287,7 +288,8 @@ export function createSettingsPanel({ document: doc, call, connection, onClose =
   }
   // 任务看板的设置写在卡片 settings 里；没有任务看板卡片时整组隐藏。
   // 「长任务先列计划」由后台写进 Codex 的全局指令文件（AGENTS.md），并在 config.toml 打开自带的 update_plan 工具；关闭即删除。
-  // 快捷键只在 macOS 显示（Linux 桌面环境自己占用 Alt+Tab）。
+  // 「新会话自动加入看板」由后台扫描 Codex 新生成的会话记录，各平台都有。
+  // 快捷键只在 macOS 显示（Linux 桌面环境自己占用 Alt+Tab，Ctrl+Tab 是 Codex 的切换标签页）。
   const tasksSection = section("任务看板");
   const tasksOff = () => config.cards?.tasks?.enabled === false;
   const planHintHint = node("small");
@@ -316,10 +318,20 @@ export function createSettingsPanel({ document: doc, call, connection, onClose =
     node("p", "关闭后只删除这段规则和 Companion 写入的 update_plan 设置，保留原有指令与配置；你在 config.toml 里自己设置过 update_plan 的，以你的设置为准。已加载规则的会话不会自动撤回。"),
     planHintPreview, planHintActions);
   tasksSection.append(planHintConfirmation);
+  const autoAddHint = node("small");
+  const autoAdd = checkbox(tasksSection, "新会话自动加入看板", "tasks-auto-add",
+    value => ({ cards: { tasks: { settings: { autoAdd: value } } } }), autoAddHint, tasksOff);
+  const tasksSettings = () => config.cards?.tasks?.settings ?? {};
+  const switcherOff = () => tasksOff() || tasksSettings().switcher === false;
   const switcherHint = node("small");
-  const switcher = checkbox(tasksSection, "Option+Tab 切换看板会话", "tasks-switcher",
+  const switcher = checkbox(tasksSection, "快捷键切换看板会话", "tasks-switcher",
     value => ({ cards: { tasks: { settings: { switcher: value } } } }), switcherHint, tasksOff);
-  switcher.parentNode.hidden = !mac;
+  const switcherKey = choice(tasksSection, "切换键", "⌃Tab 会盖掉 Codex 的切换标签页", "tasks-switcherKey", [["alt", "⌥ Tab"], ["ctrl", "⌃ Tab"]],
+    value => ({ cards: { tasks: { settings: { switcherKey: value } } } }), switcherOff);
+  const switcherAll = checkbox(tasksSection, "也列出看板外的会话", "tasks-switcher-all",
+    value => ({ cards: { tasks: { settings: { switcherAll: value } } } }), "切换面板里加上最近在 Codex 里打开过、但没加入看板的会话", switcherOff);
+  const switcherRows = [switcher.parentNode, switcherKey.row, switcherAll.parentNode];
+  for (const row of switcherRows) row.hidden = !mac;
   // 播放提醒：卡片里有视频在播时，任务需要你或完成就弹出提醒；「暂停」先暂停播放再提醒。
   const alertNote = node("p", "卡片里有视频在播时，任务状态变化会弹出提醒", "cc-settings-note");
   tasksSection.append(alertNote);
@@ -527,8 +539,14 @@ export function createSettingsPanel({ document: doc, call, connection, onClose =
     tasksSection.parentElement.hidden = !catalog.some(card => card.id === "tasks");
     planHint.checked = config.cards?.tasks?.settings?.planHint === true;
     planHintHint.textContent = tasksOff() ? "需先启用任务看板" : "会修改 Codex 全局 AGENTS.md 并开启 update_plan 工具，影响所有新会话；仅用于列计划和同步进度。开启前需确认，关闭即删除";
-    switcher.checked = config.cards?.tasks?.settings?.switcher !== false;
-    switcherHint.textContent = tasksOff() ? "需先启用任务看板" : "按住 Option 连按 Tab 选择，松开即切换";
+    autoAdd.checked = tasksSettings().autoAdd === true;
+    autoAddHint.textContent = tasksOff() ? "需先启用任务看板" : "打开后在 Codex 里新开的会话自动加入，移出后不再加回；终端里的 Codex 和子代理不算";
+    switcher.checked = tasksSettings().switcher !== false;
+    const ctrl = tasksSettings().switcherKey === "ctrl";
+    const [held, symbol] = ctrl ? ["Control", "⌃"] : ["Option", "⌥"];
+    switcherHint.textContent = tasksOff() ? "需先启用任务看板" : `按住 ${held} 连按 Tab 选择，松开即切换；${symbol}J 跳到需要你处理的会话`;
+    for (const [value, input] of switcherKey) input.checked = value === (ctrl ? "ctrl" : "alt");
+    switcherAll.checked = tasksSettings().switcherAll === true;
     alertNote.textContent = tasksOff() ? "需先启用任务看板" : "卡片里有视频在播时，任务状态变化会弹出提醒；「暂停」会先暂停播放";
     for (const [key, inputs] of alertChoices) {
       const level = alertLevel(config.cards?.tasks?.settings, key);

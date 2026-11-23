@@ -260,8 +260,9 @@ test("任务看板设置：Option+Tab 只在 macOS 显示、缺省开启；长�
   assert.equal(input.parentNode.hidden, false);
   assert.equal(input.checked, true, "没写过设置时缺省开启");
   assert.equal(input.disabled, false);
-  assert.ok(input.parentNode.textContent.includes("Option+Tab 切换看板会话"));
+  assert.ok(input.parentNode.textContent.includes("快捷键切换看板会话"));
   assert.ok(input.parentNode.textContent.includes("按住 Option 连按 Tab 选择"));
+  assert.ok(input.parentNode.textContent.includes("⌥J 跳到需要你处理的会话"));
   change(input, false);
   await turn();
   assert.deepEqual(f.calls.at(-1).params, { expectedRevision: 5, patch: { cards: { tasks: { settings: { switcher: false } } } } });
@@ -278,7 +279,10 @@ test("任务看板设置：Option+Tab 只在 macOS 显示、缺省开启；长�
   await linux.panel.open();
   const legend = (panel) => descendants(panel.element).find(item => item.tagName === "legend" && item.textContent === "任务看板").parentNode;
   assert.equal(legend(linux.panel).hidden, false, "Linux 也能开关长任务先列计划");
-  assert.equal(bySetting(linux.panel.element, "tasks-switcher").parentNode.hidden, true, "Linux 不显示 Option+Tab");
+  assert.equal(bySetting(linux.panel.element, "tasks-switcher").parentNode.hidden, true, "Linux 不显示快捷键");
+  assert.equal(bySetting(linux.panel.element, "tasks-switcherKey").parentNode.parentNode.parentNode.hidden, true, "Linux 不显示切换键");
+  assert.equal(bySetting(linux.panel.element, "tasks-switcher-all").parentNode.hidden, true);
+  assert.equal(bySetting(linux.panel.element, "tasks-auto-add").parentNode.hidden, false, "新会话自动加入各平台都有");
   linux.panel.destroy();
   const noTasks = fixture(null, { platform: "MacIntel" });
   await noTasks.panel.open();
@@ -688,6 +692,50 @@ test("播放提醒：两项各有关 / 提醒 / 暂停三档，缺省需要你�
   await turn();
   assert.ok([...radios("tasks-alertAttention"), ...radios("tasks-alertDone")].every(item => item.disabled), "任务看板关闭时不可用");
   assert.ok(root.textContent.includes("需先启用任务看板"));
+  f.panel.destroy();
+});
+
+test("新会话自动加入缺省关闭；快捷键可换成 Control，可列出看板外的会话；快捷键关闭时这两项不可用", async () => {
+  const f = taskFixture({ settings: { keep: 1 } });
+  await f.panel.open();
+  const root = f.panel.element;
+  const radios = key => descendants(root).filter(item => item.dataset.setting === key);
+  const checked = key => radios(key).find(item => item.checked)?.value;
+  const autoAdd = bySetting(root, "tasks-auto-add");
+  assert.equal(autoAdd.checked, false, "缺省关闭");
+  assert.ok(autoAdd.parentNode.textContent.includes("新会话自动加入看板"));
+  assert.ok(autoAdd.parentNode.textContent.includes("终端里的 Codex 和子代理不算"));
+  change(autoAdd, true);
+  await turn();
+  assert.deepEqual(f.calls.at(-1).params.patch, { cards: { tasks: { settings: { autoAdd: true } } } });
+  assert.equal(autoAdd.checked, true);
+
+  assert.deepEqual(radios("tasks-switcherKey").map(item => [item.type, item.value]), [["radio", "alt"], ["radio", "ctrl"]]);
+  assert.equal(checked("tasks-switcherKey"), "alt", "缺省按住 Option");
+  assert.ok(root.textContent.includes("⌃Tab 会盖掉 Codex 的切换标签页"));
+  change(radios("tasks-switcherKey").find(item => item.value === "ctrl"), true);
+  await turn();
+  assert.deepEqual(f.calls.at(-1).params.patch, { cards: { tasks: { settings: { switcherKey: "ctrl" } } } });
+  assert.equal(checked("tasks-switcherKey"), "ctrl");
+  const switcher = bySetting(root, "tasks-switcher");
+  assert.ok(switcher.parentNode.textContent.includes("按住 Control 连按 Tab 选择"), "提示跟着切换键变");
+  assert.ok(switcher.parentNode.textContent.includes("⌃J 跳到需要你处理的会话"));
+
+  const all = bySetting(root, "tasks-switcher-all");
+  assert.equal(all.checked, false, "缺省只列看板上的会话");
+  change(all, true);
+  await turn();
+  assert.deepEqual(f.calls.at(-1).params.patch, { cards: { tasks: { settings: { switcherAll: true } } } });
+  assert.equal(all.checked, true);
+
+  change(switcher, false);
+  await turn();
+  assert.ok(all.disabled && radios("tasks-switcherKey").every(item => item.disabled), "快捷键关闭时切换键和看板外会话不可用");
+  assert.equal(autoAdd.disabled, false, "自动加入不受快捷键开关影响");
+  change(bySetting(root, "card-tasks"), false);
+  await turn();
+  assert.equal(autoAdd.disabled, true, "任务看板关闭时不可用");
+  assert.ok(autoAdd.parentNode.textContent.includes("需先启用任务看板"));
   f.panel.destroy();
 });
 
