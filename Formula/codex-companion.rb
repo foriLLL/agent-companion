@@ -8,8 +8,8 @@
 class CodexCompanion < Formula
   desc "Card drawer for the Codex desktop app: task board, short dramas, Emby and more"
   homepage "https://github.com/foriLLL/codex_companion"
-  url "https://github.com/foriLLL/codex_companion/releases/download/v0.2.5/codex-companion-0.2.5.tar.gz"
-  sha256 "7da072407bd1bbe23552763fd07c72003e5b75761dea90afedd86ebe9dfb589e"
+  url "https://github.com/foriLLL/codex_companion/releases/download/v0.3.0/codex-companion-0.3.0.tar.gz"
+  sha256 "1cceb2a9ce16e6df1565d321816d467236f0ef91aedb600a7138f5b660f94881"
   license "MIT"
   head "https://github.com/foriLLL/codex_companion.git", branch: "main"
 
