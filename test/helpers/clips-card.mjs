@@ -1,6 +1,6 @@
 import { CARD_MANIFESTS } from "../../src/card-registry.mjs";
 import { SERVICE_REGISTRY } from "../../src/cards/service-registry.generated.mjs";
-import { CodexCompanionService } from "../../src/codex-companion-service.mjs";
+import { AgentCompanionService } from "../../src/agent-companion-service.mjs";
 
 // 平台隔离测试用的第二张媒体卡：只把 RPC 与清理转发给注入的 clipsService，不含业务逻辑。
 // 真实红果卡片会随构建产物演进而变，这里用固定的合成卡保证隔离测试不受业务实现影响。
@@ -35,5 +35,5 @@ export function createServiceWithClips({ clipsService = {}, ...options } = {}) {
       dispose: () => clipsService.dispose?.()
     })
   };
-  return new CodexCompanionService({ ...options, manifests, modules: { ...SERVICE_REGISTRY, clips } });
+  return new AgentCompanionService({ ...options, manifests, modules: { ...SERVICE_REGISTRY, clips } });
 }

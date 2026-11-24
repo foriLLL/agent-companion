@@ -1,5 +1,5 @@
 {
-  "name": "codex-companion",
+  "name": "agent-companion",
   "version": "0.3.2",
   "private": true,
   "type": "module",
@@ -7,11 +7,11 @@
   "description": "在 Codex 桌面端（macOS；Linux 预览）注入红果短剧、Emby、代理状态与任务看板卡片",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/foriLLL/codex_companion.git"
+    "url": "git+https://github.com/foriLLL/agent-companion.git"
   },
-  "homepage": "https://github.com/foriLLL/codex_companion#readme",
+  "homepage": "https://github.com/foriLLL/agent-companion#readme",
   "bugs": {
-    "url": "https://github.com/foriLLL/codex_companion/issues"
+    "url": "https://github.com/foriLLL/agent-companion/issues"
   },
   "keywords": [
     "codex",

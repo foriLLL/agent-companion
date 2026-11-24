@@ -18,7 +18,7 @@ test("任意卡片的配置与字符串完整传输，不拼入可执行代码",
   const source = buildInjectionSource("mount", { config });
   let received;
   const suffix = source.slice(RENDERER_SOURCE.length);
-  vm.runInNewContext(suffix, { __CODEX_COMPANION_RENDERER__: { bootstrap(value) { received = value; } } });
+  vm.runInNewContext(suffix, { __AGENT_COMPANION_RENDERER__: { bootstrap(value) { received = value; } } });
   assert.deepEqual(JSON.parse(JSON.stringify(received.config)), config);
   assert.equal(received.artifactHash, ARTIFACT_HASH);
 });
@@ -28,7 +28,7 @@ test("配置更新只调用现有 runtime，返回异步结果且不重载 bundl
   const source = buildConfigUpdateSource(config);
   assert.ok(source.length < 500);
   let calls = 0;
-  const result = await vm.runInNewContext(source, { __CODEX_COMPANION__: { runtime: { async applyConfig(value) {
+  const result = await vm.runInNewContext(source, { __AGENT_COMPANION__: { runtime: { async applyConfig(value) {
     calls += 1;
     assert.deepEqual(JSON.parse(JSON.stringify(value)), config);
     return true;
@@ -42,13 +42,13 @@ test("构建后的真实 unmount 释放现有 bridge 并移除旧入口", () => 
   let disposed = 0;
   const removed = [];
   const context = vm.createContext({
-    __CODEX_COMPANION__: { unmount() { disposed += 1; } },
+    __AGENT_COMPANION__: { unmount() { disposed += 1; } },
     document: { getElementById(id) { return { remove() { removed.push(id); } }; } }
   });
   const result = vm.runInContext(buildInjectionSource("unmount"), context);
   assert.equal(result.status, "unmounted");
   assert.equal(disposed, 1);
-  assert.equal(context.__CODEX_COMPANION__, undefined);
+  assert.equal(context.__AGENT_COMPANION__, undefined);
   assert.ok(removed.includes("codex-hg-root"));
 });
 

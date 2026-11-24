@@ -8,7 +8,7 @@
 //   页面不能借此访问任意本机端口（例如 CDP 调试端口）。
 // - 拦截随 CDP 会话存在；会话断开后 .invalid 请求自然解析失败，不会落到外网。
 // - connect-src 不含该域名，fetch/XHR 仍被 CSP 拦截，只有媒体元素能用这条通道。
-export const MEDIA_INTERCEPT_ORIGIN = "https://codex-companion.invalid";
+export const MEDIA_INTERCEPT_ORIGIN = "https://agent-companion.invalid";
 
 const PATH_PATTERN = /^\/(\d{1,5})(\/hls\/[^/]+\/.+)$/;
 const allowedPorts = new Map();
@@ -78,7 +78,7 @@ export async function attachMediaIntercept(connection, { logger = console } = {}
       ? connection.send("Fetch.continueRequest", { requestId, url: target })
       : connection.send("Fetch.failRequest", { requestId, errorReason: "BlockedByClient" });
     Promise.resolve(command).catch((error) => {
-      logger.debug?.(`[codex-companion] 媒体拦截处理失败：${error?.message ?? error}`);
+      logger.debug?.(`[agent-companion] 媒体拦截处理失败：${error?.message ?? error}`);
     });
   };
   const remove = connection.on("Fetch.requestPaused", onPaused);
@@ -89,7 +89,7 @@ export async function attachMediaIntercept(connection, { logger = console } = {}
     });
   } catch (error) {
     unsubscribe();
-    logger.warn?.(`[codex-companion] 媒体拦截不可用，回退 RPC 传输：${error?.message ?? error}`);
+    logger.warn?.(`[agent-companion] 媒体拦截不可用，回退 RPC 传输：${error?.message ?? error}`);
     return { active: false, detach() {} };
   }
   let attached = true;

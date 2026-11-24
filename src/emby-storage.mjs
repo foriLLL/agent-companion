@@ -10,8 +10,10 @@ import { createSecretStore } from "./platform/secret-store.mjs";
 import { replaceFile } from "./platform/replace-file.mjs";
 
 const execFileAsync = promisify(execFile);
-export const KEYCHAIN_SERVICE = "codex-companion.emby";
+export const KEYCHAIN_SERVICE = "agent-companion.emby";
 export const LEGACY_KEYCHAIN_SERVICE = "codex-hg.emby";
+// 按新旧顺序查找：改名前（Codex Companion）的条目，再往前是 codex-hg 时代的条目。读到旧条目时写回新名字。
+export const LEGACY_KEYCHAIN_SERVICES = Object.freeze(["codex-companion.emby", LEGACY_KEYCHAIN_SERVICE]);
 const HOME_CACHE_FILE_LIMIT = 4 * 1024 * 1024;
 
 export function defaultEmbyConfigPath(home = homedir()) {
@@ -271,7 +273,7 @@ export class EmbyStorage {
 
   async readToken(serverId, userId) {
     const account = keychainAccount(serverId, userId);
-    for (const service of [KEYCHAIN_SERVICE, LEGACY_KEYCHAIN_SERVICE]) {
+    for (const service of [KEYCHAIN_SERVICE, ...LEGACY_KEYCHAIN_SERVICES]) {
       let token;
       try {
         token = await this.secrets.read(service, account);
@@ -279,7 +281,7 @@ export class EmbyStorage {
         throw new EmbyError("CREDENTIAL_READ_FAILED", `无法从${this.secrets.label}读取 Emby 登录信息`, { cause });
       }
       if (!token) continue;
-      if (service === LEGACY_KEYCHAIN_SERVICE) await this.saveToken(serverId, userId, token);
+      if (service !== KEYCHAIN_SERVICE) await this.saveToken(serverId, userId, token);
       return token;
     }
     return null;
@@ -298,7 +300,7 @@ export class EmbyStorage {
   async deleteToken(serverId, userId) {
     const account = keychainAccount(serverId, userId);
     let deleted = false;
-    for (const service of [KEYCHAIN_SERVICE, LEGACY_KEYCHAIN_SERVICE]) {
+    for (const service of [KEYCHAIN_SERVICE, ...LEGACY_KEYCHAIN_SERVICES]) {
       try {
         if (await this.secrets.delete(service, account)) deleted = true;
       } catch (cause) {

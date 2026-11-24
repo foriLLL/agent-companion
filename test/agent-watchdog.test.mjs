@@ -8,7 +8,7 @@ import { abortStalledProcess, startMainThreadWatchdog, watchMainThread, WATCHDOG
 import { posixOnlyTest } from "./helpers/platform.mjs";
 import { temporary } from "./helpers/agent.mjs";
 
-const STALL_MESSAGE = /\[ERROR\] \[codex-companion\] agent 主线程已 \d+ 秒无响应/;
+const STALL_MESSAGE = /\[ERROR\] \[agent-companion\] agent 主线程已 \d+ 秒无响应/;
 
 // 手动驱动 worker 里的检查：tick(ms) 让单调时钟前进 ms 后执行一次检查。
 function harness({ stallMs = 30_000, intervalMs = 5_000, suspendGapMs } = {}) {
@@ -99,7 +99,7 @@ test("卡死后同步写 stderr 与 agent.log 各一行，先 SIGABRT，稍后�
   abortStalledProcess(31_200, { pid: 4321, logPath: "/logs/agent.log", now: () => Date.parse("2026-11-17T00:00:00.000Z"),
     writeSync: (fd, text) => writes.push([fd, text]), appendFileSync: (path, text, options) => appends.push([path, text, options]),
     kill: (pid, signal) => kills.push([pid, signal]), setTimeoutImpl: (fn, ms) => timers.push([fn, ms]) });
-  const line = "2026-11-17T00:00:00.000Z [ERROR] [codex-companion] agent 主线程已 31 秒无响应，以 SIGABRT 退出，等待后台服务重启\n";
+  const line = "2026-11-17T00:00:00.000Z [ERROR] [agent-companion] agent 主线程已 31 秒无响应，以 SIGABRT 退出，等待后台服务重启\n";
   assert.deepEqual(writes, [[2, line]]);
   assert.deepEqual(appends, [["/logs/agent.log", line, { mode: 0o600 }]]);
   assert.deepEqual(kills, [[4321, "SIGABRT"]]);

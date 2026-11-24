@@ -11,9 +11,9 @@ const require = createRequire(import.meta.url);
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(here, "..");
 
-const APP_NAME = "Codex Companion";
-const BUNDLE_ID = "com.codexcompanion.launcher";
-const BINARY_NAME = "codex-companion";
+const APP_NAME = "Agent Companion";
+const BUNDLE_ID = "com.agentcompanion.launcher";
+const BINARY_NAME = "agent-companion";
 
 export const TARGETS = {
   "darwin-arm64": { bun: "bun-darwin-arm64", swift: "arm64-apple-macos13", arch: "arm64" },
@@ -117,8 +117,8 @@ async function main() {
   await mkdir(helpers, { recursive: true });
   await mkdir(launchAgents, { recursive: true });
   await cp(join(repoRoot, "src", "cards", "card-catalog.json"), join(resources, "card-catalog.json"));
-  await cp(join(repoRoot, "packaging", "mac-app", "LaunchAgents", "com.codexcompanion.agent.plist"),
-    join(launchAgents, "com.codexcompanion.agent.plist"));
+  await cp(join(repoRoot, "packaging", "mac-app", "LaunchAgents", "com.agentcompanion.agent.plist"),
+    join(launchAgents, "com.agentcompanion.agent.plist"));
 
   console.log(`[build-app] 编译原生助手（${options.target}）…`);
   const nativeOutput = await buildNative({ target: options.target });
@@ -126,8 +126,8 @@ async function main() {
   await cp(nativeOutput, nativeDestination);
   await chmod(nativeDestination, 0o755);
 
-  // 1. 编译 Bun 单文件后端二进制 → Resources/codex-companion
-  const bunBin = process.env.CODEX_COMPANION_BUN
+  // 1. 编译 Bun 单文件后端二进制 → Resources/agent-companion
+  const bunBin = process.env.AGENT_COMPANION_BUN
     ?? join(repoRoot, "node_modules", "bun", "bin", "bun.exe");
   const binaryOut = join(resources, BINARY_NAME);
   console.log(`[build-app] bun --compile（${target.bun}）…`);
@@ -168,7 +168,7 @@ async function main() {
     "-sdk", sdk.trim(),
     "-parse-as-library",
     "-O",
-    join(repoRoot, "packaging", "mac-app", "Sources", "CodexCompanionApp.swift"),
+    join(repoRoot, "packaging", "mac-app", "Sources", "AgentCompanionApp.swift"),
     "-o", launcherPath
   ]);
   await chmod(launcherPath, 0o755);

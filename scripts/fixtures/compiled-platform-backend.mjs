@@ -24,7 +24,7 @@ globalThis.WebSocket = class TrackedWebSocket extends NativeWebSocket {
       if (call.method === "Runtime.addBinding") counters.bindings += 1;
       if (call.method === "Page.addScriptToEvaluateOnNewDocument") counters.newDocumentScripts += 1;
       if (call.method === "Runtime.evaluate" && call.params?.expression?.includes('"action":"mount"')) counters.mounts += 1;
-      if (call.method === "Runtime.evaluate" && call.params?.expression?.startsWith('globalThis["__CODEX_COMPANION__"]?.runtime?.applyConfig(')) counters.configUpdates += 1;
+      if (call.method === "Runtime.evaluate" && call.params?.expression?.startsWith('globalThis["__AGENT_COMPANION__"]?.runtime?.applyConfig(')) counters.configUpdates += 1;
       const response = call.params?.arguments?.[0]?.value;
       if (call.method === "Runtime.callFunctionOn" && response?.id?.startsWith("backend-rpc-")) {
         if (response.ok === true) counters.rpcSuccessResponses += 1;

@@ -121,8 +121,8 @@ test("Linux install/uninstall 只写隔离目录、只调用假 systemctl；不�
   ]);
 
   // 升级：覆盖自己生成的入口。
-  await installAgent({ ...options, env: { ...env, CODEX_COMPANION_CONFIG_PATH: "/cfg/c.json" } });
-  assert.ok((await readFile(locations.desktopPath, "utf8")).includes("Exec=/usr/bin/env CODEX_COMPANION_CONFIG_PATH=/cfg/c.json /fake/node /repo/cli.mjs open-codex %U"));
+  await installAgent({ ...options, env: { ...env, AGENT_COMPANION_CONFIG_PATH: "/cfg/c.json" } });
+  assert.ok((await readFile(locations.desktopPath, "utf8")).includes("Exec=/usr/bin/env AGENT_COMPANION_CONFIG_PATH=/cfg/c.json /fake/node /repo/cli.mjs open-codex %U"));
 
   calls.length = 0;
   const removed = await uninstallAgent(options);
@@ -151,8 +151,8 @@ test("未安装 ChatGPT 时 Linux install 失败且不注册服务", async (t) =
 test("菜单入口与 agent 同一程序，子命令为 open-codex；参数原样透传不解析", () => {
   assert.deepEqual(launcherProgramArguments({ execPath: "/n", cliPath: "/c.mjs", isBun: false }), ["/n", "/c.mjs", "open-codex"]);
   assert.deepEqual(launcherProgramArguments({ execPath: "/opt/companion", isBun: true }), ["/opt/companion", "open-codex"]);
-  assert.deepEqual(launcherProgramArguments({ execPath: "/n", cliPath: "/c.mjs", isBun: false, program: "/bin/codex-companion" }),
-    ["/bin/codex-companion", "open-codex"]);
+  assert.deepEqual(launcherProgramArguments({ execPath: "/n", cliPath: "/c.mjs", isBun: false, program: "/bin/agent-companion" }),
+    ["/bin/agent-companion", "open-codex"]);
   assert.deepEqual(parseArgs(["open-codex", "--new-window", "codex://x", "--port"]).passthrough, ["--new-window", "codex://x", "--port"]);
 });
 
@@ -198,7 +198,7 @@ test("open-codex 配置损坏时仍打开 Codex（不带代理）；可执行文
 test("桌面通知：Linux 用 notify-send，参数分开传；其它平台不支持", async () => {
   const calls = [];
   assert.equal(await notifyDesktop("标题", "-消息", { platform: "linux", execFileImpl: async (...args) => { calls.push(args); } }), true);
-  assert.deepEqual(calls, [["notify-send", ["--app-name=Codex Companion", "--", "标题", "-消息"]]]);
+  assert.deepEqual(calls, [["notify-send", ["--app-name=Agent Companion", "--", "标题", "-消息"]]]);
   assert.equal(await notifyDesktop("t", "m", { platform: "linux", execFileImpl: async () => { throw new Error("ENOENT"); } }), false);
   assert.equal(await notifyDesktop("t", "m", { platform: "win32", execFileImpl: async () => { throw new Error("不应调用"); } }), false);
 });

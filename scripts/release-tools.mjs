@@ -2,7 +2,7 @@
 import { changelogSection } from "../src/changelog.mjs";
 
 const VERSION = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
-export const REPOSITORY = "foriLLL/codex_companion";
+export const REPOSITORY = "foriLLL/agent-companion";
 
 export function assertVersion(version) {
   if (!VERSION.test(String(version))) throw new Error(`版本号必须是 X.Y.Z：${version}`);
@@ -31,7 +31,7 @@ export function releaseChangelog(changelog, version, date) {
   return next;
 }
 
-export const releaseAssetName = version => `codex-companion-${assertVersion(version)}.tar.gz`;
+export const releaseAssetName = version => `agent-companion-${assertVersion(version)}.tar.gz`;
 export const releaseAssetUrl = version =>
   `https://github.com/${REPOSITORY}/releases/download/v${version}/${releaseAssetName(version)}`;
 

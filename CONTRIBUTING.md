@@ -1,6 +1,6 @@
 # Contributing
 
-感谢参与 Codex Companion。提交改动前请先说明要解决的用户问题，并尽量提供可复现
+感谢参与 Agent Companion。提交改动前请先说明要解决的用户问题，并尽量提供可复现
 场景；涉及安全边界、凭证存储、CDP 监听地址或媒体 URL 校验的改动需要额外说明风险。
 
 ## 开发环境
@@ -61,7 +61,7 @@ GitHub Release 只接受与 `package.json` 版本一致的 `v*` tag。仓库需�
 
 工作流会：
 
-- 分别构建 arm64/x64 的 `Codex Companion.app`，签名内层后端和应用、核对 Team ID、
+- 分别构建 arm64/x64 的 `Agent Companion.app`，签名内层后端和应用、核对 Team ID、
   提交 Apple 公证并 staple，再生成绑定同一 Team ID 的安装器。
 
 任一凭据缺失、版本不一致、签名或公证失败都会终止，不发布降级产物。

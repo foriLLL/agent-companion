@@ -11,7 +11,7 @@ import { normalizeRuntimeConfig } from "../../platform/config/runtime-config.mjs
 export { normalizeRuntimeConfig };
 
 // 注入产物升级后仍沿用同一 document 的代次，避免后台把新实例判为旧请求。
-const generationKey = Symbol.for("codex-companion.card-generation");
+const generationKey = Symbol.for("agent-companion.card-generation");
 function allocateGeneration() {
   const generation = (globalThis[generationKey] ?? 0) + 1;
   globalThis[generationKey] = generation;
@@ -82,11 +82,16 @@ export function createCardRuntime({
       }
       const store = createStore({
         ...options, storage: manifest.state.scope === "session" ? sessionBackend : localBackend,
-        namespace: `codex-companion.card.${manifest.id}.${encodeURIComponent(name)}`,
+        namespace: `agent-companion.card.${manifest.id}.${encodeURIComponent(name)}`,
         scopeId: manifest.state.scope === "global" ? undefined : scopeId,
         version: options.version ?? manifest.state.version,
         onError: (error) => report(error, { cardId: manifest.id, phase: "storage" })
       });
+      // 改名前的存档在 codex-companion.card.* 下：新 key 还没有记录时复制一次，旧记录原样保留供回退。
+      const legacyNamespace = `codex-companion.card.${manifest.id}.${encodeURIComponent(name)}`;
+      const scoped = manifest.state.scope === "global" ? undefined : scopeId;
+      // 配额不足时 copyLegacy 会抛错（已经由 onError 上报），不能因此拿不到存储。
+      try { store.copyLegacy(scoped ? `${legacyNamespace}::${scoped}` : legacyNamespace); } catch {}
       const guarded = { key: store.key, diagnostics: () => store.diagnostics() };
       for (const method of ["read", "write", "update", "copyLegacy"]) {
         guarded[method] = (...args) => {

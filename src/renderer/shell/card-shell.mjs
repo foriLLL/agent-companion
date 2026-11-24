@@ -1,7 +1,7 @@
 import { createSettingsPanel } from "./settings-panel.mjs";
 
 // 外框属于平台；业务只能在内层 ShadowRoot 内渲染。
-export function createCardShell({ document: doc = document, hostId = "codex-companion-root" } = {}) {
+export function createCardShell({ document: doc = document, hostId = "agent-companion-root" } = {}) {
   const host = doc.createElement("div");
   host.id = hostId;
   host.setAttribute("aria-label", "Companion 卡片");

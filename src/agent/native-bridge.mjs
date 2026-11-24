@@ -10,7 +10,7 @@ const maxOutputBytes = 1024 * 1024;
 export function resolveNativeHelperPath({
   env = process.env, execPath = process.execPath, cwd = process.cwd(), arch = process.arch
 } = {}) {
-  const override = env.CODEX_COMPANION_NATIVE_HELPER;
+  const override = env.AGENT_COMPANION_NATIVE_HELPER;
   const candidates = [
     typeof override === "string" && override.trim() ? resolve(cwd, override) : null,
     resolve(dirname(execPath), "../Helpers/companion-native"),

@@ -99,8 +99,8 @@ try {
     <nav id="app-shell-sidebar"><div class="brand">Codex</div><div class="newchat">＋ 新对话</div><div data-app-action-sidebar-scroll="">
       <div data-app-action-sidebar-section="" data-app-action-sidebar-section-collapsed="true" data-app-action-sidebar-section-heading="已置顶">
         <button class="project" data-app-action-sidebar-section-toggle="">已置顶</button></div>
-      <div class="project" data-app-action-sidebar-project-row="" data-app-action-sidebar-project-id="/Users/me/projects/codex-companion" data-app-action-sidebar-project-label="codex-companion" data-app-action-sidebar-project-collapsed="false">codex-companion</div>
-      <div data-app-action-sidebar-project-list-id="/Users/me/projects/codex-companion" data-app-action-sidebar-project-show-all="true">\${rowsA}</div>
+      <div class="project" data-app-action-sidebar-project-row="" data-app-action-sidebar-project-id="/Users/me/projects/agent-companion" data-app-action-sidebar-project-label="agent-companion" data-app-action-sidebar-project-collapsed="false">agent-companion</div>
+      <div data-app-action-sidebar-project-list-id="/Users/me/projects/agent-companion" data-app-action-sidebar-project-show-all="true">\${rowsA}</div>
       <div class="project" id="project-b" data-app-action-sidebar-project-row="" data-app-action-sidebar-project-id="/Users/me/projects/docs-site" data-app-action-sidebar-project-label="docs-site" data-app-action-sidebar-project-collapsed="true">docs-site</div>
     </div></nav><main><header>接入任务看板</header><div class="msg"><p class="user">帮我给 Companion 加一个任务看板卡片</p><p>好的，先梳理现有卡片平台的接口……</p></div><textarea id="composer" placeholder="要求后续变更"></textarea></main><div id="companion"></div>\`;
     // 模拟 React：异步提交展开结果，点击条目即切换当前会话。
@@ -111,7 +111,7 @@ try {
       if (thread) {
         clicks.push(thread.getAttribute('data-app-action-sidebar-thread-id'));
         // 模拟 Codex 打开会话时主线程被占住；此时落点动画必须已经交给合成器（WAAPI）。
-        const flow = document.querySelector('.codex-companion-thread-flow');
+        const flow = document.querySelector('.agent-companion-thread-flow');
         flowAtClick.push(flow ? flow.getAnimations({ subtree: true }).length : -1);
         const busyUntil = performance.now() + 300;
         while (performance.now() < busyUntil) {}
@@ -247,7 +247,7 @@ try {
 
   const $ = (selector) => `card.querySelector(${JSON.stringify(selector)})`;
   const task = (key) => `card.querySelector('.task[data-id="' + ids.${key} + '"]')`;
-  const marked = (key) => `document.querySelector('[data-app-action-sidebar-thread-id="local:' + ids.${key} + '"]')?.getAttribute('data-codex-companion-task')`;
+  const marked = (key) => `document.querySelector('[data-app-action-sidebar-thread-id="local:' + ids.${key} + '"]')?.getAttribute('data-agent-companion-task')`;
   // 按浏览器实际配色合成透明背景，验证文字和撤销按钮可读，避免 currentColor 导致同色。
   const toastContrast = () => evaluate(`(() => {
     const toast = ${$(".toast")};
@@ -276,7 +276,7 @@ try {
   await evaluate(`${$(".add")}.click()`);
   await waitFor(`${task("a3")} && ${$(".add")}.hidden`, "加入看板");
   assert.equal(await evaluate(marked("a3")), "0", "侧栏条目同色标记");
-  assert.deepEqual(await evaluate(`threads.current()`), { id: await evaluate(`ids.a3`), title: "接入任务看板", projectId: "/Users/me/projects/codex-companion" });
+  assert.deepEqual(await evaluate(`threads.current()`), { id: await evaluate(`ids.a3`), title: "接入任务看板", projectId: "/Users/me/projects/agent-companion" });
 
   // 移出最后一项：提示仍可读、可以撤销，超时后收起且不留下空白条。
   await evaluate(`${task("a3")}.querySelector('[data-action=done]').click()`);
@@ -298,14 +298,14 @@ try {
   await waitFor(`${task("a3")} && ${$(".add")}.hidden`, "重新加入看板");
 
   // React 重绘替换节点后，标记在下一帧补回。
-  await evaluate(`(() => { const old = document.querySelector('[data-app-action-sidebar-thread-id="local:' + ids.a3 + '"]'); const fresh = old.cloneNode(true); fresh.removeAttribute('data-codex-companion-task'); old.replaceWith(fresh); })()`);
+  await evaluate(`(() => { const old = document.querySelector('[data-app-action-sidebar-thread-id="local:' + ids.a3 + '"]'); const fresh = old.cloneNode(true); fresh.removeAttribute('data-agent-companion-task'); old.replaceWith(fresh); })()`);
   await waitFor(`${marked("a3")} === '0'`, "重绘后补回标记");
 
   await evaluate(`seed([
     { threadId: ids.s1, title: '准备周五分享', projectId: null },
-    { threadId: ids.a10, title: '升级 hls.js', projectId: '/Users/me/projects/codex-companion', seenAt: 1 },
+    { threadId: ids.a10, title: '升级 hls.js', projectId: '/Users/me/projects/agent-companion', seenAt: 1 },
     { threadId: ids.bHidden, title: '评审设置页二期前端', projectId: '/Users/me/projects/docs-site', seenAt: 1 },
-    { threadId: ids.a24, title: '发布 v0.2 检查清单', projectId: '/Users/me/projects/codex-companion' }
+    { threadId: ids.a24, title: '发布 v0.2 检查清单', projectId: '/Users/me/projects/agent-companion' }
   ]); handle.visibilityChanged({ visible: true })`);
   await waitFor(`card.querySelectorAll('.task').length === 5`, "刷新出 5 个任务");
   // 当前会话 a3 的新回复视为已读；需要人处理且没看过的排最前并跳动，其次是没看过的回复。
@@ -429,26 +429,26 @@ try {
   // 记录动画期间的帧间隔，用来发现掉帧。
   await evaluate(`(() => { globalThis.frames = []; let last = performance.now(); const tick = (now) => { frames.push(now - last); last = now; if (frames.length < 120) requestAnimationFrame(tick); }; requestAnimationFrame(tick); })()`);
   await evaluate(`${task("a24")}.querySelector('.main').click()`);
-  await waitFor(`document.querySelectorAll('.codex-companion-thread-flow').length === 1`, "动画开始");
+  await waitFor(`document.querySelectorAll('.agent-companion-thread-flow').length === 1`, "动画开始");
   const scrolledFirst = await evaluate(`(() => { const rect = document.querySelector('[data-app-action-sidebar-thread-id="local:' + ids.a24 + '"]').getBoundingClientRect(); const box = document.querySelector('[data-app-action-sidebar-scroll]').getBoundingClientRect(); return rect.top >= box.top && rect.bottom <= box.bottom; })()`);
   assert.equal(scrolledFirst, true, "动画开始前目标已完整可见");
   await new Promise((resolve) => setTimeout(resolve, 60));
   await screenshot("task-board-3-flow.png");
   await screenshot("task-board-4-landing.png");
-  await waitFor(`threads.current()?.id === ids.a24 && !document.querySelector('.codex-companion-thread-flow')`, "动画结束并打开会话");
+  await waitFor(`threads.current()?.id === ids.a24 && !document.querySelector('.agent-companion-thread-flow')`, "动画结束并打开会话");
   assert.ok(await evaluate(`flowAtClick.at(-1) >= 3`), "打开会话时落点铺开、液流淡出、整体淡出都已交给 WAAPI");
   const frameStats = await evaluate(`(() => { const list = frames.slice(1, 40); return { max: Math.round(Math.max(...list)), avg: Math.round(list.reduce((a, b) => a + b, 0) / list.length * 10) / 10, slow: list.filter((gap) => gap > 25).length }; })()`);
 
   // 折叠项目 + 「显示全部」：按加入时记录的项目精确展开。
   await evaluate(`${task("bHidden")}.querySelector('.main').click()`);
   // 展开会改侧栏、触发看板重绘，起点节点被替换后动画仍要播放。
-  await waitFor(`document.querySelectorAll('.codex-companion-thread-flow').length === 1`, "展开项目后播放动画", 6000);
+  await waitFor(`document.querySelectorAll('.agent-companion-thread-flow').length === 1`, "展开项目后播放动画", 6000);
   await waitFor(`threads.current()?.id === ids.bHidden`, "展开折叠项目并打开", 6000);
   assert.equal(await evaluate(`document.getElementById('project-b').getAttribute('data-app-action-sidebar-project-collapsed')`), "false");
   assert.equal(await evaluate(marked("bHidden")), "3", "新出现的条目同样被标记");
   // 没有项目信息时展开折叠分区。
   await evaluate(`${task("s1")}.querySelector('.main').click()`);
-  await waitFor(`document.querySelectorAll('.codex-companion-thread-flow').length === 1`, "展开分区后播放动画", 6000);
+  await waitFor(`document.querySelectorAll('.agent-companion-thread-flow').length === 1`, "展开分区后播放动画", 6000);
   await waitFor(`threads.current()?.id === ids.s1`, "展开折叠分区并打开", 6000);
   await screenshot("task-board-5-opened.png");
 
@@ -468,7 +468,7 @@ try {
   const altDown = () => key("rawKeyDown", "Alt", "AltLeft", 18, ALT);
   const altUp = () => key("keyUp", "Alt", "AltLeft", 18, 0);
   const tab = async (modifiers = ALT) => { await key("rawKeyDown", "Tab", "Tab", 9, modifiers); await key("keyUp", "Tab", "Tab", 9, modifiers); };
-  const layer = `document.getElementById('codex-companion-overlay-tasks')?.shadowRoot`;
+  const layer = `document.getElementById('agent-companion-overlay-tasks')?.shadowRoot`;
   const panelOpen = `Boolean(${layer}?.querySelector('.backdrop:not([hidden])'))`;
   const switchRows = `[...${layer}.querySelectorAll('.item')].map((item) => Object.keys(ids).find((name) => ids[name] === item.dataset.id) ?? 'other')`;
   const switchSelected = `Object.keys(ids).find((name) => ids[name] === ${layer}?.querySelector('.item[aria-selected=true]')?.dataset.id)`;
@@ -632,7 +632,7 @@ try {
   await waitFor(panelOpen, "弹出面板（看板外）");
   assert.deepEqual((await evaluate(switchRows)).slice(0, 2), [firstWaiting, "out5"]);
   assert.deepEqual(await evaluate(`(() => { const item = ${layer}.querySelector('.item[data-id="' + ids.out5 + '"]'); return [item.hasAttribute('data-outside'), item.querySelector('.name').textContent, item.querySelector('.meta').textContent]; })()`),
-    [true, "Emby 字幕偏移", "codex-companion · 不在看板"]);
+    [true, "Emby 字幕偏移", "agent-companion · 不在看板"]);
   await screenshot("task-board-13-switcher-outside.png");
   await altUp();
   await waitFor(`threads.current()?.id === ids.out5 && !${panelOpen}`, "切回看板外的会话", 6000);
@@ -726,7 +726,7 @@ try {
   await waitFor(`${$(".note")}.hidden`, "同步恢复后清除提示", 8000);
 
   // 播放提醒：抽屉收起后，没视频在播就停止同步；有视频在播就继续同步，任务需要你时暂停并提醒，完成时只提醒。
-  const alertPanel = `document.getElementById('codex-companion-attention')?.shadowRoot.querySelector('.panel')`;
+  const alertPanel = `document.getElementById('agent-companion-attention')?.shadowRoot.querySelector('.panel')`;
   const alertOpen = `Boolean(${alertPanel}?.matches(':popover-open'))`;
   const watches = () => evaluate(`rpcCalls.filter((method) => method === 'watch').length`);
   await evaluate(`globalThis.visible = false; handle.visibilityChanged({ visible: false })`);
@@ -775,8 +775,8 @@ try {
   await evaluate(`video.pause(); clearInterval(frame); globalThis.visible = true; handle.updateSettings({}); handle.visibilityChanged({ visible: true })`);
 
   await evaluate(`controller.abort(); handle.dispose(); threads.dispose(); layer.dispose()`);
-  assert.equal(await evaluate(`document.querySelectorAll('[data-codex-companion-task]').length + (document.getElementById('codex-companion-thread-marks') ? 1 : 0)`), 0, "释放后不残留标记");
-  assert.equal(await evaluate(`document.getElementById('codex-companion-overlay-tasks')`), null, "释放后移除顶层浮层");
+  assert.equal(await evaluate(`document.querySelectorAll('[data-agent-companion-task]').length + (document.getElementById('agent-companion-thread-marks') ? 1 : 0)`), 0, "释放后不残留标记");
+  assert.equal(await evaluate(`document.getElementById('agent-companion-overlay-tasks')`), null, "释放后移除顶层浮层");
   assert.deepEqual(await evaluate(`errors`), []);
   console.log("Task board smoke passed:", JSON.stringify({ clicks: (await evaluate(`clicks`)).length, rpc: await evaluate(`rpcCalls.length`), idleFrames, flowFrames: frameStats }));
 } finally {

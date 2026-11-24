@@ -885,9 +885,9 @@ test("保存超时后不重放修改：链路正常时自动重新读取配置",
 
 const updateStatus = (extra = {}) => ({
   current: "0.2.0", channel: "homebrew", canApply: true, auto: false, phase: "idle", available: true,
-  latest: { version: "0.2.1", notes: "- 修复看板提醒", url: "https://github.com/foriLLL/codex_companion/releases/tag/v0.2.1" },
-  lastCheckAt: 1_800_000_000_000, error: null, pending: null, notice: null, command: "brew upgrade codex-companion",
-  releasesUrl: "https://github.com/foriLLL/codex_companion/releases", ...extra
+  latest: { version: "0.2.1", notes: "- 修复看板提醒", url: "https://github.com/foriLLL/agent-companion/releases/tag/v0.2.1" },
+  lastCheckAt: 1_800_000_000_000, error: null, pending: null, notice: null, command: "brew upgrade agent-companion",
+  releasesUrl: "https://github.com/foriLLL/agent-companion/releases", ...extra
 });
 const updateFieldset = root => descendants(root).find(item => item.tagName === "legend" && item.textContent === "更新").parentNode;
 
@@ -927,10 +927,10 @@ test("更新：Homebrew 有新版本时可一键更新并显示进度，自动�
 
 test("更新：源码安装只给命令；刚更新完打开即确认提示；不支持时整组隐藏", async () => {
   const source = fixture(null, { updates: () => updateStatus({ channel: "source", canApply: false,
-    command: 'cd "/Users/me/codex_companion" && git pull && npm ci && npm start' }) });
+    command: 'cd "/Users/me/agent-companion" && git pull && npm ci && npm start' }) });
   await source.panel.open();
   const root = source.panel.element;
-  assert.ok(root.textContent.includes("在终端执行：\ncd \"/Users/me/codex_companion\" && git pull && npm ci && npm start"));
+  assert.ok(root.textContent.includes("在终端执行：\ncd \"/Users/me/agent-companion\" && git pull && npm ci && npm start"));
   assert.equal(byText(root, "立即更新").hidden, true);
   assert.equal(bySetting(root, "auto-update").parentNode.hidden, true);
   source.panel.destroy();
@@ -1055,4 +1055,30 @@ test("「卡片配置」红点：每 5 分钟和 Codex 窗口回到前台时同�
   document.dispatchEvent(new Event("visibilitychange"));
   await turn();
   assert.equal(reads, 4, "卸载后不再同步");
+});
+
+test("卡片首次打开存档时复制改名前 codex-companion.card.* 下的记录，旧记录保留", async () => {
+  const document = makeDocument();
+  const client = createRpcClient({ binding: () => () => ({}) });
+  const shell = createCardShell({ document });
+  const items = new Map([["companion.platform.scopeId", "window-1"]]);
+  const backend = { getItem: key => items.get(key) ?? null, setItem: (key, value) => { items.set(key, value); } };
+  const legacyKey = "codex-companion.card.alpha.state::window-1";
+  items.set(legacyKey, JSON.stringify({ version: 1, revision: 3, value: { watched: ["ep1"] } }));
+  const manifest = { ...catalog[0], layout: { minHeight: 0 }, state: { scope: "target", version: 1 },
+    lifecycle: { start: "immediate", hidden: "retain" }, capabilities: ["storage"] };
+  let read;
+  const runtime = createCardRuntime({
+    manifests: [manifest], renderers: { alpha: { mount: ctx => { read = ctx.storage.namespace().read(null); return {}; } } },
+    config: initialConfig(), shellFactory: () => shell, rpcClient: client, localStorage: backend, sessionStorage: backend,
+    adapterFactory: ({ host }) => {
+      document.body.append(host);
+      return { setPlacement() {}, setHasCards() {}, dispose() {}, getDiagnostics: () => ({ mode: "fixture" }) };
+    }
+  });
+  await turn();
+  assert.deepEqual(read, { ok: true, value: { watched: ["ep1"] }, revision: 3, error: null });
+  assert.ok(items.has("agent-companion.card.alpha.state::window-1"));
+  assert.ok(items.has(legacyKey), "旧记录原样保留，回退到老版本仍可用");
+  await runtime.dispose();
 });

@@ -259,7 +259,7 @@ function applyPatch(current, patch, manifests) {
 
 export class CompanionConfig {
   constructor(options = {}) {
-    this.path = options.path ?? process.env.CODEX_COMPANION_CONFIG_PATH ?? defaultCompanionConfigPath();
+    this.path = options.path ?? process.env.AGENT_COMPANION_CONFIG_PATH ?? defaultCompanionConfigPath();
     this.legacyPath = options.legacyPath ?? join(dirname(this.path), "config.json");
     this.manifests = options.manifests ?? CARD_MANIFESTS;
     this.platform = options.platform ?? process.platform;
@@ -332,7 +332,7 @@ export class CompanionConfig {
   }
 
   async readLegacyLaunchDefaults() {
-    // 旧 Swift 启动器只发布过 macOS 版本，其它平台没有可导入的偏好。
+    // 旧 Swift 启动器只发布过 macOS 版本，其它平台没有可导入的偏好；它的偏好域是改名前的 com.codexcompanion.launcher。
     if (this.platform !== "darwin") return clone(DEFAULT_LAUNCH);
     const read = async key => {
       try { return (await this.execFileImpl("/usr/bin/defaults", ["read", "com.codexcompanion.launcher", key], { timeout: 3000 })).stdout.trim(); }

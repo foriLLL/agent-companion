@@ -58,7 +58,7 @@ test("native helper 解析顺序：环境覆盖 → app Helpers → 当前仓库
   const override = await file(join(root, "override"));
   const packaged = await file(join(root, "Companion.app/Contents/Helpers/companion-native"));
   const built = await file(join(root, "dist/native/darwin-arm64/companion-native"));
-  const options = { env: { CODEX_COMPANION_NATIVE_HELPER: "override" }, cwd: root,
+  const options = { env: { AGENT_COMPANION_NATIVE_HELPER: "override" }, cwd: root,
     execPath: join(root, "Companion.app/Contents/Resources/companion"), arch: "arm64" };
   assert.equal(resolveNativeHelperPath(options), override);
   await rm(override);
@@ -72,7 +72,7 @@ test("native helper 解析顺序：环境覆盖 → app Helpers → 当前仓库
 test("helper 路径跳过目录、未知架构，并支持 x64", async (t) => {
   const root = await temporary(t);
   const built = await file(join(root, "dist/native/darwin-x64/companion-native"));
-  const options = { env: { CODEX_COMPANION_NATIVE_HELPER: root }, cwd: root, execPath: join(root, "bin/node"), arch: "x64" };
+  const options = { env: { AGENT_COMPANION_NATIVE_HELPER: root }, cwd: root, execPath: join(root, "bin/node"), arch: "x64" };
   assert.equal(resolveNativeHelperPath(options), built);
   assert.equal(resolveNativeHelperPath({ ...options, arch: "other" }), null);
 });
@@ -344,7 +344,7 @@ test("冒烟解析规范化路径，只接受 dummy bundle id", async (t) => {
   await mkdir(appPath);
   const alias = join(root, "alias.app");
   await symlink(appPath, alias);
-  const result = await assertSafeSmokeApp(alias, { readBundleId: async () => "local.codexcompanion.dummy" });
+  const result = await assertSafeSmokeApp(alias, { readBundleId: async () => "local.agentcompanion.dummy" });
   assert.ok(result.endsWith("/dummy.app"));
   for (const bundleId of ["com.openai.codex", "com.other.app"]) {
     await assert.rejects(assertSafeSmokeApp(alias, { readBundleId: async () => bundleId }), /禁止|仅允许/);

@@ -5,12 +5,12 @@ import path from "node:path";
 const pathsFor = (platform) => (platform === "win32" ? path.win32 : path.posix);
 
 // Companion 本机数据目录：配置、缓存、存档与运行时状态都放在这里。
-// - macOS：~/Library/Application Support/codex-companion（与早期版本一致）
-// - Windows：%APPDATA%\codex-companion
-// - Linux 等：$XDG_CONFIG_HOME/codex-companion，未设置时 ~/.config/codex-companion
+// - macOS：~/Library/Application Support/agent-companion（与早期版本一致）
+// - Windows：%APPDATA%\agent-companion
+// - Linux 等：$XDG_CONFIG_HOME/agent-companion，未设置时 ~/.config/agent-companion
 // 未显式传 env 时，只有真实用户目录才读取 APPDATA / XDG_CONFIG_HOME：测试或隔离用的
 // home 不能被当前进程的环境变量带回真实数据目录。
-export function companionDataDir(home = homedir(), { platform = process.platform, env, name = "codex-companion" } = {}) {
+export function companionDataDir(home = homedir(), { platform = process.platform, env, name = "agent-companion" } = {}) {
   const { isAbsolute, join } = pathsFor(platform);
   env ??= home === homedir() ? process.env : {};
   if (platform === "darwin") return join(home, "Library", "Application Support", name);

@@ -34,7 +34,7 @@ export async function requireToneMappingSupport(ffmpegPath, { execFileImpl = exe
       "-vf", SDR_TONE_MAP_FILTER, "-frames:v", "1", "-f", "null", "-"
     ], { timeout: 15_000, maxBuffer: 32 * 1024 }).then(() => true).catch(() => {
       colorSupport.delete(ffmpegPath);
-      throw new EmbyError("HDR_TONEMAPPING_UNAVAILABLE", "当前 FFmpeg 无法处理杜比视界/HDR 色彩；请安装 brew install ffmpeg-full molten-vk（含 libplacebo 与 macOS Vulkan 驱动），或通过 CODEX_COMPANION_FFMPEG 指定支持该滤镜的 FFmpeg");
+      throw new EmbyError("HDR_TONEMAPPING_UNAVAILABLE", "当前 FFmpeg 无法处理杜比视界/HDR 色彩；请安装 brew install ffmpeg-full molten-vk（含 libplacebo 与 macOS Vulkan 驱动），或通过 AGENT_COMPANION_FFMPEG 指定支持该滤镜的 FFmpeg");
     });
     colorSupport.set(ffmpegPath, probe);
   }
@@ -793,7 +793,7 @@ export class FfmpegFmp4Session {
     if (!ffmpegPathImpl) {
       throw new EmbyError(
         "FFMPEG_UNAVAILABLE",
-        "未找到系统 FFmpeg；请运行 brew install ffmpeg，或设置 CODEX_COMPANION_FFMPEG"
+        "未找到系统 FFmpeg；请运行 brew install ffmpeg，或设置 AGENT_COMPANION_FFMPEG"
       );
     }
     this.ffmpegPath = ffmpegPathImpl;
@@ -809,9 +809,9 @@ export class FfmpegFmp4Session {
     this.directInputUrl = inputUrl;
     this.decryptionKey = decryptionKey || null;
     this.strategy = ffmpegStrategy(mediaSource, subtitleTrack);
-    // macOS 用 VideoToolbox 硬件编解码转码；CODEX_COMPANION_FORCE_SW_ENCODE 可强制回退软件。
+    // macOS 用 VideoToolbox 硬件编解码转码；AGENT_COMPANION_FORCE_SW_ENCODE 可强制回退软件。
     const forceSoftware = ["1", "true", "yes", "on"]
-      .includes(String(env?.CODEX_COMPANION_FORCE_SW_ENCODE ?? "").trim().toLowerCase());
+      .includes(String(env?.AGENT_COMPANION_FORCE_SW_ENCODE ?? "").trim().toLowerCase());
     this.hardwareVideo = platform === "darwin" && !forceSoftware;
     this.durationSeconds = Number.isFinite(Number(durationSeconds)) ? Number(durationSeconds) : null;
     this.proxy = inputUrl ? null : new RangeProxy({
@@ -1075,7 +1075,7 @@ export class FfmpegFmp4Session {
     const bytes = this.subtitleData instanceof Uint8Array
       ? this.subtitleData
       : new Uint8Array(this.subtitleData);
-    this.subtitleDirectory = await mkdtemp(join(tmpdir(), "codex-companion-subtitle-"));
+    this.subtitleDirectory = await mkdtemp(join(tmpdir(), "agent-companion-subtitle-"));
     this.subtitleFile = join(
       this.subtitleDirectory,
       `subtitle.${subtitleExtension(this.subtitleTrack.codec)}`

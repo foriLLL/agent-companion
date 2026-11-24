@@ -41,7 +41,7 @@ export async function createAgentFileLogger({ logDir, home = homedir(), now = Da
       if (bytes > AGENT_LOG_MAX_BYTES) await rotate();
     }).catch(error => {
       // 日志磁盘故障不改变状态机行为，也不能产生未处理的 Promise 拒绝。
-      try { fallbackLogger.error?.(`[codex-companion] 写入 agent 日志失败：${error.message}`); } catch {}
+      try { fallbackLogger.error?.(`[agent-companion] 写入 agent 日志失败：${error.message}`); } catch {}
     });
     return writes;
   }

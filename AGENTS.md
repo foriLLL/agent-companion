@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Codex Companion — 在 Codex 桌面端（macOS；Linux 预览）中注入红果短剧、Emby、代理状态与任务看板。
+Agent Companion — 在 Codex 桌面端（macOS；Linux 预览）中注入红果短剧、Emby、代理状态与任务看板。
 不修改 app.asar 或应用签名：launchd 常驻 agent 监听 Codex 启动，刚打开且未带调试参数的 Codex
 在安全条件下被正常退出、以 loopback 随机端口重开，再经 CDP 注入卡片；设置页在 Codex 内（卡片区齿轮）。
 Linux 不自动重开：用户级 `chatgpt.desktop` 覆盖菜单入口（`open-codex` 带调试参数启动），
@@ -46,7 +46,7 @@ systemd 用户服务常驻发现并注入；主进程 cmdline 被 Chromium setpr
   `scripts/prepare-installer.mjs` 把 Team ID、tag 与 Linux 归档 SHA256 写入 `install.sh`
 - 冒烟/探测：`npm run smoke` / `npm run probe:emby`
 - 发版：`npm run release -- X.Y.Z`（干净的 main；改版本号、把 CHANGELOG 的 Unreleased 改名、提交并打 tag，
-  不推送）。推送 tag 后 `release.yml` 发布 Release 并把 `Formula/codex-companion.rb` 的 url/sha256 指向新源码包，
+  不推送）。推送 tag 后 `release.yml` 发布 Release 并把 `Formula/agent-companion.rb` 的 url/sha256 指向新源码包，
   这两行由 CI 维护，不要手改
 - 宿主适配自检：`npm run check:host`（只读查询正在运行的 Codex，列出入口、会话区、让位方式各落在哪一级，
   以及哪些 Codex 内部命名已缺失；有降级时退出码为 2）。Codex 升级后先跑它
@@ -99,7 +99,7 @@ Codex 每次升级都可能改掉类名、data 属性、DOM 层级和打包方�
 - 版本只认打了 `vX.Y.Z` tag 的正式 Release（API 403/429 时改读 `releases/latest` 跳转 + tag 上的 CHANGELOG，未登录 API 按出口 IP 限流）；agent 启动 2 分钟后、之后每 6 小时查一次，状态存数据目录 `update-state.json`。
 - 只有 macOS 的 Homebrew 安装会自动装：`brew update` + `brew upgrade`（`HOMEBREW_NO_INSTALL_CLEANUP=1` 保留旧版本文件，
   旧进程还会懒加载自己目录里的模块），装好后等卡片里没有媒体在播，agent 正常清理并以退出码 75 结束，
-  由 launchd（`KeepAlive.SuccessfulExit=false`）拉起新版本；新进程确认换上新版本后才 `brew cleanup codex-companion`。
+  由 launchd（`KeepAlive.SuccessfulExit=false`）拉起新版本；新进程确认换上新版本后才 `brew cleanup agent-companion`。
   不重启 Codex。源码安装只提醒，不能替用户 `git pull`。
 - 检查结果不推给页面：卡片外框在挂载时、每 5 分钟和窗口回到前台（focus / visibilitychange）时读 `status` 更新红点。
 - 配置开关是顶层 `updates.auto`（缺省 true），不要放进 `agent`：旧版本的校验拒绝 `agent` 里的未知字段。
@@ -129,6 +129,12 @@ Codex 每次升级都可能改掉类名、data 属性、DOM 层级和打包方�
 - **测试必须用 `node --test`，不要用 `bun test`**：Bun 转译器会改写
   函数体，破坏基于 `toString()` 的源码断言。
   Bun 仅用于编译打包
+- **改名兼容**：0.4.0 由 Codex Companion 改名为 Agent Companion。旧名字（`codex-companion` 数据目录、
+  `com.codexcompanion.agent` 标签、`codex-companion-agent.service`、`CODEX_COMPANION_*` 变量、`codex-companion.emby`
+  凭证、`codex-companion.card.*` 存档、`__CODEX_COMPANION__` 页面全局、`codex-companion:plan-hint` 标记、
+  `com.codexcompanion.launcher` 偏好域）只用于识别和迁移，集中在 `src/platform/legacy-names.mjs` 和各模块的 `LEGACY_*` 常量里，
+  新代码不要再写入它们。Formula 必须保留 `bin/codex-companion` 兼容入口：老 plist 写死了 `opt/codex-companion/bin/codex-companion`，
+  formula 改名迁移后靠它拉起新版本，再由 `handoffLegacyAgent` 交接到新标签。批量替换名字时别把这些旧名字也替换掉
 - `src/*.generated.mjs`、`src/cards/*.generated.mjs` 由 `npm run generate:renderer`
   生成（`pretest` 自动执行），不要手改
 - **安全红线**：CDP 调试端口只绑 loopback + 随机端口，禁止改为
@@ -143,10 +149,10 @@ Codex 每次升级都可能改掉类名、data 属性、DOM 层级和打包方�
   （`src/codex-plan-hint.mjs`）。Codex 用 toml_edit 改写这个文件、新表追加在末尾，**不能用成对的开始/结束标记**
   （新表会落进标记之间被一起删掉）；只认「标记注释 + 表头 + enabled = true」，用户改过或自己配过 update_plan 就不碰。
 - 常驻 agent 带主线程看门狗：主线程 30 秒无响应即以 SIGABRT 退出、由 launchd / systemd 重启。
-  调试 agent 时在断点停住会被它终止，用 `CODEX_COMPANION_WATCHDOG=0` 关闭
+  调试 agent 时在断点停住会被它终止，用 `AGENT_COMPANION_WATCHDOG=0` 关闭
 - `npm run inject` 是一次性注入后退出，RPC 随之结束，只能看静态布局，
   不能用于浏览/播放
 - 公开 `.app` 不打包 FFmpeg；本机转码只调用用户通过 PATH、常见包管理器路径或
-  `CODEX_COMPANION_FFMPEG` 指定的系统 FFmpeg
+  `AGENT_COMPANION_FFMPEG` 指定的系统 FFmpeg
 - tag Release 必须 Developer ID 签名并经 Apple 公证；缺少凭据时工作流应失败关闭。
   Linux 没有平台签名，install.sh 只下载同 tag 归档并比对写入脚本的 SHA256，不跟随 latest

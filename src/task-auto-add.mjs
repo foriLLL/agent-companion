@@ -61,7 +61,7 @@ export function createSessionWatcher({
         failing.delete(path);
       } catch (error) {
         // 加入失败（例如看板文件一时写不进去）：先不算处理过，下轮再试；连续 GIVE_UP_MS 仍失败才放弃。只在第一次记日志。
-        if (!failing.has(path)) logger.warn?.(`[codex-companion] 新会话加入看板失败：${error?.code ?? error?.message ?? error}`);
+        if (!failing.has(path)) logger.warn?.(`[agent-companion] 新会话加入看板失败：${error?.code ?? error?.message ?? error}`);
         const first = failing.get(path) ?? now();
         failing.set(path, first);
         if (now() - first < GIVE_UP_MS) seen.delete(path);
@@ -76,7 +76,7 @@ export function createSessionWatcher({
     scanning ??= scan()
       .then(() => { lastFailure = null; }, (error) => {
         const reason = String(error?.code ?? error?.message ?? error);
-        if (reason !== lastFailure) logger.warn?.(`[codex-companion] 扫描新会话失败：${reason}`);
+        if (reason !== lastFailure) logger.warn?.(`[agent-companion] 扫描新会话失败：${reason}`);
         lastFailure = reason;
       })
       .finally(() => { scanning = null; });

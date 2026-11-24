@@ -12,7 +12,7 @@ const PACKAGE_ENTRY = "index.js";
 let modulePromise = null;
 let runtimeDirOverride = null;
 
-// 打包后的可执行文件在 .app/Contents/Resources/codex-companion，运行时目录
+// 打包后的可执行文件在 .app/Contents/Resources/agent-companion，运行时目录
 // 随包放在同级 Resources/openhongguo（见 scripts/build-app.mjs）。开发态则用
 // 仓库内的 node_modules/openhongguo。
 function packagedRuntimeDir() {
@@ -33,7 +33,7 @@ function developmentRuntimeDir() {
 /** runtimeDir 返回 openhongguo 包（含 index.js 与 dist/openhongguo.wasm）所在目录。 */
 export function runtimeDir() {
   if (runtimeDirOverride) return runtimeDirOverride;
-  const override = process.env.CODEX_COMPANION_HONGGUO_RUNTIME;
+  const override = process.env.AGENT_COMPANION_HONGGUO_RUNTIME;
   if (override && existsSync(join(override, PACKAGE_ENTRY))) return override;
   return packagedRuntimeDir() ?? developmentRuntimeDir();
 }

@@ -4,6 +4,15 @@
 
 ## Unreleased
 
+- 项目改名为 Agent Companion（原 Codex Companion），为接入 Codex 以外的宿主（Antigravity）做准备：仓库改为
+  `foriLLL/agent-companion`，Homebrew formula、命令改为 `agent-companion`，数据目录、日志目录、后台服务标签
+  （`com.agentcompanion.agent` / `agent-companion-agent.service`）与环境变量前缀（`AGENT_COMPANION_*`）同步改名。
+- 老安装自动迁移：首次启动时把旧数据目录搬到新位置并在旧位置留软链；被旧 launchd 标签拉起时把服务交接到新标签；
+  `agent install` 清掉旧的 launchd / systemd 服务；Emby 登录信息、卡片存档、计划提示的旧标记、页面里残留的旧注入都会沿用或清理；
+  旧的 `CODEX_COMPANION_*` 环境变量继续生效。Formula 保留 `codex-companion` 兼容命令，并用 `formula_renames.json` 声明改名。
+- Homebrew 7 的信任记录按 formula 名字保存，老安装要信任一次新名字才能继续自动更新：运行一次 `scripts/upgrade.sh`，
+  或执行 `brew trust --formula foriLLL/codex-companion/agent-companion` 后在设置里点「立即更新」。
+
 ## 0.3.2 - 2026-11-23
 
 - 任务看板的撤销提示（「已完成」「已归档」）不再用反色黑条：改成和条目一致的浅底细边，左侧带动作图标，

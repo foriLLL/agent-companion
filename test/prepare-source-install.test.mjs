@@ -37,7 +37,7 @@ test("FFmpeg：已有则不动，可显式跳过，macOS 有 Homebrew 时自动�
   const base = { platform: "darwin", env: {}, log: () => {}, runImpl: async (...args) => { runs.push(args); return true; } };
   assert.deepEqual(await ensureFfmpeg({ ...base, resolveImpl: () => "/opt/homebrew/bin/ffmpeg", findBrewImpl: () => assert.fail("不应查找 brew") }),
     { status: "existing", path: "/opt/homebrew/bin/ffmpeg" });
-  assert.deepEqual(await ensureFfmpeg({ ...base, env: { CODEX_COMPANION_SKIP_FFMPEG: "1" }, resolveImpl: () => null, findBrewImpl: () => "/brew" }),
+  assert.deepEqual(await ensureFfmpeg({ ...base, env: { AGENT_COMPANION_SKIP_FFMPEG: "1" }, resolveImpl: () => null, findBrewImpl: () => "/brew" }),
     { status: "skipped" });
   assert.deepEqual(await ensureFfmpeg({ ...base, resolveImpl: () => null, findBrewImpl: () => null }), { status: "missing-homebrew" });
   assert.deepEqual(runs, []);
@@ -57,7 +57,7 @@ test("FFmpeg 缺失的说明点名红果短剧不可用，并给出对应平台�
   assert.match(mac, /红果短剧无法播放/);
   assert.match(mac, /brew\.sh.*brew install ffmpeg/);
   assert.match(ffmpegSummary({ status: "missing" }, "linux").join("\n"), /sudo apt install ffmpeg/);
-  assert.match(ffmpegSummary({ status: "skipped" }, "darwin").join("\n"), /CODEX_COMPANION_SKIP_FFMPEG=1/);
+  assert.match(ffmpegSummary({ status: "skipped" }, "darwin").join("\n"), /AGENT_COMPANION_SKIP_FFMPEG=1/);
 });
 
 test("FFmpeg 装不上不阻止安装；原生助手编译失败则中止", async () => {

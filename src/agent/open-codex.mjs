@@ -16,7 +16,7 @@ export async function openCodex({
     const proxy = (await configStore.loadV2()).launch?.proxy;
     proxyPort = proxy?.enabled ? proxy.port : null;
   } catch (error) {
-    logger.warn?.(`[codex-companion] 读取启动代理失败，本次不使用代理：${error.message}`);
+    logger.warn?.(`[agent-companion] 读取启动代理失败，本次不使用代理：${error.message}`);
   }
   const port = await reservePort();
   const child = spawnImpl(executable, [...buildCodexLaunchArgs(port, proxyPort), ...args], {

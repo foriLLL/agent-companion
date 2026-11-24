@@ -2,13 +2,19 @@ import { CARD_MANIFESTS } from "../card-registry.mjs";
 import { RENDERER_REGISTRY } from "../cards/renderer-registry.generated.mjs";
 import { createCardRuntime } from "./runtime/card-runtime.mjs";
 
-const BRIDGE_KEY = "__CODEX_COMPANION__";
+const BRIDGE_KEY = "__AGENT_COMPANION__";
 let pending = null;
 
 function cleanupLegacy() {
   try { globalThis.__CODEX_HG__?.unmount?.(); } catch {}
   delete globalThis.__CODEX_HG__;
   for (const id of ["codex-hg-root", "codex-hg-rail"]) document.getElementById(id)?.remove();
+  // 改名前（Codex Companion）注入的 runtime：自动更新只重启 agent、不重启 Codex，页面里可能还留着它。
+  try { globalThis.__CODEX_COMPANION_RENDERER__?.cancelPending?.(); } catch {}
+  try { globalThis.__CODEX_COMPANION__?.unmount?.(); } catch {}
+  delete globalThis.__CODEX_COMPANION_RENDERER__;
+  delete globalThis.__CODEX_COMPANION__;
+  for (const id of ["codex-companion-root", "codex-companion-rail"]) document.getElementById(id)?.remove();
 }
 
 function bootstrap({ action = "mount", config = {}, artifactHash, version } = {}) {
@@ -35,11 +41,11 @@ function bootstrap({ action = "mount", config = {}, artifactHash, version } = {}
   }
   try { previous?.unmount?.(); } catch {}
   // 只清理本平台旧宿主，不访问原生 Summary。
-  for (const id of ["codex-companion-root", "codex-companion-rail"]) document.getElementById(id)?.remove();
+  for (const id of ["agent-companion-root", "agent-companion-rail"]) document.getElementById(id)?.remove();
   const runtime = createCardRuntime({ manifests: CARD_MANIFESTS, renderers: RENDERER_REGISTRY, config, artifactHash });
   const bridge = {
     version, artifactHash, cardsKey: artifactHash, runtime,
-    hostId: "codex-companion-root", railId: "codex-companion-rail",
+    hostId: "agent-companion-root", railId: "agent-companion-rail",
     isMounted: runtime.isMounted, isPlaced: runtime.isPlaced, getPlacement: runtime.getPlacement,
     receiveRpc: runtime.receiveRpc,
     setOpen: runtime.setOpen,
@@ -58,8 +64,8 @@ function bootstrap({ action = "mount", config = {}, artifactHash, version } = {}
   return { status: config.enabled === false || runtime.getDiagnostics().shell.count === 0 ? "cards-disabled" : "mounted", placement: runtime.getPlacement(), version };
 }
 
-globalThis.__CODEX_COMPANION_RENDERER__?.cancelPending?.();
-globalThis.__CODEX_COMPANION_RENDERER__ = {
+globalThis.__AGENT_COMPANION_RENDERER__?.cancelPending?.();
+globalThis.__AGENT_COMPANION_RENDERER__ = {
   bootstrap,
   cancelPending() { pending?.(); pending = null; }
 };

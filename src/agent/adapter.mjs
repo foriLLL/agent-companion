@@ -44,7 +44,7 @@ export function createAgentAdapter({
   let latestSnapshot = null;
   let closed = false;
   const notifications = new Map();
-  const log = error => logger.warn?.(`[codex-companion] 会话连接失败：${error.message ?? error}`);
+  const log = error => logger.warn?.(`[agent-companion] 会话连接失败：${error.message ?? error}`);
 
   function persist(patch) {
     const operation = writes.then(async () => {
@@ -147,15 +147,15 @@ export function createAgentAdapter({
       if (closed) return;
       await persist({ lastEvent: { event, at: now() },
         ...(event === "attempt" ? { lastAttemptAt: details.lastAttemptAt } : {}) });
-      logger.info?.(`[codex-companion] ${event} ${JSON.stringify(details)}`);
+      logger.info?.(`[agent-companion] ${event} ${JSON.stringify(details)}`);
     },
     async notify(kind) {
       const message = (hostPlatform === "linux" ? LINUX_NOTIFICATIONS[kind] : null) ?? AGENT_NOTIFICATIONS[kind];
       const previous = notifications.get(kind);
       if (closed || !message || (previous !== undefined && now() - previous < 600_000)) return;
       notifications.set(kind, now());
-      try { await notifyImpl("Codex Companion", message); }
-      catch (error) { logger.warn?.(`[codex-companion] 通知失败：${error.message}`); }
+      try { await notifyImpl("Agent Companion", message); }
+      catch (error) { logger.warn?.(`[agent-companion] 通知失败：${error.message}`); }
     },
     async close() {
       if (closed) return;

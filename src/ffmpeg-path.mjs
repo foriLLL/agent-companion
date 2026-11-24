@@ -7,7 +7,7 @@ import { searchPathCandidates } from "./platform/paths.mjs";
  *
  * 项目不分发 FFmpeg 二进制，避免把许可状态不明确的第三方构建塞进安装包。
  * 运行时按优先级解析：
- *   1. 环境变量 CODEX_COMPANION_FFMPEG（显式覆盖）；
+ *   1. 环境变量 AGENT_COMPANION_FFMPEG（显式覆盖）；
  *   2. 相对可执行文件的 sidecar（兼容用户自行放置的旧安装）；
  *   3. PATH 与各平台常见包管理器目录中的 ffmpeg：
  *      macOS Homebrew/MacPorts，Linux 发行版/Snap/Linuxbrew，
@@ -35,7 +35,7 @@ export function resolveFfmpegPath({
   preferFull = false,
   platform = process.platform
 } = {}) {
-  const override = env.CODEX_COMPANION_FFMPEG;
+  const override = env.AGENT_COMPANION_FFMPEG;
   if (typeof override === "string" && override.trim() !== "" && fileExists(override)) {
     return override;
   }

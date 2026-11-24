@@ -1,6 +1,6 @@
 /**
  * Codex 左侧会话列表的定位、标记与指向动画。只依赖 Codex 自带的 data-app-action-*
- * 自动化属性；原生节点上只增删自有的 data-codex-companion-task 属性，不改 style/class。
+ * 自动化属性；原生节点上只增删自有的 data-agent-companion-task 属性，不改 style/class。
  * 属性缺失（Codex 改版）时一律降级为「找不到」，由调用方回退到深链打开。
  * 工厂函数保持自包含，冒烟脚本以 toString() 注入独立浏览器验证。
  */
@@ -24,10 +24,10 @@ export function createCodexThreads({ document, onError } = {}) {
     sectionCollapsed: "data-app-action-sidebar-section-collapsed",
     sectionToggle: "data-app-action-sidebar-section-toggle"
   };
-  const MARK = "data-codex-companion-task";
-  const LANDING = "data-codex-companion-task-landing";
-  const STYLE_ID = "codex-companion-thread-marks";
-  const FLOW_CLASS = "codex-companion-thread-flow";
+  const MARK = "data-agent-companion-task";
+  const LANDING = "data-agent-companion-task-landing";
+  const STYLE_ID = "agent-companion-thread-marks";
+  const FLOW_CLASS = "agent-companion-thread-flow";
   const SIDEBAR_ID = "app-shell-sidebar";
   // 薄荷、天空蓝、杏橙、樱粉、薰衣草、湖青、柠檬黄、深靛；顺序即看板分配颜色的顺序。
   const COLORS = Object.freeze(["#3fb37f", "#3b8ff0", "#f08a36", "#ee6b8f", "#a07ae8", "#1fb0bc", "#e6b422", "#3f3ca8"]);
@@ -72,12 +72,12 @@ export function createCodexThreads({ document, onError } = {}) {
     style.id = STYLE_ID;
     style.textContent = [
       // 注册为颜色类型，落点高亮才能平滑过渡回常态底色。
-      "@property --codex-companion-tint{syntax:'<color>';inherits:false;initial-value:transparent}",
-      ...COLORS.map((color, index) => `[${MARK}="${index}"]{--codex-companion-task:${color}}`),
+      "@property --agent-companion-tint{syntax:'<color>';inherits:false;initial-value:transparent}",
+      ...COLORS.map((color, index) => `[${MARK}="${index}"]{--agent-companion-task:${color}}`),
       // background-image 叠在原生 hover/active 背景之上，不覆盖它们。
-      `[${MARK}]{--codex-companion-tint:color-mix(in srgb,var(--codex-companion-task) 13%,transparent);background-image:linear-gradient(var(--codex-companion-tint),var(--codex-companion-tint))!important;box-shadow:inset 2px 0 0 color-mix(in srgb,var(--codex-companion-task) 85%,transparent)}`,
-      `[${MARK}][${LANDING}]{animation:codex-companion-task-land .7s ease-out}`,
-      "@keyframes codex-companion-task-land{0%{--codex-companion-tint:color-mix(in srgb,var(--codex-companion-task) 34%,transparent)}100%{--codex-companion-tint:color-mix(in srgb,var(--codex-companion-task) 13%,transparent)}}",
+      `[${MARK}]{--agent-companion-tint:color-mix(in srgb,var(--agent-companion-task) 13%,transparent);background-image:linear-gradient(var(--agent-companion-tint),var(--agent-companion-tint))!important;box-shadow:inset 2px 0 0 color-mix(in srgb,var(--agent-companion-task) 85%,transparent)}`,
+      `[${MARK}][${LANDING}]{animation:agent-companion-task-land .7s ease-out}`,
+      "@keyframes agent-companion-task-land{0%{--agent-companion-tint:color-mix(in srgb,var(--agent-companion-task) 34%,transparent)}100%{--agent-companion-tint:color-mix(in srgb,var(--agent-companion-task) 13%,transparent)}}",
       `.${FLOW_CLASS}{position:fixed;inset:0;pointer-events:none;z-index:2147483646}`,
       `@media (prefers-reduced-motion:reduce){[${MARK}][${LANDING}]{animation:none}}`
     ].join("\n");

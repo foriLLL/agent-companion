@@ -27,7 +27,7 @@ export async function notifyDesktop(title, message, { platform = process.platfor
   if (platform === "darwin") return notifyMacos(title, message, { execFileImpl });
   if (platform !== "linux") return false;
   try {
-    await execFileImpl("notify-send", ["--app-name=Codex Companion", "--", String(title), String(message)]);
+    await execFileImpl("notify-send", ["--app-name=Agent Companion", "--", String(title), String(message)]);
     return true;
   } catch {
     return false;
@@ -72,7 +72,7 @@ export function startCodexWatchdog({
     try {
       processes = await inspectImpl(executable);
     } catch (error) {
-      logger.error?.(`[codex-companion] 守护扫描失败：${error.message}`);
+      logger.error?.(`[agent-companion] 守护扫描失败：${error.message}`);
       return;
     }
     const state = classifyCodexState(processes);
@@ -81,7 +81,7 @@ export function startCodexWatchdog({
       try {
         await onGone();
       } catch (error) {
-        logger.error?.(`[codex-companion] 守护清理失败：${error.message}`);
+        logger.error?.(`[agent-companion] 守护清理失败：${error.message}`);
       }
       return;
     }
@@ -89,8 +89,8 @@ export function startCodexWatchdog({
       if (!notifiedNeedsRestart) {
         notifiedNeedsRestart = true;
         await notifyImpl(
-          "Codex Companion",
-          "检测到 Codex 未以调试模式启动，请通过 Codex Companion 重新打开以启用播放卡片。"
+          "Agent Companion",
+          "检测到 Codex 未以调试模式启动，请通过 Agent Companion 重新打开以启用播放卡片。"
         );
       }
       return;

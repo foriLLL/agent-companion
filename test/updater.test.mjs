@@ -44,7 +44,7 @@ async function fixture(t, { install = brewInstall(), current = "0.2.0", latest =
     },
     readFileImpl: async (path, encoding) => {
       if (path === statePath) return readFile(path, encoding);
-      assert.equal(path, "/opt/homebrew/opt/codex-companion/libexec/package.json");
+      assert.equal(path, "/opt/homebrew/opt/agent-companion/libexec/package.json");
       return JSON.stringify({ version: installed });
     },
     setTimer: timer.setTimeoutImpl, clearTimer: timer.clearTimeoutImpl,
@@ -67,30 +67,30 @@ test("版本号只认正式版 X.Y.Z，可带 v；比较按数值逐段", () => 
 
 test("识别安装方式：Cellar 真实路径与声明的 Homebrew、HEAD 安装、源码 .git、其它为发布版", async () => {
   const access = existing => async path => { if (!existing.includes(path)) throw Object.assign(new Error("no"), { code: "ENOENT" }); };
-  const cellar = "/opt/homebrew/Cellar/codex-companion/0.2.0/libexec";
-  assert.deepEqual(await detectInstall({ env: {}, root: "/opt/homebrew/opt/codex-companion/libexec", hostPlatform: "darwin",
+  const cellar = "/opt/homebrew/Cellar/agent-companion/0.2.0/libexec";
+  assert.deepEqual(await detectInstall({ env: {}, root: "/opt/homebrew/opt/agent-companion/libexec", hostPlatform: "darwin",
     realpathImpl: async () => cellar, accessImpl: access(["/opt/homebrew/bin/brew"]) }),
   { channel: "homebrew", brew: "/opt/homebrew/bin/brew", prefix: "/opt/homebrew", head: false });
-  const head = await detectInstall({ env: { CODEX_COMPANION_BREW: "/usr/local/bin/brew" }, root: "/x", hostPlatform: "darwin",
-    realpathImpl: async () => "/usr/local/Cellar/codex-companion/HEAD-de62245/libexec", accessImpl: access(["/usr/local/bin/brew"]) });
+  const head = await detectInstall({ env: { AGENT_COMPANION_BREW: "/usr/local/bin/brew" }, root: "/x", hostPlatform: "darwin",
+    realpathImpl: async () => "/usr/local/Cellar/agent-companion/HEAD-de62245/libexec", accessImpl: access(["/usr/local/bin/brew"]) });
   assert.deepEqual(head, { channel: "homebrew", brew: "/usr/local/bin/brew", prefix: "/usr/local", head: true });
-  const declared = await detectInstall({ env: { CODEX_COMPANION_INSTALL_CHANNEL: "homebrew" }, root: "/somewhere", hostPlatform: "darwin",
+  const declared = await detectInstall({ env: { AGENT_COMPANION_INSTALL_CHANNEL: "homebrew" }, root: "/somewhere", hostPlatform: "darwin",
     realpathImpl: async path => path, accessImpl: access(["/usr/local/bin/brew"]) });
   assert.equal(declared.brew, "/usr/local/bin/brew");
   assert.equal(declared.prefix, "/usr/local");
   assert.deepEqual(await detectInstall({ env: {}, root: "/repo", hostPlatform: "darwin", realpathImpl: async path => path,
     accessImpl: access(["/repo/.git"]) }), { channel: "source", root: "/repo" });
-  assert.deepEqual(await detectInstall({ env: {}, root: "/home/u/.linuxbrew/Cellar/codex-companion/1.0.0", hostPlatform: "linux",
+  assert.deepEqual(await detectInstall({ env: {}, root: "/home/u/.linuxbrew/Cellar/agent-companion/1.0.0", hostPlatform: "linux",
     realpathImpl: async path => path, accessImpl: access([]) }), { channel: "release" });
 });
 
 test("读取最新 Release：没有发布返回 null，预发布与非本仓库链接不信任，其它 HTTP 错误抛出", async () => {
   const respond = (status, body) => async (url, init) => {
     assert.equal(url, RELEASE_API);
-    assert.equal(init.headers["user-agent"], "codex-companion/0.2.0");
+    assert.equal(init.headers["user-agent"], "agent-companion/0.2.0");
     return { status, ok: status >= 200 && status < 300, json: async () => body };
   };
-  const options = { userAgent: "codex-companion/0.2.0" };
+  const options = { userAgent: "agent-companion/0.2.0" };
   assert.equal(await fetchLatestRelease({ ...options, fetchImpl: respond(404) }), null);
   assert.equal(await fetchLatestRelease({ ...options, fetchImpl: respond(200, { tag_name: "v0.3.0", prerelease: true }) }), null);
   assert.equal(await fetchLatestRelease({ ...options, fetchImpl: respond(200, { tag_name: "nightly" }) }), null);
@@ -113,17 +113,17 @@ test("API 被限流（403/429）时改看 releases/latest 的跳转，说明取 
     };
     return { requests, fetchImpl };
   };
-  const options = { userAgent: "codex-companion/0.2.0" };
+  const options = { userAgent: "agent-companion/0.2.0" };
   const limited = site();
   assert.deepEqual(await fetchLatestRelease({ ...options, fetchImpl: limited.fetchImpl }),
     { version: "0.3.0", notes: "- 限流兜底", url: `${RELEASES_PAGE}/tag/v0.3.0`, publishedAt: null });
   assert.deepEqual(limited.requests, [
-    { url: RELEASE_API, method: "GET", agent: "codex-companion/0.2.0" },
-    { url: `${RELEASES_PAGE}/latest`, method: "HEAD", agent: "codex-companion/0.2.0" },
-    { url: "https://raw.githubusercontent.com/foriLLL/codex_companion/v0.3.0/CHANGELOG.md", method: "GET", agent: "codex-companion/0.2.0" }
+    { url: RELEASE_API, method: "GET", agent: "agent-companion/0.2.0" },
+    { url: `${RELEASES_PAGE}/latest`, method: "HEAD", agent: "agent-companion/0.2.0" },
+    { url: "https://raw.githubusercontent.com/foriLLL/agent-companion/v0.3.0/CHANGELOG.md", method: "GET", agent: "agent-companion/0.2.0" }
   ]);
   assert.equal(await fetchLatestRelease({ ...options, fetchImpl: site({ api: 429, landing: RELEASES_PAGE }).fetchImpl }), null, "还没有 Release 时跳回列表");
-  assert.equal(await fetchLatestRelease({ ...options, fetchImpl: site({ landing: "https://evil.example/foriLLL/codex_companion/releases/tag/v9.9.9" }).fetchImpl }), null);
+  assert.equal(await fetchLatestRelease({ ...options, fetchImpl: site({ landing: "https://evil.example/foriLLL/agent-companion/releases/tag/v9.9.9" }).fetchImpl }), null);
   assert.equal(await fetchLatestRelease({ ...options, fetchImpl: site({ landing: `${RELEASES_PAGE}/tag/nightly` }).fetchImpl }), null);
   assert.equal((await fetchLatestRelease({ ...options, fetchImpl: site({ changelog: new Error("offline") }).fetchImpl })).notes, "", "说明拿不到也照常返回版本");
   await assert.rejects(fetchLatestRelease({ ...options, fetchImpl: site({ page: 403 }).fetchImpl }), /HTTP 403/);
@@ -135,7 +135,7 @@ test("Homebrew 自动更新：发现新版本后 brew update + upgrade，等视�
   assert.deepEqual(f.timer.delays(), [120_000], "启动后 2 分钟再检查");
   await f.timer.advance(120_000);
   await until(() => f.updater.status().phase === "waiting-restart");
-  assert.deepEqual(f.execCalls.map(call => call.args), [["update", "--quiet"], ["upgrade", "codex-companion"]]);
+  assert.deepEqual(f.execCalls.map(call => call.args), [["update", "--quiet"], ["upgrade", "agent-companion"]]);
   const env = f.execCalls[1].env;
   assert.equal(env.HOMEBREW_NO_AUTO_UPDATE, "1");
   assert.equal(env.HOMEBREW_NO_INSTALL_CLEANUP, "1", "保留旧版本文件，正在运行的进程还要用");
@@ -169,7 +169,7 @@ test("重启后换上新版本：转成一次性「已更新」提示，确认�
   assert.equal(saved.pending, null);
   // 旧版本升级时为旧进程保留，换上新版本后清掉。
   await until(() => f.execCalls.length > 0);
-  assert.deepEqual(f.execCalls.map(item => item.args), [["cleanup", "codex-companion"]]);
+  assert.deepEqual(f.execCalls.map(item => item.args), [["cleanup", "agent-companion"]]);
   assert.equal(f.execCalls[0].file, "/opt/homebrew/bin/brew");
 });
 
@@ -218,8 +218,8 @@ test("brew 失败只记录最后一行错误；HEAD 安装用 --fetch-HEAD", asy
   await head.updater.start();
   await head.timer.advance(120_000);
   await until(() => head.execCalls.length === 2);
-  assert.deepEqual(head.execCalls[1].args, ["upgrade", "--fetch-HEAD", "codex-companion"]);
-  assert.equal(head.updater.status().command, "brew upgrade --fetch-HEAD codex-companion");
+  assert.deepEqual(head.execCalls[1].args, ["upgrade", "--fetch-HEAD", "agent-companion"]);
+  assert.equal(head.updater.status().command, "brew upgrade --fetch-HEAD agent-companion");
 });
 
 test("关闭自动更新只提醒；重新打开后立即安装已发现的新版本", async t => {

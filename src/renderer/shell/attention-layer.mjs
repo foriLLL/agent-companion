@@ -115,7 +115,7 @@ export function createAttentionLayer({ document: doc, onError = () => {}, autoDi
     if (host?.isConnected && panel) return panel;
     host?.remove();
     host = doc.createElement("div");
-    host.id = "codex-companion-attention";
+    host.id = "agent-companion-attention";
     host.style.cssText = "all:initial !important;position:fixed !important;inset:0 !important;z-index:2147483647 !important;"
       + "pointer-events:none !important;color-scheme:light dark !important";
     const shadow = host.attachShadow({ mode: "open" });

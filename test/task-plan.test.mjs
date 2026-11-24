@@ -308,7 +308,7 @@ test("提示块：加上与删除都保留原有文字，重复加入不叠加�
   assert.equal(withoutHint(withHint("")), "");
   const middle = `前面\n\n${PLAN_HINT_START}\n旧内容\n${PLAN_HINT_END}\n后面\n`;
   assert.equal(withoutHint(middle), "前面\n\n后面\n");
-  const older = "前面\n\n<!-- codex-companion:plan-hint 旧说明 -->\n旧内容\n<!-- /codex-companion:plan-hint -->\n";
+  const older = "前面\n\n<!-- agent-companion:plan-hint 旧说明 -->\n旧内容\n<!-- /agent-companion:plan-hint -->\n";
   assert.equal(withoutHint(older), "前面\n");
 });
 

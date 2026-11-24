@@ -94,7 +94,7 @@ struct AgentSettingsTests {
         check(model.statusTitle.contains("后台与卡片状态未知"), "读取失败不冒充离线")
 
         let resources = URL(fileURLWithPath: "/fixture/Test App.app/Contents/Resources")
-        let bundled = resources.appendingPathComponent("codex-companion").path
+        let bundled = resources.appendingPathComponent("agent-companion").path
         check(resolveBackendURL(resourcesURL: resources, developmentPath: "/dev/backend", isExecutable: { _ in true })?.path == bundled, "bundle 优先")
         check(resolveBackendURL(resourcesURL: resources, developmentPath: "/dev/backend", isExecutable: { $0 == "/dev/backend" })?.path == "/dev/backend", "开发回退")
         check(resolveBackendURL(resourcesURL: nil, developmentPath: nil, isExecutable: { _ in true }) == nil, "缺失路径")

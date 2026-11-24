@@ -24,11 +24,11 @@ test("App 构建默认本机架构，保留两种显式 target 并拒绝错误�
 });
 
 test("ad-hoc 签名先内部后外层，内部签名失败即停止", async () => {
-  const app = "/fixture/Codex Companion.app";
+  const app = "/fixture/Agent Companion.app";
   const calls = [];
   await signAppAdHoc(app, async (command, args) => calls.push({ command, args }));
   assert.deepEqual(calls, [
-    `${app}/Contents/Helpers/companion-native`, `${app}/Contents/Resources/codex-companion`, app
+    `${app}/Contents/Helpers/companion-native`, `${app}/Contents/Resources/agent-companion`, app
   ].map(path => ({ command: "codesign", args: ["--force", "--sign", "-", path] })));
   const failure = new Error("模拟签名失败");
   let attempts = 0;
@@ -37,12 +37,12 @@ test("ad-hoc 签名先内部后外层，内部签名失败即停止", async () =
 });
 
 test("App LaunchAgent 声明可由 plutil 解析，日志交给 agent 且助手使用相对路径发现", { skip: process.platform !== "darwin" }, async () => {
-  const path = join(root, "packaging/mac-app/LaunchAgents/com.codexcompanion.agent.plist");
+  const path = join(root, "packaging/mac-app/LaunchAgents/com.agentcompanion.agent.plist");
   const { stdout } = await exec("/usr/bin/plutil", ["-convert", "json", "-o", "-", path]);
   assert.deepEqual(JSON.parse(stdout), {
-    Label: "com.codexcompanion.agent",
-    BundleProgram: "Contents/Resources/codex-companion",
-    ProgramArguments: ["codex-companion", "agent", "--log-dir", "~/Library/Logs/codex-companion"],
+    Label: "com.agentcompanion.agent",
+    BundleProgram: "Contents/Resources/agent-companion",
+    ProgramArguments: ["agent-companion", "agent", "--log-dir", "~/Library/Logs/agent-companion"],
     RunAtLoad: true,
     KeepAlive: { SuccessfulExit: false },
     ThrottleInterval: 10,
@@ -71,7 +71,7 @@ test("Swift 状态解码、路径选择与注册生命周期使用假依赖验�
   const executable = join(temporary, "agent-settings-tests");
   const { stdout: sdk } = await exec("xcrun", ["--sdk", "macosx", "--show-sdk-path"]);
   await exec("swiftc", ["-parse-as-library", "-D", "COMPANION_TESTING", "-target", TARGETS[`darwin-${process.arch}`].swift,
-    "-sdk", sdk.trim(), join(root, "packaging/mac-app/Sources/CodexCompanionApp.swift"),
+    "-sdk", sdk.trim(), join(root, "packaging/mac-app/Sources/AgentCompanionApp.swift"),
     join(root, "packaging/mac-app/Tests/AgentSettingsTests.swift"), "-o", executable], { timeout: 90_000 });
   const { stdout } = await exec(executable, [fixturePath], { timeout: 10_000 });
   assert.match(stdout, /Swift agent checks: \d+ passed/);

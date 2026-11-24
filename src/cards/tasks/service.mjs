@@ -77,7 +77,7 @@ export function createService({
       try { await insertTask(id, aliases, { projectId }); }
       catch (error) {
         if (error?.code !== "TASK_BOARD_FULL") throw error;
-        logger.warn?.(`[codex-companion] 看板已满（${MAX_TASKS} 个），新会话没有自动加入`);
+        logger.warn?.(`[agent-companion] 看板已满（${MAX_TASKS} 个），新会话没有自动加入`);
       }
     }
   });

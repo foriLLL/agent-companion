@@ -21,7 +21,7 @@ export class ServiceRegistry {
       try { service = module?.createService(dependencies) ?? {}; }
       catch (error) {
         initializationError = error;
-        Promise.resolve().then(() => logger.warn?.(`[codex-companion] 卡片 ${manifest.id} 服务初始化失败`)).catch(() => {});
+        Promise.resolve().then(() => logger.warn?.(`[agent-companion] 卡片 ${manifest.id} 服务初始化失败`)).catch(() => {});
       }
       const entry = { id: manifest.id, service, initializationError, defaultEnabled: manifest.defaultEnabled };
       this.services.set(entry.id, entry);
@@ -46,7 +46,7 @@ export class ServiceRegistry {
   }
 
   report(error) {
-    Promise.resolve().then(() => this.logger.warn?.(`[codex-companion] 卡片会话清理失败：${error?.code ?? "RPC_ERROR"}`)).catch(() => {});
+    Promise.resolve().then(() => this.logger.warn?.(`[agent-companion] 卡片会话清理失败：${error?.code ?? "RPC_ERROR"}`)).catch(() => {});
   }
 
   scopeFor(entry, context) {
@@ -145,7 +145,7 @@ export class ServiceRegistry {
     for (const entry of this.services.values()) {
       if (typeof entry.service.applyConfig !== "function") continue;
       try { await entry.service.applyConfig(config); }
-      catch (error) { this.logger.warn?.(`[codex-companion] 卡片 ${entry.id} 应用配置失败：${error?.code ?? error?.message ?? error}`); }
+      catch (error) { this.logger.warn?.(`[agent-companion] 卡片 ${entry.id} 应用配置失败：${error?.code ?? error?.message ?? error}`); }
     }
   }
 

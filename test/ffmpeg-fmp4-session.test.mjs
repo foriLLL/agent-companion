@@ -170,20 +170,20 @@ test("FFmpeg 参数分别覆盖 ASS、PGS、VobSub 和 DVB 烧录", () => {
     mediaSource,
     strategy,
     subtitleTrack: { index: 4, codec: "dvd_subtitle", isExternal: true },
-    subtitleFile: "/private/tmp/codex-companion-subtitle/subtitle.sub"
+    subtitleFile: "/private/tmp/agent-companion-subtitle/subtitle.sub"
   });
   assert.equal(
     externalVobSub[externalVobSub.indexOf("-filter_complex") + 1],
     "[0:v:0][1:s:0]overlay=eof_action=pass:shortest=0[v]"
   );
-  assert.equal(externalVobSub.includes("/private/tmp/codex-companion-subtitle/subtitle.sub"), true);
+  assert.equal(externalVobSub.includes("/private/tmp/agent-companion-subtitle/subtitle.sub"), true);
 
   const externalDvb = buildFfmpegArguments({
     inputUrl: "http://127.0.0.1:1234/media/source",
     mediaSource,
     strategy,
     subtitleTrack: { index: 5, codec: "dvb_subtitle", isExternal: true },
-    subtitleFile: "/private/tmp/codex-companion-subtitle/subtitle.sub"
+    subtitleFile: "/private/tmp/agent-companion-subtitle/subtitle.sub"
   });
   assert.equal(externalDvb.filter((argument) => argument === "-fix_sub_duration").length, 1);
 });
@@ -379,7 +379,7 @@ test("FFmpeg 会把 MKV 按需重封装为可追加的 fragmented MP4，并支�
     t.skip("未安装系统 FFmpeg");
     return;
   }
-  const directory = await mkdtemp(join(tmpdir(), "codex-companion-ffmpeg-"));
+  const directory = await mkdtemp(join(tmpdir(), "agent-companion-ffmpeg-"));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const fixture = join(directory, "fixture.mkv");
   await execFileAsync(ffmpegPath, [
@@ -472,7 +472,7 @@ test("FFmpeg 使用 libass 烧录内嵌 ASS，并在 seek 后保持可播放时�
     t.skip("当前 FFmpeg 未包含 libass subtitles filter");
     return;
   }
-  const directory = await mkdtemp(join(tmpdir(), "codex-companion-ffmpeg-ass-"));
+  const directory = await mkdtemp(join(tmpdir(), "agent-companion-ffmpeg-ass-"));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const subtitle = join(directory, "subtitle.ass");
   const fixture = join(directory, "fixture.mkv");
@@ -552,7 +552,7 @@ test("VideoToolbox 硬件编码在 macOS 上产出合法 fMP4（无 h264_videoto
     t.skip("当前 ffmpeg 无 h264_videotoolbox 编码器");
     return;
   }
-  const directory = await mkdtemp(join(tmpdir(), "codex-companion-ffmpeg-vt-"));
+  const directory = await mkdtemp(join(tmpdir(), "agent-companion-ffmpeg-vt-"));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const subtitle = join(directory, "subtitle.ass");
   const fixture = join(directory, "fixture.mkv");

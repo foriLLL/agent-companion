@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { chmod, mkdir, rename, unlink, writeFile } from "node:fs/promises";
+import { access, chmod, mkdir, rename, unlink, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { basename, join, resolve } from "node:path";
@@ -15,7 +15,9 @@ import { resolveNativeHelperPath } from "./native-bridge.mjs";
 import { installLinuxAgent, uninstallLinuxAgent } from "./linux-service.mjs";
 
 const execFileAsync = promisify(execFile);
-export const AGENT_LABEL = "com.codexcompanion.agent";
+export const AGENT_LABEL = "com.agentcompanion.agent";
+// 改名前的标签：老版本登记的服务用它，安装、卸载和自动交接时一并清掉。
+export const LEGACY_AGENT_LABEL = "com.codexcompanion.agent";
 export const AGENT_PATH = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin";
 
 export function agentProgramArguments({ execPath = process.execPath,
@@ -34,13 +36,13 @@ export function launcherProgramArguments(options = {}) {
 // 安装时显式指定的目标应用与配置路径要带给 agent 和菜单入口，否则它们会回到默认位置。
 function linuxEnvironment(options, env) {
   const environment = {};
-  if (env.CODEX_COMPANION_CODEX_EXECUTABLE) environment.CODEX_COMPANION_CODEX_EXECUTABLE = resolve(env.CODEX_COMPANION_CODEX_EXECUTABLE);
-  if (options.configPath ?? env.CODEX_COMPANION_CONFIG_PATH) environment.CODEX_COMPANION_CONFIG_PATH = resolve(options.configPath ?? env.CODEX_COMPANION_CONFIG_PATH);
+  if (env.AGENT_COMPANION_CODEX_EXECUTABLE) environment.AGENT_COMPANION_CODEX_EXECUTABLE = resolve(env.AGENT_COMPANION_CODEX_EXECUTABLE);
+  if (options.configPath ?? env.AGENT_COMPANION_CONFIG_PATH) environment.AGENT_COMPANION_CONFIG_PATH = resolve(options.configPath ?? env.AGENT_COMPANION_CONFIG_PATH);
   return environment;
 }
 
 function location({ home = homedir(), plistDir = join(home, "Library", "LaunchAgents"), label = AGENT_LABEL,
-  uid = process.getuid?.() ?? 0, logDir = join(home, "Library", "Logs", "codex-companion") } = {}) {
+  uid = process.getuid?.() ?? 0, logDir = join(home, "Library", "Logs", "agent-companion") } = {}) {
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(label)) throw new Error("LaunchAgent label 无效");
   if (!Number.isSafeInteger(uid) || uid < 0) throw new Error("LaunchAgent uid 无效");
   return { plistDir: resolve(plistDir), label, uid, logDir: resolve(logDir), plistPath: resolve(plistDir, `${label}.plist`) };
@@ -73,9 +75,9 @@ async function bootoutAgent(options, { uid, label }) {
   }
 }
 
-// 启动脚本用 CODEX_COMPANION_AGENT_PROGRAM 声明后台服务该运行的固定入口。
+// 启动脚本用 AGENT_COMPANION_AGENT_PROGRAM 声明后台服务该运行的固定入口。
 function withProgram(options, env) {
-  const program = options.program ?? env.CODEX_COMPANION_AGENT_PROGRAM;
+  const program = options.program ?? env.AGENT_COMPANION_AGENT_PROGRAM;
   return program ? { ...options, program } : options;
 }
 
@@ -92,6 +94,71 @@ async function bootstrapAgent(options, { uid, plistPath }) {
   }
 }
 
+// 把当前进程环境里需要带给后台服务的设置写成 plist；只写文件，不注册。
+async function writeAgentPlist(options) {
+  const { plistDir, label, uid, logDir, plistPath } = location(options);
+  const env = options.env ?? process.env;
+  const helperPath = options.helperPath === undefined ? resolveNativeHelperPath({
+    env, execPath: options.execPath, cwd: options.cwd, arch: options.arch
+  }) : options.helperPath;
+  const environment = { PATH: AGENT_PATH };
+  if (helperPath) environment.AGENT_COMPANION_NATIVE_HELPER = resolve(helperPath);
+  if (env.AGENT_COMPANION_CODEX_APP) environment.AGENT_COMPANION_CODEX_APP = resolve(env.AGENT_COMPANION_CODEX_APP);
+  if (options.configPath ?? env.AGENT_COMPANION_CONFIG_PATH) environment.AGENT_COMPANION_CONFIG_PATH = resolve(options.configPath ?? env.AGENT_COMPANION_CONFIG_PATH);
+  const plist = buildAgentPlist({ label, logDir, environment, programArguments: agentProgramArguments(options) });
+  await mkdir(plistDir, { recursive: true, mode: 0o700 });
+  await mkdir(logDir, { recursive: true, mode: 0o700 });
+  const temporary = join(plistDir, `.${label}-${randomUUID()}.tmp`);
+  try {
+    await writeFile(temporary, plist, { mode: 0o600, flag: "wx" });
+    await rename(temporary, plistPath);
+    await chmod(plistPath, 0o600);
+  } finally { await unlink(temporary).catch(error => { if (error.code !== "ENOENT") throw error; }); }
+  return { label, uid, plistPath };
+}
+
+// 只有使用默认标签时才处理旧标签：测试或自定义 --label 安装不能顺手卸掉用户真实的服务。
+function legacyLocation(options) {
+  if (options.label !== undefined && options.label !== AGENT_LABEL) return null;
+  return location({ ...options, label: LEGACY_AGENT_LABEL });
+}
+
+// 旧 plist 还在才处理：没有老安装时不多调 launchctl。
+async function removeLegacyAgent(options) {
+  const legacy = legacyLocation(options);
+  if (!legacy) return false;
+  try { await access(legacy.plistPath); } catch { return false; }
+  await bootoutAgent(options, legacy);
+  try { await unlink(legacy.plistPath); return true; }
+  catch (error) { if (error.code === "ENOENT") return false; throw error; }
+}
+
+/**
+ * 老版本登记的服务（旧标签、旧 opt 路径）升级后会拉起新版本。新版本在做任何事之前先把服务交接给新标签：
+ * 写新 plist 并注册（新进程正常抢锁运行），删掉旧 plist，最后 bootout 旧标签——这一步会结束当前进程。
+ * 注册失败时撤回新 plist，返回 false，当前进程继续以旧标签运行，下次启动再试。
+ */
+export async function handoffLegacyAgent(options = {}) {
+  const env = options.env ?? process.env;
+  if ((options.hostPlatform ?? process.platform) !== "darwin" || env.XPC_SERVICE_NAME !== LEGACY_AGENT_LABEL) return false;
+  const logger = options.logger ?? console;
+  const current = withProgram({ ...options, label: AGENT_LABEL }, env);
+  const legacy = location({ ...current, label: LEGACY_AGENT_LABEL });
+  let written;
+  try {
+    written = await writeAgentPlist(current);
+    await bootstrapAgent(current, written);
+  } catch (error) {
+    logger.error?.(`[agent-companion] 交接到新服务标签失败，继续以旧标签运行：${error.message}`);
+    if (written) await unlink(written.plistPath).catch(() => {});
+    return false;
+  }
+  await unlink(legacy.plistPath).catch(error => { if (error.code !== "ENOENT") throw error; });
+  logger.info?.(`[agent-companion] 后台服务已交接到 ${AGENT_LABEL}，旧标签 ${LEGACY_AGENT_LABEL} 即将退出`);
+  await bootoutAgent(current, legacy);
+  return true;
+}
+
 export async function installAgent(options = {}) {
   options = withProgram(options, options.env ?? process.env);
   if ((options.hostPlatform ?? process.platform) === "linux") {
@@ -103,28 +170,13 @@ export async function installAgent(options = {}) {
       launcherArguments: Object.keys(environment).length
         ? ["/usr/bin/env", ...Object.entries(environment).map(([key, value]) => `${key}=${value}`), ...launcher] : launcher });
   }
-  const { plistDir, label, uid, logDir, plistPath } = location(options);
-  const env = options.env ?? process.env;
-  const helperPath = options.helperPath === undefined ? resolveNativeHelperPath({
-    env, execPath: options.execPath, cwd: options.cwd, arch: options.arch
-  }) : options.helperPath;
-  const environment = { PATH: AGENT_PATH };
-  if (helperPath) environment.CODEX_COMPANION_NATIVE_HELPER = resolve(helperPath);
-  if (env.CODEX_COMPANION_CODEX_APP) environment.CODEX_COMPANION_CODEX_APP = resolve(env.CODEX_COMPANION_CODEX_APP);
-  if (options.configPath ?? env.CODEX_COMPANION_CONFIG_PATH) environment.CODEX_COMPANION_CONFIG_PATH = resolve(options.configPath ?? env.CODEX_COMPANION_CONFIG_PATH);
-  const plist = buildAgentPlist({ label, logDir, environment, programArguments: agentProgramArguments(options) });
-  // 升级时先卸载旧 job，再替换声明；不能把 bootstrap 的任意失败当作重复安装。
+  const { label, uid } = location(options);
+  // 升级时先卸载旧 job（含改名前的旧标签），再替换声明；不能把 bootstrap 的任意失败当作重复安装。
+  const legacyRemoved = await removeLegacyAgent(options);
   await bootoutAgent(options, { uid, label });
-  await mkdir(plistDir, { recursive: true, mode: 0o700 });
-  await mkdir(logDir, { recursive: true, mode: 0o700 });
-  const temporary = join(plistDir, `.${label}-${randomUUID()}.tmp`);
-  try {
-    await writeFile(temporary, plist, { mode: 0o600, flag: "wx" });
-    await rename(temporary, plistPath);
-    await chmod(plistPath, 0o600);
-  } finally { await unlink(temporary).catch(error => { if (error.code !== "ENOENT") throw error; }); }
+  const { plistPath } = await writeAgentPlist(options);
   await bootstrapAgent(options, { uid, plistPath });
-  return { installed: true, label, plistPath };
+  return { installed: true, label, plistPath, ...(legacyRemoved ? { legacyRemoved: LEGACY_AGENT_LABEL } : {}) };
 }
 
 export async function uninstallAgent(options = {}) {
@@ -138,7 +190,8 @@ export async function uninstallAgent(options = {}) {
     const { label, uid, plistPath } = location(options);
     await bootoutAgent(options, { uid, label });
     await unlink(plistPath).catch(error => { if (error.code !== "ENOENT") throw error; });
-    removed = { label };
+    const legacyRemoved = await removeLegacyAgent(options);
+    removed = { label, ...(legacyRemoved ? { legacyRemoved: LEGACY_AGENT_LABEL } : {}) };
   }
   let unmounted = false;
   let unmountError;
@@ -204,7 +257,11 @@ export async function restartCodex(options = {}) {
 }
 
 export async function runAgentCommand(subcommand, options = {}) {
-  if (!subcommand) return runAgent(options);
+  if (!subcommand) {
+    // 被旧标签拉起时先交接；交接成功后旧标签被 bootout，当前进程随之结束，不再进入常驻流程。
+    if (await (options.handoffImpl ?? handoffLegacyAgent)(options)) return { running: false, reason: "handed-off" };
+    return runAgent(options);
+  }
   const commands = { install: installAgent, uninstall: uninstallAgent, status: readAgentStatus, "restart-codex": restartCodex };
   if (!commands[subcommand]) throw new Error(`未知 agent 命令：${subcommand}`);
   const result = await commands[subcommand](options);

@@ -48,10 +48,10 @@ jobs:
       - name: Package source and notes
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
-          ASSET="codex-companion-$VERSION.tar.gz"
+          ASSET="agent-companion-$VERSION.tar.gz"
           mkdir -p dist
           node scripts/release-ci.mjs notes "$VERSION" > "$RUNNER_TEMP/notes.md"
-          git archive --format=tar.gz --prefix="codex-companion-$VERSION/" -o "dist/$ASSET" "$GITHUB_SHA"
+          git archive --format=tar.gz --prefix="agent-companion-$VERSION/" -o "dist/$ASSET" "$GITHUB_SHA"
           (cd dist && sha256sum "$ASSET" > "$ASSET.sha256")
           echo "ASSET=$ASSET" >> "$GITHUB_ENV"
           echo "SHA256=$(cut -d' ' -f1 "dist/$ASSET.sha256")" >> "$GITHUB_ENV"
@@ -73,8 +73,8 @@ jobs:
           git fetch origin main
           git switch -C formula-update origin/main
           node scripts/release-ci.mjs formula "${GITHUB_REF_NAME#v}" "$SHA256"
-          if git diff --quiet -- Formula/codex-companion.rb; then exit 0; fi
-          git add Formula/codex-companion.rb
+          if git diff --quiet -- Formula/agent-companion.rb; then exit 0; fi
+          git add Formula/agent-companion.rb
           git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
             commit -m "chore: Formula 更新到 $GITHUB_REF_NAME"
           git push origin HEAD:main
@@ -97,10 +97,10 @@ jobs:
         include:
           - target: darwin-arm64
             runner: macos-26
-            asset: codex-companion-darwin-arm64.tar.gz
+            asset: agent-companion-darwin-arm64.tar.gz
           - target: darwin-x64
             runner: macos-26-intel
-            asset: codex-companion-darwin-x64.tar.gz
+            asset: agent-companion-darwin-x64.tar.gz
 
     steps:
       - name: Check out repository
@@ -157,9 +157,9 @@ jobs:
           MACOS_CERTIFICATE_P12: ${{ secrets.MACOS_CERTIFICATE_P12 }}
           MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
         run: |
-          KEYCHAIN_PATH="$RUNNER_TEMP/codex-companion.keychain-db"
+          KEYCHAIN_PATH="$RUNNER_TEMP/agent-companion.keychain-db"
           KEYCHAIN_PASSWORD="$(openssl rand -hex 24)"
-          CERTIFICATE_PATH="$RUNNER_TEMP/codex-companion.p12"
+          CERTIFICATE_PATH="$RUNNER_TEMP/agent-companion.p12"
           printf '%s' "$MACOS_CERTIFICATE_P12" | /usr/bin/base64 -D > "$CERTIFICATE_PATH"
           security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
           security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
@@ -180,12 +180,12 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
         run: |
-          APP="dist/Codex Companion.app"
-          NOTARY_ARCHIVE="$RUNNER_TEMP/codex-companion-notary.zip"
+          APP="dist/Agent Companion.app"
+          NOTARY_ARCHIVE="$RUNNER_TEMP/agent-companion-notary.zip"
           codesign --force --options runtime --timestamp --sign "$MACOS_SIGNING_IDENTITY" \
             "$APP/Contents/Helpers/companion-native"
           codesign --force --options runtime --timestamp --sign "$MACOS_SIGNING_IDENTITY" \
-            "$APP/Contents/Resources/codex-companion"
+            "$APP/Contents/Resources/agent-companion"
           codesign --force --options runtime --timestamp --sign "$MACOS_SIGNING_IDENTITY" "$APP"
           codesign --verify --deep --strict --verbose=2 "$APP"
           ACTUAL_TEAM_ID="$(codesign -dv --verbose=4 "$APP" 2>&1 \
@@ -207,7 +207,7 @@ jobs:
       - name: Package tarball and checksum
         working-directory: dist
         run: |
-          tar -czf "${{ matrix.asset }}" "Codex Companion.app"
+          tar -czf "${{ matrix.asset }}" "Agent Companion.app"
           shasum -a 256 "${{ matrix.asset }}" > "${{ matrix.asset }}.sha256"
 
       - name: Upload workflow artifact
@@ -272,8 +272,8 @@ jobs:
 
       - name: Smoke test x64 binary
         run: |
-          dist/linux-x64/codex-companion/codex-companion --help | grep -F "open-codex"
-          dist/linux-x64/codex-companion/codex-companion cards list | node -e 'JSON.parse(require("fs").readFileSync(0, "utf8"))'
+          dist/linux-x64/agent-companion/agent-companion --help | grep -F "open-codex"
+          dist/linux-x64/agent-companion/agent-companion cards list | node -e 'JSON.parse(require("fs").readFileSync(0, "utf8"))'
 
       # 固定属主与排序，归档内只有普通文件和目录，满足 install.sh 的条目校验。
       - name: Package tarballs and checksums
@@ -281,25 +281,25 @@ jobs:
         run: |
           for target in linux-x64 linux-arm64; do
             tar --sort=name --owner=0 --group=0 --numeric-owner \
-              -czf "codex-companion-$target.tar.gz" -C "$target" codex-companion
-            sha256sum "codex-companion-$target.tar.gz" > "codex-companion-$target.tar.gz.sha256"
+              -czf "agent-companion-$target.tar.gz" -C "$target" agent-companion
+            sha256sum "agent-companion-$target.tar.gz" > "agent-companion-$target.tar.gz.sha256"
           done
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: codex-companion-linux
+          name: agent-companion-linux
           path: |
-            dist/codex-companion-linux-*.tar.gz
-            dist/codex-companion-linux-*.tar.gz.sha256
+            dist/agent-companion-linux-*.tar.gz
+            dist/agent-companion-linux-*.tar.gz.sha256
 
       - name: Attach Linux binaries to release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@c95fe1489396fe8a9eb87c0abf8aa5b2ef267fda # v2.4.1
         with:
           files: |
-            dist/codex-companion-linux-*.tar.gz
-            dist/codex-companion-linux-*.tar.gz.sha256
+            dist/agent-companion-linux-*.tar.gz
+            dist/agent-companion-linux-*.tar.gz.sha256
 
   # 所有平台都构建成功后才发布 install.sh：脚本写入 Team ID、tag 与 Linux 归档的 SHA256。
   publish-installer:
@@ -321,7 +321,7 @@ jobs:
       - name: Download Linux binaries
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          name: codex-companion-linux
+          name: agent-companion-linux
           path: dist
 
       - name: Prepare pinned installer
@@ -333,8 +333,8 @@ jobs:
             exit 1
           }
           node scripts/prepare-installer.mjs --team-id "$APPLE_TEAM_ID" --tag "$GITHUB_REF_NAME" \
-            --linux-x64 dist/codex-companion-linux-x64.tar.gz \
-            --linux-arm64 dist/codex-companion-linux-arm64.tar.gz \
+            --linux-x64 dist/agent-companion-linux-x64.tar.gz \
+            --linux-arm64 dist/agent-companion-linux-arm64.tar.gz \
             --out dist/install.sh
           bash -n dist/install.sh
           shellcheck dist/install.sh

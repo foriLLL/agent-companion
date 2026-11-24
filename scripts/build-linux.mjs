@@ -7,7 +7,7 @@ import { promisify } from "node:util";
 const execFileAsync = promisify(execFile);
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(here, "..");
-const BINARY_NAME = "codex-companion";
+const BINARY_NAME = "agent-companion";
 
 export const TARGETS = {
   "linux-x64": { bun: "bun-linux-x64" },
@@ -39,8 +39,8 @@ export function parseArgs(argv, arch = process.arch) {
   return options;
 }
 
-// 产物为 <out>/<target>/codex-companion/ 目录：单文件后端与许可说明。
-// Release 把该目录打成 codex-companion-<target>.tar.gz，install.sh 解压到用户目录后执行 agent install。
+// 产物为 <out>/<target>/agent-companion/ 目录：单文件后端与许可说明。
+// Release 把该目录打成 agent-companion-<target>.tar.gz，install.sh 解压到用户目录后执行 agent install。
 async function main() {
   const options = parseArgs(process.argv.slice(2));
   const target = TARGETS[options.target];
@@ -52,7 +52,7 @@ async function main() {
   await rm(dirname(root), { recursive: true, force: true });
   await mkdir(root, { recursive: true });
 
-  const bunBin = process.env.CODEX_COMPANION_BUN
+  const bunBin = process.env.AGENT_COMPANION_BUN
     ?? join(repoRoot, "node_modules", "bun", "bin", "bun.exe");
   const binaryOut = join(root, BINARY_NAME);
   console.log(`[build-linux] bun --compile（${target.bun}）…`);

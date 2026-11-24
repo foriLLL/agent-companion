@@ -29,7 +29,7 @@ export async function assertSafeSmokeApp(appPath, {
   rejectReal(canonical);
   const bundleId = await readBundleId(canonical);
   if (bundleId === "com.openai.codex") throw new Error("禁止对真实 Codex bundle id 运行冒烟");
-  if (bundleId !== "local.codexcompanion.dummy") throw new Error("冒烟仅允许 local.codexcompanion.dummy");
+  if (bundleId !== "local.agentcompanion.dummy") throw new Error("冒烟仅允许 local.agentcompanion.dummy");
   return canonical;
 }
 

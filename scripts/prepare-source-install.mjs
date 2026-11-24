@@ -64,11 +64,11 @@ export async function ensureFfmpeg({
   const lookup = () => resolveImpl({ env, platform, fileExists });
   const found = lookup();
   if (found) return { status: "existing", path: found };
-  if (env.CODEX_COMPANION_SKIP_FFMPEG === "1") return { status: "skipped" };
+  if (env.AGENT_COMPANION_SKIP_FFMPEG === "1") return { status: "skipped" };
   if (platform !== "darwin") return { status: "missing" };
   const brew = findBrewImpl({ env, fileExists });
   if (!brew) return { status: "missing-homebrew" };
-  log("[codex-companion] 未检测到 FFmpeg，正在通过 Homebrew 安装（设置 CODEX_COMPANION_SKIP_FFMPEG=1 可跳过）…");
+  log("[agent-companion] 未检测到 FFmpeg，正在通过 Homebrew 安装（设置 AGENT_COMPANION_SKIP_FFMPEG=1 可跳过）…");
   if (!await runImpl(brew, ["install", "ffmpeg"])) return { status: "install-failed" };
   const installed = lookup();
   return installed ? { status: "installed", path: installed } : { status: "install-failed" };
@@ -82,22 +82,22 @@ export function ffmpegSummary({ status, path }, platform = process.platform) {
   const install = platform === "darwin"
     ? (status === "missing-homebrew" ? "安装 Homebrew（https://brew.sh/）后运行 brew install ffmpeg" : "运行 brew install ffmpeg")
     : "运行 sudo apt install ffmpeg（Fedora：sudo dnf install ffmpeg-free）";
-  const reason = status === "skipped" ? "已按 CODEX_COMPANION_SKIP_FFMPEG=1 跳过" : status === "install-failed" ? "自动安装失败" : "未检测到";
+  const reason = status === "skipped" ? "已按 AGENT_COMPANION_SKIP_FFMPEG=1 跳过" : status === "install-failed" ? "自动安装失败" : "未检测到";
   return [`⚠️  FFmpeg：${reason}。${WITHOUT_FFMPEG}`, `    补装：${install}，装好后不用重新安装 Companion。`];
 }
 
 export async function prepareSourceInstall(options = {}) {
   const log = options.log ?? console.log;
   const native = await ensureNativeHelper(options);
-  if (native.status === "built") log(`[codex-companion] 已编译原生助手：${native.path}`);
+  if (native.status === "built") log(`[agent-companion] 已编译原生助手：${native.path}`);
   const ffmpeg = await ensureFfmpeg(options);
-  for (const line of ffmpegSummary(ffmpeg, options.platform ?? process.platform)) log(`[codex-companion] ${line}`);
+  for (const line of ffmpegSummary(ffmpeg, options.platform ?? process.platform)) log(`[agent-companion] ${line}`);
   return { native, ffmpeg };
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   prepareSourceInstall().catch((error) => {
-    console.error(`[codex-companion] ${error.message}`);
+    console.error(`[agent-companion] ${error.message}`);
     process.exitCode = 1;
   });
 }

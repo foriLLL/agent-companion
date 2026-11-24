@@ -4,7 +4,7 @@ import test from "node:test";
 import vm from "node:vm";
 import { CARD_MANIFESTS } from "../src/card-registry.mjs";
 import { ConfigError } from "../src/companion-config.mjs";
-import { CodexCompanionService } from "../src/codex-companion-service.mjs";
+import { AgentCompanionService } from "../src/agent-companion-service.mjs";
 import { validateCatalog, validateManifest } from "../src/platform/registry/manifest.mjs";
 import { ServiceRegistry } from "../src/platform/services/registry.mjs";
 import { createRpcClient } from "../src/renderer/platform/rpc-client.mjs";
@@ -23,7 +23,7 @@ const AGENT = {
 };
 
 function createService(t, options = {}) {
-  const service = new CodexCompanionService({
+  const service = new AgentCompanionService({
     configStore: { loadV2: async () => CONFIG }, modules: {}, ...options
   });
   t.after(() => service.dispose());
@@ -40,7 +40,7 @@ class FakeConnection extends EventEmitter {
     if (method !== "Runtime.callFunctionOn") return {};
     const wire = JSON.parse(JSON.stringify(params));
     const deliver = vm.runInNewContext(`(${wire.functionDeclaration})`, {
-      __CODEX_COMPANION__: { runtime: { receiveRpc: response => {
+      __AGENT_COMPANION__: { runtime: { receiveRpc: response => {
         this.responses.push({ executionContextId: wire.executionContextId, response });
         return this.receiveRpc(response);
       } } }
@@ -253,7 +253,7 @@ test("companion 卡片 id 在 manifest 校验与注入注册路径均被拒绝",
     modules: { companion: { createService: () => assert.fail("保留 id 不得初始化卡片服务") } }
   };
   assert.throws(() => new ServiceRegistry(options), /companion.*保留/);
-  assert.throws(() => new CodexCompanionService({ ...options, configStore: {} }), /companion.*保留/);
+  assert.throws(() => new AgentCompanionService({ ...options, configStore: {} }), /companion.*保留/);
 });
 
 test("平台 generation 升级取消旧请求并拒绝旧写入，原有卡片 RPC 与别名不受影响", async t => {

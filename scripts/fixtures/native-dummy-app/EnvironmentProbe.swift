@@ -8,7 +8,7 @@ struct EnvironmentProbe {
     guard args.count == 4 else { exit(2) }
     let appURL = URL(fileURLWithPath: args[1]).standardizedFileURL.resolvingSymlinksInPath()
     guard appURL.path != "/Applications/ChatGPT.app",
-          Bundle(url: appURL)?.bundleIdentifier == "local.codexcompanion.dummy",
+          Bundle(url: appURL)?.bundleIdentifier == "local.agentcompanion.dummy",
           !NSWorkspace.shared.runningApplications.contains(where: {
             $0.bundleURL?.standardizedFileURL.resolvingSymlinksInPath() == appURL
           }) else { exit(2) }

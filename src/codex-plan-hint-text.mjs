@@ -1,5 +1,5 @@
-export const PLAN_HINT_START = "<!-- codex-companion:plan-hint 由 Codex Companion 维护，在 Companion 设置里关闭即可删除 -->";
-export const PLAN_HINT_END = "<!-- /codex-companion:plan-hint -->";
+export const PLAN_HINT_START = "<!-- agent-companion:plan-hint 由 Agent Companion 维护，在 Companion 设置里关闭即可删除 -->";
+export const PLAN_HINT_END = "<!-- /agent-companion:plan-hint -->";
 export const PLAN_HINT_BODY = [
   "## 任务计划",
   "- 预计要 3 步以上或超过 5 分钟的任务，动手前列出完整计划：每步一句话，按执行顺序排列。",
@@ -18,5 +18,5 @@ export const PLAN_HINT_BODY = [
 
 // 同一个开关还在 Codex 的 config.toml 里打开它自带的 update_plan 计划工具（默认关闭）：
 // 进度走工具调用，不再以代码块出现在对话里。标记注释紧贴表头，Codex 用 toml_edit 改写文件时会随表一起保留。
-export const PLAN_TOOL_MARKER = "# codex-companion:plan-tool 由 Codex Companion 维护（开启 Codex 自带的 update_plan 计划工具），在 Companion 设置里关闭「长任务先列计划」即可删除";
+export const PLAN_TOOL_MARKER = "# agent-companion:plan-tool 由 Agent Companion 维护（开启 Codex 自带的 update_plan 计划工具），在 Companion 设置里关闭「长任务先列计划」即可删除";
 export const PLAN_TOOL_SNIPPET = "[tools.update_plan]\nenabled = true";

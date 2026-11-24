@@ -1,4 +1,4 @@
-import { CodexCompanionService } from "../codex-companion-service.mjs";
+import { AgentCompanionService } from "../agent-companion-service.mjs";
 import { CodexInjector } from "../injector.mjs";
 import { CompanionConfig } from "../companion-config.mjs";
 import { DEFAULT_CODEX_EXECUTABLE, detectCodexProxy } from "../launcher.mjs";
@@ -9,7 +9,7 @@ export async function createEmbyRuntime(port, {
   configStore = new CompanionConfig(),
   executable = DEFAULT_CODEX_EXECUTABLE,
   platform,
-  serviceFactory = ({ logger, configStore, platform }) => new CodexCompanionService({
+  serviceFactory = ({ logger, configStore, platform }) => new AgentCompanionService({
     logger, configStore, platform,
     inspectCodexProxy: () => detectCodexProxy({ executable, cdpPort: port })
   }),
@@ -60,10 +60,10 @@ export function createRuntimeShutdown({
         const code = typeof failure.code === "string" && /^[A-Z][A-Z0-9_]*$/.test(failure.code)
           ? `（${failure.code}）`
           : "";
-        logger.error(`[codex-companion] 停止媒体会话失败${code}`);
+        logger.error(`[agent-companion] 停止媒体会话失败${code}`);
         processRef.exitCode = 1;
       } else if (signal) {
-        logger.info(`[codex-companion] 已停止维护（${signal}）`);
+        logger.info(`[agent-companion] 已停止维护（${signal}）`);
       }
     })();
     return shutdownPromise;

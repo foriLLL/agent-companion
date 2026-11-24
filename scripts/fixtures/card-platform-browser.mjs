@@ -464,7 +464,7 @@ export async function settingsEntrypoints() {
       try {
         await tick();
         if (placement === "standalone-button") {
-          const outer = document.getElementById("codex-companion-root-shell");
+          const outer = document.getElementById("agent-companion-root-shell");
           outer.shadowRoot.querySelector('button[aria-label="Companion 卡片"]').click();
         } else toggle.click();
         await until(() => f.runtime.isPlaced(), `${placement} 入口打开`);
@@ -528,9 +528,9 @@ export async function settingsWithoutSummary() {
 // 有新版本、需要手动处理（自动更新关闭）的状态：说明里放长串不换行文字，检查窄宽度下不横向溢出。
 const UPDATE_STATUS = Object.freeze({
   current: "0.2.0", channel: "homebrew", canApply: true, auto: false, phase: "idle", available: true,
-  latest: { version: "0.2.1", notes: `- 新增自动更新\n- ${"VeryLongUnbrokenReleaseNote".repeat(6)}`, url: "https://github.com/foriLLL/codex_companion/releases/tag/v0.2.1" },
+  latest: { version: "0.2.1", notes: `- 新增自动更新\n- ${"VeryLongUnbrokenReleaseNote".repeat(6)}`, url: "https://github.com/foriLLL/agent-companion/releases/tag/v0.2.1" },
   lastCheckAt: Date.UTC(2026, 10, 17, 3, 0), error: null, pending: null, notice: null,
-  command: "brew upgrade codex-companion", releasesUrl: "https://github.com/foriLLL/codex_companion/releases"
+  command: "brew upgrade agent-companion", releasesUrl: "https://github.com/foriLLL/agent-companion/releases"
 });
 
 export async function settingsLayout() {
@@ -624,8 +624,8 @@ export async function settingsBundle() {
   const { RENDERER_SOURCE, RENDERER_ARTIFACT_HASH } = await import("/src/renderer-embedded.generated.mjs");
   const config = { version: 2, revision: 3, enabled: false, placement: "standalone-button", cards: {}, order: [], launch: { proxy: { enabled: false, port: 7890 } }, agent: { autoRelaunch: true } };
   const sent = [];
-  const previousBinding = globalThis.__CODEX_COMPANION_RPC__;
-  globalThis.__CODEX_COMPANION_RPC__ = raw => {
+  const previousBinding = globalThis.__AGENT_COMPANION_RPC__;
+  globalThis.__AGENT_COMPANION_RPC__ = raw => {
     const request = JSON.parse(raw);
     sent.push(request);
     if (request.method === "companion.settings.get") return Promise.resolve({ config, catalog: CARD_MANIFESTS, agent: null });
@@ -635,13 +635,13 @@ export async function settingsBundle() {
   };
   try {
     (0, eval)(RENDERER_SOURCE);
-    const renderer = globalThis.__CODEX_COMPANION_RENDERER__;
+    const renderer = globalThis.__AGENT_COMPANION_RENDERER__;
     const result = renderer.bootstrap({ config, artifactHash: RENDERER_ARTIFACT_HASH, version: "fixture" });
     equal(result.status, "cards-disabled", "bundle disabled 状态");
-    const bridge = globalThis.__CODEX_COMPANION__;
+    const bridge = globalThis.__AGENT_COMPANION__;
     bridge.setOpen(true);
     await until(() => bridge.isPlaced(), "bundle 设置入口打开");
-    const root = document.getElementById("codex-companion-root-shell").shadowRoot.querySelector("#codex-companion-root").shadowRoot;
+    const root = document.getElementById("agent-companion-root-shell").shadowRoot.querySelector("#agent-companion-root").shadowRoot;
     const gear = root.querySelector('[aria-label="Companion 设置"]');
     // 外框挂载即读一次更新状态：需要手动更新时「卡片配置」带红点。
     await until(() => gear.dataset.update === "available", "bundle 更新红点");
@@ -652,14 +652,14 @@ export async function settingsBundle() {
     equal(sent.map(item => item.method), ["companion.update.status", "companion.settings.get", "companion.agent.status", "companion.update.status"], "bundle 平台 RPC");
     assert(sent.every(item => item.cardId === "companion" && Number.isInteger(item.generation)), "bundle 平台 scope");
     equal(renderer.bootstrap({ config: { ...config, revision: 4 }, artifactHash: RENDERER_ARTIFACT_HASH }).status, "already-mounted", "重复 bundle 不重建入口");
-    assert(globalThis.__CODEX_COMPANION__ === bridge, "重复注入替换了 runtime");
+    assert(globalThis.__AGENT_COMPANION__ === bridge, "重复注入替换了 runtime");
     return { artifact: RENDERER_ARTIFACT_HASH.slice(0, 16), disabledMount: true, scopedRpc: sent.length, reusedRuntime: true };
   } finally {
-    globalThis.__CODEX_COMPANION_RENDERER__?.bootstrap({ action: "unmount" });
-    delete globalThis.__CODEX_COMPANION_RENDERER__;
-    if (previousBinding === undefined) delete globalThis.__CODEX_COMPANION_RPC__;
-    else globalThis.__CODEX_COMPANION_RPC__ = previousBinding;
-    assert(!document.getElementById("codex-companion-root-shell"), "bundle 卸载残留平台外框");
+    globalThis.__AGENT_COMPANION_RENDERER__?.bootstrap({ action: "unmount" });
+    delete globalThis.__AGENT_COMPANION_RENDERER__;
+    if (previousBinding === undefined) delete globalThis.__AGENT_COMPANION_RPC__;
+    else globalThis.__AGENT_COMPANION_RPC__ = previousBinding;
+    assert(!document.getElementById("agent-companion-root-shell"), "bundle 卸载残留平台外框");
   }
 }
 

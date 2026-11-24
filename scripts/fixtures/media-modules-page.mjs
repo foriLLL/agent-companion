@@ -36,7 +36,7 @@ async function handle(method, params) {
   if (method === "emby.servers.list") return { servers: [{ key: "fixture", name: "夹具" }] };
   if (method === "emby.home.get") return { views: [], resume: [], latest: [movie] };
   if (method === "emby.search") return { items: [movie] };
-  if (method === "emby.playback.open") return { playbackId: "emby-play", itemId: params.itemId, streamMode: mode.startsWith("native") ? "direct-mp4" : mode, directMediaUrl: mode.startsWith("native") ? `https://codex-companion.invalid/${location.port}/hls/11111111-1111-4111-8111-111111111111/${mode === "native" ? "clip.mp4" : "missing.mp4"}` : undefined, hlsUrl: `${base}/stream.m3u8`, subtitles: [{ index: 0, language: "chi", label: "中文", isExternal: true }], selectedSubtitleIndex: 0, subtitleMode: "external-vtt", initialBufferSeconds: 0.5 };
+  if (method === "emby.playback.open") return { playbackId: "emby-play", itemId: params.itemId, streamMode: mode.startsWith("native") ? "direct-mp4" : mode, directMediaUrl: mode.startsWith("native") ? `https://agent-companion.invalid/${location.port}/hls/11111111-1111-4111-8111-111111111111/${mode === "native" ? "clip.mp4" : "missing.mp4"}` : undefined, hlsUrl: `${base}/stream.m3u8`, subtitles: [{ index: 0, language: "chi", label: "中文", isExternal: true }], selectedSubtitleIndex: 0, subtitleMode: "external-vtt", initialBufferSeconds: 0.5 };
   if (method === "emby.playback.subtitle.load") return { data: "WEBVTT\n\n00:00:00.000 --> 00:00:10.000\n字幕夹具\n" };
   if (method === "emby.playback.subtitle.select") return { selectedSubtitleIndex: params.subtitleStreamIndex, subtitleMode: params.subtitleStreamIndex === null ? "off" : "external-vtt" };
   if (method === "emby.resource.load") {
@@ -309,7 +309,7 @@ async function run() {
   embyContext.root.querySelector(".emby-list-button").click();
   await wait(() => embyContext.root.querySelector("video")?.readyState >= 2, "CDP 拦截原生直放首帧");
   const nativeVideo = embyContext.root.querySelector("video");
-  assert(nativeVideo.currentSrc.startsWith("https://codex-companion.invalid/"), "原生直放不经 MSE/RPC");
+  assert(nativeVideo.currentSrc.startsWith("https://agent-companion.invalid/"), "原生直放不经 MSE/RPC");
   emby.visibilityChanged({ visible: false, reason: "inline-collapse" });
   emby.visibilityChanged({ visible: true });
   assert(embyContext.root.querySelector("video") === nativeVideo, "原生直放隐藏后保留同一视频元素");

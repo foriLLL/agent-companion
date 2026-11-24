@@ -23,7 +23,7 @@ export const AGENT_VERSION = packageInfo.version;
 export const defaultAgentLockPath = (home = homedir()) => join(companionDataDir(home), "agent.lock");
 
 export function resolveCodexAppPath({ env = process.env } = {}) {
-  return resolve(env.CODEX_COMPANION_CODEX_APP || defaultCodexExecutable("darwin").replace(/\/Contents\/MacOS\/[^/]+$/, ""));
+  return resolve(env.AGENT_COMPANION_CODEX_APP || defaultCodexExecutable("darwin").replace(/\/Contents\/MacOS\/[^/]+$/, ""));
 }
 
 // lockf/flock 锁随父进程 FD 的关闭自动释放。文件不删除，避免并发打开不同 inode。
@@ -105,7 +105,7 @@ export function createAgentDependencies(options = {}) {
   const platform = options.hostPlatform ?? process.platform;
   const appPath = options.appPath ?? resolveCodexAppPath({ env });
   const executable = options.executable ?? (platform === "linux"
-    ? resolve(env.CODEX_COMPANION_CODEX_EXECUTABLE || defaultCodexExecutable("linux"))
+    ? resolve(env.AGENT_COMPANION_CODEX_EXECUTABLE || defaultCodexExecutable("linux"))
     : `${appPath}/Contents/MacOS/${DEFAULT_CODEX_EXECUTABLE.split("/").at(-1)}`);
   // 原生助手（NSWorkspace）只存在于 macOS，其它平台不自动查找。
   const helperPath = options.helperPath !== undefined ? options.helperPath : platform !== "darwin" ? null
@@ -117,7 +117,7 @@ export function createAgentDependencies(options = {}) {
     home, hostPlatform: platform, executable, helperPath, nativeBridge,
     lockPath: options.lockPath ?? defaultAgentLockPath(home),
     configStore: options.configStore ?? new CompanionConfig({
-      path: options.configPath ?? env.CODEX_COMPANION_CONFIG_PATH ?? defaultCompanionConfigPath(home), execFileImpl: options.execFileImpl
+      path: options.configPath ?? env.AGENT_COMPANION_CONFIG_PATH ?? defaultCompanionConfigPath(home), execFileImpl: options.execFileImpl
     }),
     runtimeState: options.runtimeState ?? new RuntimeState({ path: options.runtimePath ?? defaultRuntimeStatePath(home) }),
     fallbackSnapshot: options.fallbackSnapshot ?? createPollingSnapshot({ executable, execFileImpl: options.execFileImpl, now: options.now, platform })
@@ -183,7 +183,7 @@ export async function runAgent(options = {}) {
   let watchdog;
   let updater = null;
   const waits = new Map();
-  const report = error => logger.warn?.(`[codex-companion] agent：${error.message ?? error}`);
+  const report = error => logger.warn?.(`[agent-companion] agent：${error.message ?? error}`);
   const platform = {
     getAgentStatus: () => getAgentStatus({ available: !stopped, pid: processRef.pid, config,
       snapshot: adapter.snapshotValue, attachment: adapter.attachment, lastEvent: adapter.state.lastEvent,
@@ -280,7 +280,7 @@ export async function runAgent(options = {}) {
         try { await watcher?.close(); }
         finally { await adapter?.close(); }
       } catch (error) {
-        fileLogger?.error(`[codex-companion] agent 停止失败：${error.message}`);
+        fileLogger?.error(`[agent-companion] agent 停止失败：${error.message}`);
         throw error;
       } finally {
         try { await fileLogger?.close(); }
@@ -310,9 +310,9 @@ export async function runAgent(options = {}) {
       try {
         watchdog = (options.startWatchdogImpl ?? startMainThreadWatchdog)({
           ...(options.mainThreadWatchdog === true ? {} : options.mainThreadWatchdog), logPath: fileLogger?.path ?? null,
-          onError: error => logger.warn?.(`[codex-companion] agent 主线程看门狗异常：${error.message ?? error}`)
+          onError: error => logger.warn?.(`[agent-companion] agent 主线程看门狗异常：${error.message ?? error}`)
         });
-      } catch (error) { logger.warn?.(`[codex-companion] agent 主线程看门狗启动失败：${error.message ?? error}`); }
+      } catch (error) { logger.warn?.(`[agent-companion] agent 主线程看门狗启动失败：${error.message ?? error}`); }
     }
     config = await deps.configStore.loadV2({ strict: true });
     const initialState = await deps.runtimeState.load();
@@ -350,7 +350,7 @@ export async function runAgent(options = {}) {
     if (!watchHealthy) { await poll(); schedulePoll(); }
     return { running: true, stop, controller, adapter, ...platform };
   } catch (error) {
-    fileLogger?.error(`[codex-companion] agent 启动失败：${error.message}`);
+    fileLogger?.error(`[agent-companion] agent 启动失败：${error.message}`);
     await stop();
     throw error;
   }

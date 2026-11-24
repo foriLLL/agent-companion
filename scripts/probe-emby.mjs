@@ -96,7 +96,7 @@ export async function runProbe({
   clientFactory = (settings) => new EmbyClient(settings),
   directSessionFactory = (settings) => new DirectMp4Session(settings),
   ffmpegSessionFactory = (settings) => new FfmpegFmp4Session(settings),
-  deviceId = `codex-companion-probe-${randomUUID()}`
+  deviceId = `agent-companion-probe-${randomUUID()}`
 }) {
   const server = normalizeServerUrl(options.server || await promptText("Emby 服务器", { input, output }));
   const username = options.username || await promptText("用户名", { input, output });

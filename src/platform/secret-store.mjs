@@ -213,7 +213,7 @@ function linuxSecretService({ dataDir, runImpl }) {
       return fallback.read(service, account);
     },
     async write(service, account, secret) {
-      const result = await attempt(() => runImpl("secret-tool", ["store", "--label", `Codex Companion (${service})`, ...attributes(service, account)], secret));
+      const result = await attempt(() => runImpl("secret-tool", ["store", "--label", `Agent Companion (${service})`, ...attributes(service, account)], secret));
       if (!result.ok) {
         store.kind = fallback.kind;
         store.label = fallback.label;

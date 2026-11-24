@@ -43,7 +43,7 @@ export function watchMainThread({ view, stallMs, intervalMs, suspendGapMs = inte
 // 万一信号被拦截，稍后补一个 SIGKILL。
 export function abortStalledProcess(stalledMs, { pid, logPath, now, writeSync, appendFileSync, kill,
   signal = "SIGABRT", setTimeoutImpl = setTimeout, killDelayMs = 2_000 }) {
-  const line = `${new Date(now()).toISOString()} [ERROR] [codex-companion] agent 主线程已 ${Math.round(stalledMs / 1000)} 秒无响应，`
+  const line = `${new Date(now()).toISOString()} [ERROR] [agent-companion] agent 主线程已 ${Math.round(stalledMs / 1000)} 秒无响应，`
     + `以 ${signal} 退出，等待后台服务重启\n`;
   try { writeSync(2, line); } catch {}
   if (logPath) { try { appendFileSync(logPath, line, { mode: 0o600 }); } catch {} }

@@ -308,7 +308,7 @@ export function mount(ctx) {
     }).catch((errorValue) => {
       if (img.isConnected && generation === imageLoadGeneration) {
         img.dataset.imageState = "failed";
-        console.warn("[codex-companion] Emby 图片加载失败", {
+        console.warn("[agent-companion] Emby 图片加载失败", {
           item: item?.name || item?.id || "unknown",
           code: toRpcError(errorValue).code
         });
@@ -1522,7 +1522,7 @@ export function mount(ctx) {
   const reportWorkerFallback = () => {
     if (workerFallbackReported) return;
     workerFallbackReported = true;
-    console.warn("[codex-companion] HLS Blob Worker 不可用，已降级到主线程解码");
+    console.warn("[agent-companion] HLS Blob Worker 不可用，已降级到主线程解码");
   };
 
   const activatePlaybackState = (video, playback) => {
@@ -1598,7 +1598,7 @@ export function mount(ctx) {
       const url = new URL(String(value ?? ""));
       const uuid = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
       if (
-        url.origin !== "https://codex-companion.invalid"
+        url.origin !== "https://agent-companion.invalid"
         || url.username
         || url.password
         || url.hash

@@ -6,7 +6,7 @@ function rpcError(code, message) {
 const RECHECK_MS = 3000;
 const CHECK_TIMEOUT_MS = 3000;
 
-export function createRpcClient({ binding = () => globalThis.__CODEX_COMPANION_RPC__, timeoutMs = 70_000,
+export function createRpcClient({ binding = () => globalThis.__AGENT_COMPANION_RPC__, timeoutMs = 70_000,
   recheckMs = RECHECK_MS, checkTimeoutMs = CHECK_TIMEOUT_MS } = {}) {
   const pending = new Map();
   let sequence = 0;

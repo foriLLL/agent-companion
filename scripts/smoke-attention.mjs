@@ -118,7 +118,7 @@ try {
       color: '#e5484d', action: { label: '去处理', run: () => actions.push({ key, fullscreen: Boolean(document.fullscreenElement) }) }, ...extra });
   })()`);
 
-  const host = `document.getElementById('codex-companion-attention')`;
+  const host = `document.getElementById('agent-companion-attention')`;
   const panel = `${host}?.shadowRoot.querySelector('.panel')`;
   const open = `Boolean(${panel}?.matches(':popover-open'))`;
   const button = (name) => `${host}.shadowRoot.querySelector(${JSON.stringify(name)})`;
@@ -145,7 +145,7 @@ try {
   assert.equal(await evaluate(`video.paused`), false, "只提醒不暂停");
   assert.equal(await evaluate(`${button(".resume")}.hidden`), true, "没暂停时不显示继续播放");
   assert.equal(await evaluate(`${button(".close")}.textContent`), "知道了");
-  assert.equal(await onTop(), "codex-companion-attention", "面板在最上层可点");
+  assert.equal(await onTop(), "agent-companion-attention", "面板在最上层可点");
   // 不全屏：贴在正在看的视频左侧，不挡画面。
   // offset* 不受打开动画的位移影响。
   const box = `(() => { const node = ${panel}; return { left: node.offsetLeft, top: node.offsetTop, right: innerWidth - node.offsetLeft - node.offsetWidth }; })()`;
@@ -188,16 +188,16 @@ try {
   await evaluate(`alert('fs1')`);
   await waitFor(open, "全屏前的提醒");
   await evaluate(`enterFullscreen()`);
-  assert.notEqual(await onTop(), "codex-companion-attention", "夹具：全屏元素后进顶层，先盖住面板");
+  assert.notEqual(await onTop(), "agent-companion-attention", "夹具：全屏元素后进顶层，先盖住面板");
   await evaluate(`announceFullscreen()`);
   await waitFor(`document.fullscreenElement === stage && ${panel}.dataset.fullscreen === 'true'`, "进入全屏");
-  assert.equal(await onTop(), "codex-companion-attention", "进入全屏后面板重新排到画面之上");
+  assert.equal(await onTop(), "agent-companion-attention", "进入全屏后面板重新排到画面之上");
   assert.deepEqual(await evaluate(`(() => { const a = ${box}; return [a.top, a.right]; })()`), [16, 16], "全屏时在右上角");
   await evaluate(`${button(".close")}.click()`);
   await waitFor(`!${open}`, "收起");
   await evaluate(`alert('fs2', { pause: true })`);
   await waitFor(`${open} && video.paused`, "全屏中暂停并提醒");
-  assert.equal(await onTop(), "codex-companion-attention", "全屏中的新提醒在画面之上");
+  assert.equal(await onTop(), "agent-companion-attention", "全屏中的新提醒在画面之上");
   await screenshot("attention-fullscreen.png");
   // 去处理：先退出全屏再跳转，不替用户恢复播放。
   await evaluate(`${host}.shadowRoot.querySelector('li button.go').click()`);

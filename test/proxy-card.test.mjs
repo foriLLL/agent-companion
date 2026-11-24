@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import net from "node:net";
 import test from "node:test";
 import { createService, probeLoopbackPort } from "../src/cards/proxy/service.mjs";
-import { CodexCompanionService } from "../src/codex-companion-service.mjs";
+import { AgentCompanionService } from "../src/agent-companion-service.mjs";
 
 const context = { signal: new AbortController().signal };
 
@@ -56,7 +56,7 @@ test("probeLoopbackPort 区分监听中与已关闭的本机端口", async () =>
 });
 
 test("代理卡通过平台 RPC 路由，并使用注入的 Codex 检测", async () => {
-  const service = new CodexCompanionService({
+  const service = new AgentCompanionService({
     configStore: { loadV2: async () => ({ enabled: true, cards: { proxy: { enabled: true, settings: {} } } }) },
     inspectCodexProxy: async () => ({ running: false, proxyPort: null })
   });

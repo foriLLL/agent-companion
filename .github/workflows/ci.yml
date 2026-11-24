@@ -103,8 +103,8 @@ jobs:
 
       - name: Smoke test x64 binary
         run: |
-          dist/linux-x64/codex-companion/codex-companion --help | grep -F "open-codex"
-          dist/linux-x64/codex-companion/codex-companion cards list | node -e 'JSON.parse(require("fs").readFileSync(0, "utf8"))'
+          dist/linux-x64/agent-companion/agent-companion --help | grep -F "open-codex"
+          dist/linux-x64/agent-companion/agent-companion cards list | node -e 'JSON.parse(require("fs").readFileSync(0, "utf8"))'
 
       - name: Lint installer
         run: shellcheck packaging/install.sh

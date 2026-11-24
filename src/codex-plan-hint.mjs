@@ -12,7 +12,8 @@ export { PLAN_HINT_START, PLAN_HINT_END, PLAN_HINT_BODY, PLAN_TOOL_MARKER, PLAN_
 // 关闭开关或卸载 Companion 时删除。Codex 只在新会话开始时读取这些文件。
 
 // 连同前面的空行一起匹配；标记行的说明文字以后可能改，只认固定前缀。
-const BLOCK = /\n*<!-- codex-companion:plan-hint\b[^\n]*-->\n[\s\S]*?<!-- \/codex-companion:plan-hint -->\n?/;
+// 也认改名前写下的 codex-companion 标记：开启时换成新标记，关闭或卸载时一并删除。
+const BLOCK = /\n*<!-- (agent|codex)-companion:plan-hint\b[^\n]*-->\n[\s\S]*?<!-- \/\1-companion:plan-hint -->\n?/;
 const FILE_LIMIT = 1024 * 1024;
 // Codex 的全局指令：AGENTS.override.md 非空时只读它，否则读 AGENTS.md。
 const OVERRIDE = "AGENTS.override.md";
@@ -27,11 +28,11 @@ export function hasHint(text) {
 // 开始/结束标记：只认「标记注释 + [tools.update_plan] + enabled = true」，而且之后直到下一张表只有空行或注释。
 // 用户在这张表里加了别的键、改了值，就不再算 Companion 写的，开关不再动它。
 // 只认固定前缀，标记行的说明文字以后可能改。
-const PLAN_TOOL_PREFIX = "# codex-companion:plan-tool";
+const PLAN_TOOL_PREFIXES = ["# agent-companion:plan-tool", "# codex-companion:plan-tool"];
 
 function findPlanTool(lines) {
   for (let index = 0; index < lines.length - 1; index += 1) {
-    if (!lines[index].startsWith(PLAN_TOOL_PREFIX) || lines[index + 1].trim() !== "[tools.update_plan]") continue;
+    if (!PLAN_TOOL_PREFIXES.some(prefix => lines[index].startsWith(prefix)) || lines[index + 1].trim() !== "[tools.update_plan]") continue;
     let key = index + 2;
     while (key < lines.length && !lines[key].trim()) key += 1;
     if (key >= lines.length || !/^enabled\s*=\s*true$/.test(lines[key].trim())) continue;

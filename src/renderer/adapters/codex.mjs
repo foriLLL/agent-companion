@@ -9,8 +9,8 @@ export function createCodexAdapter({ host, placement = "standalone-button", onVi
   const { MutationObserver, ResizeObserver, HTMLButtonElement, DOMMatrixReadOnly } = window;
   const getComputedStyle = window.getComputedStyle.bind(window);
   const matchMedia = window.matchMedia.bind(window);
-  const hostId = "codex-companion-root";
-  const railId = "codex-companion-rail";
+  const hostId = "agent-companion-root";
+  const railId = "agent-companion-rail";
   // 原生 Summary 面板的默认宽度；独立抽屉同宽，原生布局判定按它计算。
   const PANEL_WIDTH = 300;
   const hostStyles = new Map();
@@ -100,7 +100,7 @@ export function createCodexAdapter({ host, placement = "standalone-button", onVi
       const { value, priority } = managedAnimationColumnPosition;
       if (value) managedAnimationColumn.style.setProperty("position", value, priority);
       else managedAnimationColumn.style.removeProperty("position");
-      restoreNativeAttribute(managedAnimationColumn, "data-codex-companion-animation-column");
+      restoreNativeAttribute(managedAnimationColumn, "data-agent-companion-animation-column");
     }
     managedAnimationColumn = null;
     managedAnimationColumnPosition = null;
@@ -115,7 +115,7 @@ export function createCodexAdapter({ host, placement = "standalone-button", onVi
         priority: column.style.getPropertyPriority("position")
       };
     }
-    markNative(column, "data-codex-companion-animation-column", "true");
+    markNative(column, "data-agent-companion-animation-column", "true");
     // transform 动画本身也会建立 containing block。显式固定 position 后，
     // 动画结束移除 transform 时 rail 不会改用外层 containing block 而横跳 16px。
     column.style.setProperty("position", "relative", "important");
@@ -128,7 +128,7 @@ export function createCodexAdapter({ host, placement = "standalone-button", onVi
         else managedScrollRoot.style.removeProperty(property);
       }
       managedScrollRoot.scrollTop = managedScrollRootTop;
-      restoreNativeAttribute(managedScrollRoot, "data-codex-companion-scroll-root");
+      restoreNativeAttribute(managedScrollRoot, "data-agent-companion-scroll-root");
     }
     managedScrollRoot = null;
     managedScrollRootStyles = null;
@@ -150,7 +150,7 @@ export function createCodexAdapter({ host, placement = "standalone-button", onVi
         priority: scrollRoot.style.getPropertyPriority(property)
       }));
     }
-    markNative(scrollRoot, "data-codex-companion-scroll-root", summary.mode);
+    markNative(scrollRoot, "data-agent-companion-scroll-root", summary.mode);
     scrollRoot.style.setProperty("width", "332px", "important");
     scrollRoot.style.setProperty("min-width", "332px", "important");
     scrollRoot.style.setProperty("max-width", "332px", "important");
@@ -880,7 +880,7 @@ export function createCodexAdapter({ host, placement = "standalone-button", onVi
 
   // 平移量由注册过的自定义属性驱动，才能与抽屉同时开始、同时结束地动画；
   // 样式表覆盖而非改写原生 inline style，关闭时恢复的是原生当前状态。
-  const DOCK_SHIFT = "--codex-companion-dock-shift";
+  const DOCK_SHIFT = "--agent-companion-dock-shift";
   let dockShiftAnimatable = false;
   if (typeof window.CSS?.registerProperty === "function") {
     try {

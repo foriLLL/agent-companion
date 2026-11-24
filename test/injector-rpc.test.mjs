@@ -65,7 +65,7 @@ class AutoReplyWebSocket {
         result = { result: { value: { status: payload.action === "unmount" ? "unmounted" : "mounted" } } };
       } else if (source.includes("probeRpc(")) {
         result = { result: { value: this.probe } };
-      } else if (source.startsWith('globalThis["__CODEX_COMPANION__"]?.runtime?.applyConfig(')) {
+      } else if (source.startsWith('globalThis["__AGENT_COMPANION__"]?.runtime?.applyConfig(')) {
         this.health.config = JSON.parse(source.slice(source.indexOf("applyConfig(") + "applyConfig(".length, -1));
         result = { result: { value: true } };
       } else {
@@ -162,8 +162,8 @@ test("常驻 mount 在当前文档和新文档中都先加载本地 runtime prel
   const evaluate = calls.find(({ method }) => method === "Runtime.evaluate");
   assert.ok(newDocument.params.source.startsWith(prelude));
   assert.ok(evaluate.params.expression.startsWith(prelude));
-  assert.match(newDocument.params.source, /codex-companion-root/);
-  assert.match(evaluate.params.expression, /codex-companion-root/);
+  assert.match(newDocument.params.source, /agent-companion-root/);
+  assert.match(evaluate.params.expression, /agent-companion-root/);
 });
 
 test("重叠扫描不会为同一 target 重复注入或泄漏连接", async () => {
@@ -270,7 +270,7 @@ test("enabled=false 时仍挂载新页面的设置入口，已有 runtime 通过
   await injector.scanNow();
   assert.equal(socket.health.config.enabled, true);
   const mounts = socket.calls.filter(({ method, params }) => method === "Runtime.evaluate" && params.expression.includes('"action":"mount"'));
-  const updates = socket.calls.filter(({ method, params }) => method === "Runtime.evaluate" && params.expression.startsWith('globalThis["__CODEX_COMPANION__"]?.runtime?.applyConfig('));
+  const updates = socket.calls.filter(({ method, params }) => method === "Runtime.evaluate" && params.expression.startsWith('globalThis["__AGENT_COMPANION__"]?.runtime?.applyConfig('));
   assert.equal(mounts.length, 1, "总开关不重跑 bundle");
   assert.equal(updates.length, 2);
 
@@ -300,7 +300,7 @@ test("Injector 拒绝冲突的 service 配置", () => {
 });
 
 const mountCalls = (socket) => socket.calls.filter(({ method, params }) => method === "Runtime.evaluate" && params.expression.includes('"action":"mount"'));
-const configCalls = (socket) => socket.calls.filter(({ method, params }) => method === "Runtime.evaluate" && params.expression.startsWith('globalThis["__CODEX_COMPANION__"]?.runtime?.applyConfig('));
+const configCalls = (socket) => socket.calls.filter(({ method, params }) => method === "Runtime.evaluate" && params.expression.startsWith('globalThis["__AGENT_COMPANION__"]?.runtime?.applyConfig('));
 const quietLogger = { info() {}, warn() {}, debug() {} };
 
 async function runningInjector(t, options = {}) {

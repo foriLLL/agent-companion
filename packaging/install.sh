@@ -1,25 +1,25 @@
 #!/bin/bash
-# 安装 GitHub Release 中的 Codex Companion：
+# 安装 GitHub Release 中的 Agent Companion：
 # - macOS：经 Developer ID 签名和 Apple 公证的 App；
 # - Linux（预览）：单文件后端，发布时把本版本各架构归档的 SHA256 写入本脚本。
 
 set -euo pipefail
 
-REPO="${CODEX_COMPANION_REPO:-foriLLL/codex_companion}"
-APP_NAME="Codex Companion"
-BUNDLE_ID="com.codexcompanion.launcher"
+REPO="${AGENT_COMPANION_REPO:-foriLLL/agent-companion}"
+APP_NAME="Agent Companion"
+BUNDLE_ID="com.agentcompanion.launcher"
 EXPECTED_TEAM_ID="__APPLE_TEAM_ID__"
 RELEASE_TAG="__RELEASE_TAG__"
 LINUX_X64_SHA256="__LINUX_X64_SHA256__"
 LINUX_ARM64_SHA256="__LINUX_ARM64_SHA256__"
 FFMPEG_STATUS="missing"
 
-log() { printf '\033[1;36m[codex-companion]\033[0m %s\n' "$1"; }
-die() { printf '\033[1;31m[codex-companion]\033[0m %s\n' "$1" >&2; exit 1; }
+log() { printf '\033[1;36m[agent-companion]\033[0m %s\n' "$1"; }
+die() { printf '\033[1;31m[agent-companion]\033[0m %s\n' "$1" >&2; exit 1; }
 
 has_ffmpeg() {
-  if [ -n "${CODEX_COMPANION_FFMPEG:-}" ] \
-    && [ -x "$CODEX_COMPANION_FFMPEG" ]; then
+  if [ -n "${AGENT_COMPANION_FFMPEG:-}" ] \
+    && [ -x "$AGENT_COMPANION_FFMPEG" ]; then
     return 0
   fi
   command -v ffmpeg >/dev/null 2>&1 \
@@ -51,7 +51,7 @@ ensure_optional_ffmpeg() {
     FFMPEG_STATUS="existing"
     return 0
   fi
-  if [ "${CODEX_COMPANION_SKIP_FFMPEG:-0}" = "1" ]; then
+  if [ "${AGENT_COMPANION_SKIP_FFMPEG:-0}" = "1" ]; then
     FFMPEG_STATUS="skipped"
     return 0
   fi
@@ -85,14 +85,14 @@ print_ffmpeg_summary() {
       ;;
     skipped)
       cat <<EOF
-  ⚠️  FFmpeg：已按 CODEX_COMPANION_SKIP_FFMPEG=1 跳过安装。
+  ⚠️  FFmpeg：已按 AGENT_COMPANION_SKIP_FFMPEG=1 跳过安装。
       Emby HLS 和常规码率兼容 MP4 仍可播放；HEVC、EC-3、MKV、超高码率媒体和图形字幕烧录不可用。
       如需补装，请运行：brew install ffmpeg
 EOF
       ;;
     *)
       cat <<EOF
-  ⚠️  FFmpeg：未安装成功，但 Codex Companion 已可正常使用。
+  ⚠️  FFmpeg：未安装成功，但 Agent Companion 已可正常使用。
       Emby HLS 和常规码率兼容 MP4 仍可播放；HEVC、EC-3、MKV、超高码率媒体和图形字幕烧录不可用。
       安装 Homebrew：https://brew.sh/
       安装 FFmpeg：brew install ffmpeg
@@ -123,36 +123,36 @@ verify_archive() {
 # ---------------------------------------------------------------- macOS
 
 uninstall_macos() {
-  INSTALL_DIR="${CODEX_COMPANION_INSTALL_DIR:-$HOME/Applications}"
+  INSTALL_DIR="${AGENT_COMPANION_INSTALL_DIR:-$HOME/Applications}"
   APP_PATH="$INSTALL_DIR/$APP_NAME.app"
   if [ ! -d "$APP_PATH" ] || [ -L "$APP_PATH" ]; then die "未找到可卸载的 App：$APP_PATH"; fi
   local identifier backend
   identifier="$(defaults read "$APP_PATH/Contents/Info" CFBundleIdentifier 2>/dev/null || true)"
   [ "$identifier" = "$BUNDLE_ID" ] || die "Bundle ID 不匹配；拒绝删除 $APP_PATH。"
-  backend="$APP_PATH/Contents/Resources/codex-companion"
+  backend="$APP_PATH/Contents/Resources/agent-companion"
   [ -x "$backend" ] || die "未找到 App 内的后端；请在 App 中停用后手动卸载。"
   # 后台服务未成功停用时保留 App，避免留下指向已删除程序的 job。
   "$backend" agent uninstall || die "停用后台服务失败；App 已保留，请重试。"
   rm -rf "$APP_PATH"
-  log "Companion 已卸载；配置保留在 ~/Library/Application Support/codex-companion。"
+  log "Companion 已卸载；配置保留在 ~/Library/Application Support/agent-companion。"
 }
 
 install_macos() {
-  INSTALL_DIR="${CODEX_COMPANION_INSTALL_DIR:-$HOME/Applications}"
+  INSTALL_DIR="${AGENT_COMPANION_INSTALL_DIR:-$HOME/Applications}"
   APP_PATH="$INSTALL_DIR/$APP_NAME.app"
   [[ "$EXPECTED_TEAM_ID" =~ ^[A-Z0-9]{10}$ ]] \
     || die "这是未注入有效 Apple Team ID 的安装脚本模板，请改用 GitHub Release 中的 install.sh。"
 
   case "$(uname -m)" in
-    arm64) ASSET="codex-companion-darwin-arm64.tar.gz" ;;
-    x86_64) ASSET="codex-companion-darwin-x64.tar.gz" ;;
+    arm64) ASSET="agent-companion-darwin-arm64.tar.gz" ;;
+    x86_64) ASSET="agent-companion-darwin-x64.tar.gz" ;;
     *) die "不支持的架构：$(uname -m)" ;;
   esac
 
   [ -d "/Applications/ChatGPT.app" ] || \
     log "警告：未检测到 /Applications/ChatGPT.app；安装可继续，但运行前需要先安装 Codex Desktop。"
 
-  VERSION="${CODEX_COMPANION_VERSION:-latest}"
+  VERSION="${AGENT_COMPANION_VERSION:-latest}"
   if [ "$VERSION" = "latest" ]; then
     URL="https://github.com/$REPO/releases/latest/download/$ASSET"
   else
@@ -228,9 +228,9 @@ install_macos() {
   已安装到：$APP_PATH
   即将打开引导，请点击「启用自动加载」；如需批准，请前往「系统设置 › 通用 › 登录项」。
   以后直接打开 Codex 即可；「$APP_NAME」仅用于引导、状态和备用设置。
-  日志：~/Library/Logs/codex-companion/
+  日志：~/Library/Logs/agent-companion/
   卸载：在 App 中点击「卸载 Companion」后移到废纸篓，或运行 bash install.sh --uninstall。
-  配置保留在 ~/Library/Application Support/codex-companion。
+  配置保留在 ~/Library/Application Support/agent-companion。
 
 EOF
   print_ffmpeg_summary
@@ -242,18 +242,18 @@ EOF
 
 # ---------------------------------------------------------------- Linux（预览）
 
-LINUX_FILES=(codex-companion LICENSE THIRD_PARTY_NOTICES.md hls.js.LICENSE mp4box.LICENSE undici.LICENSE openhongguo.LICENSE BUN-LICENSE.md)
+LINUX_FILES=(agent-companion LICENSE THIRD_PARTY_NOTICES.md hls.js.LICENSE mp4box.LICENSE undici.LICENSE openhongguo.LICENSE BUN-LICENSE.md)
 # 红果 SDK 运行时（wasm 无法编进单文件后端）放在同级目录；文件清单与 scripts/build-linux.mjs 一致。
 LINUX_RUNTIME_DIR="openhongguo"
 LINUX_RUNTIME_FILES=(index.js package.json LICENSE GO_LICENSE dist/openhongguo.wasm dist/wasm_exec.js)
 
 linux_install_dir() {
-  if [ -n "${CODEX_COMPANION_INSTALL_DIR:-}" ]; then
-    printf '%s\n' "$CODEX_COMPANION_INSTALL_DIR"
+  if [ -n "${AGENT_COMPANION_INSTALL_DIR:-}" ]; then
+    printf '%s\n' "$AGENT_COMPANION_INSTALL_DIR"
   elif [[ "${XDG_DATA_HOME:-}" = /* ]]; then
-    printf '%s\n' "$XDG_DATA_HOME/codex-companion"
+    printf '%s\n' "$XDG_DATA_HOME/agent-companion"
   else
-    printf '%s\n' "$HOME/.local/share/codex-companion"
+    printf '%s\n' "$HOME/.local/share/agent-companion"
   fi
 }
 
@@ -274,11 +274,11 @@ linux_runtime_is_ours() {
 }
 
 # 安装目录只能不存在，或是只含 Companion 自己文件的真实目录：
-# 避免 CODEX_COMPANION_INSTALL_DIR 指向已有目录时把别人的文件一起替换或删除。
+# 避免 AGENT_COMPANION_INSTALL_DIR 指向已有目录时把别人的文件一起替换或删除。
 linux_dir_is_ours() {
   local directory="$1" entry name file known
   if [ ! -d "$directory" ] || [ -L "$directory" ]; then return 1; fi
-  [ -f "$directory/codex-companion" ] || return 1
+  [ -f "$directory/agent-companion" ] || return 1
   for entry in "$directory"/* "$directory"/.[!.]*; do
     [ -e "$entry" ] || [ -L "$entry" ] || continue
     name="${entry##*/}"
@@ -298,7 +298,7 @@ uninstall_linux() {
   INSTALL_DIR="$(linux_install_dir)"
   linux_dir_is_ours "$INSTALL_DIR" || die "未找到可卸载的 Companion：$INSTALL_DIR"
   # 后台服务未成功停用时保留程序，避免留下指向已删除程序的服务与菜单入口。
-  "$INSTALL_DIR/codex-companion" agent uninstall >/dev/null || die "停用后台服务失败；程序已保留，请重试。"
+  "$INSTALL_DIR/agent-companion" agent uninstall >/dev/null || die "停用后台服务失败；程序已保留，请重试。"
   local file
   for file in "${LINUX_FILES[@]}"; do rm -f "${INSTALL_DIR:?}/$file"; done
   if [ -d "$INSTALL_DIR/$LINUX_RUNTIME_DIR" ]; then
@@ -307,7 +307,7 @@ uninstall_linux() {
     rmdir "$INSTALL_DIR/$LINUX_RUNTIME_DIR"
   fi
   rmdir "$INSTALL_DIR"
-  log "Companion 已卸载，应用菜单恢复为系统原有的 ChatGPT 入口；配置保留在 ~/.config/codex-companion。"
+  log "Companion 已卸载，应用菜单恢复为系统原有的 ChatGPT 入口；配置保留在 ~/.config/agent-companion。"
 }
 
 print_linux_ffmpeg_summary() {
@@ -316,7 +316,7 @@ print_linux_ffmpeg_summary() {
     return 0
   fi
   cat <<EOF
-  ⚠️  FFmpeg：未检测到，但 Codex Companion 已可正常使用。
+  ⚠️  FFmpeg：未检测到，但 Agent Companion 已可正常使用。
       Emby HLS 和常规码率兼容 MP4 仍可播放；HEVC、EC-3、MKV、超高码率媒体和图形字幕烧录不可用。
       如需补装：sudo apt install ffmpeg（Fedora：sudo dnf install ffmpeg-free）
 EOF
@@ -324,7 +324,7 @@ EOF
 
 install_linux() {
   INSTALL_DIR="$(linux_install_dir)"
-  local codex="${CODEX_COMPANION_CODEX_EXECUTABLE:-/usr/lib/chatgpt/ChatGPT}"
+  local codex="${AGENT_COMPANION_CODEX_EXECUTABLE:-/usr/lib/chatgpt/ChatGPT}"
   [ -x "$codex" ] || die "未检测到 ChatGPT 桌面版（$codex）；请先安装：https://learn.chatgpt.com/docs/linux/linux-app"
   if ! command -v systemctl >/dev/null 2>&1 || ! systemctl --user show-environment >/dev/null 2>&1; then
     die "需要 systemd 用户服务（systemctl --user），当前会话不可用。"
@@ -334,8 +334,8 @@ install_linux() {
 
   local asset expected
   case "$(uname -m)" in
-    x86_64|amd64) asset="codex-companion-linux-x64.tar.gz"; expected="$LINUX_X64_SHA256" ;;
-    aarch64|arm64) asset="codex-companion-linux-arm64.tar.gz"; expected="$LINUX_ARM64_SHA256" ;;
+    x86_64|amd64) asset="agent-companion-linux-x64.tar.gz"; expected="$LINUX_X64_SHA256" ;;
+    aarch64|arm64) asset="agent-companion-linux-arm64.tar.gz"; expected="$LINUX_ARM64_SHA256" ;;
     *) die "不支持的架构：$(uname -m)" ;;
   esac
   [[ "$expected" =~ ^[0-9a-f]{64}$ ]] || die "安装脚本缺少 $asset 的校验和；拒绝安装。"
@@ -365,12 +365,12 @@ install_linux() {
   local actual
   actual="$(sha256sum "$TMP/app.tar.gz" | awk '{print $1}')"
   [ "$actual" = "$expected" ] || die "校验和不匹配（期望 $expected，实际 $actual）；拒绝安装。"
-  verify_archive "$TMP/app.tar.gz" "codex-companion"
+  verify_archive "$TMP/app.tar.gz" "agent-companion"
   mkdir -p "$TMP/extract"
   tar -xzf "$TMP/app.tar.gz" -C "$TMP/extract"
-  local staged="$TMP/extract/codex-companion"
-  [ -f "$staged/codex-companion" ] || die "归档中未找到 codex-companion"
-  chmod 0755 "$staged/codex-companion"
+  local staged="$TMP/extract/agent-companion"
+  [ -f "$staged/agent-companion" ] || die "归档中未找到 agent-companion"
+  chmod 0755 "$staged/agent-companion"
 
   log "安装到 $INSTALL_DIR …"
   mkdir -p "$(dirname "$INSTALL_DIR")"
@@ -391,13 +391,13 @@ install_linux() {
   fi
 
   # 注册 systemd 用户服务并覆盖应用菜单入口；升级时重启服务换上新版本。
-  "$INSTALL_DIR/codex-companion" agent install >/dev/null \
+  "$INSTALL_DIR/agent-companion" agent install >/dev/null \
     || die "注册后台服务失败；程序已安装在 $INSTALL_DIR，按上方提示处理后重新运行本脚本。"
 
   # 没带调试参数（port 为 null）的 ChatGPT 需要从菜单重开一次才能加载卡片。
   local status reopen=""
   sleep 2
-  status="$("$INSTALL_DIR/codex-companion" agent status 2>/dev/null || true)"
+  status="$("$INSTALL_DIR/agent-companion" agent status 2>/dev/null || true)"
   case "$status" in
     *'"running":true'*'"port":null'*) reopen=1 ;;
   esac
@@ -405,9 +405,9 @@ install_linux() {
 
   已安装到：$INSTALL_DIR
   以后从应用菜单打开 ChatGPT 即可加载卡片；在终端直接运行 chatgpt 不会加载。
-  日志：journalctl --user -u codex-companion-agent
+  日志：journalctl --user -u agent-companion-agent
   卸载：bash install.sh --uninstall
-  配置保留在 ~/.config/codex-companion。
+  配置保留在 ~/.config/agent-companion。
 
 EOF
   if [ -n "$reopen" ]; then

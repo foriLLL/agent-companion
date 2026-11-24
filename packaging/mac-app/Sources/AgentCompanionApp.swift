@@ -72,7 +72,7 @@ struct AgentRestartResult: Decodable {
 
 // 路径选择保持纯逻辑，测试不读取真实 bundle 或用户目录。
 func resolveBackendURL(resourcesURL: URL?, developmentPath: String?, isExecutable: (String) -> Bool) -> URL? {
-    if let bundled = resourcesURL?.appendingPathComponent("codex-companion"), isExecutable(bundled.path) {
+    if let bundled = resourcesURL?.appendingPathComponent("agent-companion"), isExecutable(bundled.path) {
         return bundled
     }
     if let developmentPath, isExecutable(developmentPath) { return URL(fileURLWithPath: developmentPath) }
@@ -86,7 +86,7 @@ func parseProxyPort(_ text: String) -> Int? {
     return port
 }
 
-// MARK: - 后端桥（调 Resources/codex-companion 子命令、读写共享配置文件）
+// MARK: - 后端桥（调 Resources/agent-companion 子命令、读写共享配置文件）
 
 enum BackendError: LocalizedError {
     case binaryMissing
@@ -96,7 +96,7 @@ enum BackendError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .binaryMissing:
-            return "找不到 codex-companion 后端，请重新安装。"
+            return "找不到 agent-companion 后端，请重新安装。"
         case .conflict:
             return "配置已在其他窗口更新，正在刷新。"
         case .commandFailed(let message):
@@ -110,7 +110,7 @@ final class CompanionBackend {
 
     private var binaryURL: URL? {
         resolveBackendURL(resourcesURL: Bundle.main.resourceURL,
-                          developmentPath: ProcessInfo.processInfo.environment["CODEX_COMPANION_BACKEND"],
+                          developmentPath: ProcessInfo.processInfo.environment["AGENT_COMPANION_BACKEND"],
                           isExecutable: FileManager.default.isExecutableFile(atPath:))
     }
 
@@ -118,7 +118,7 @@ final class CompanionBackend {
         var environment = ProcessInfo.processInfo.environment
         if let ffmpeg = Bundle.main.resourceURL?.appendingPathComponent("ffmpeg"),
            FileManager.default.isExecutableFile(atPath: ffmpeg.path) {
-            environment["CODEX_COMPANION_FFMPEG"] = ffmpeg.path
+            environment["AGENT_COMPANION_FFMPEG"] = ffmpeg.path
         }
         return environment
     }
@@ -283,9 +283,9 @@ final class AgentRegistration {
     }
 
     static func live(backend: CompanionBackend, defaults: UserDefaults = .standard) -> AgentRegistration {
-        let service = SMAppService.agent(plistName: "com.codexcompanion.agent.plist")
+        let service = SMAppService.agent(plistName: "com.agentcompanion.agent.plist")
         let plist = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/LaunchAgents/com.codexcompanion.agent.plist")
+            .appendingPathComponent("Library/LaunchAgents/com.agentcompanion.agent.plist")
         return AgentRegistration(
             readMethod: { defaults.string(forKey: defaultsKey).flatMap(AgentInstallMethod.init(rawValue:)) },
             writeMethod: { method in
@@ -515,7 +515,7 @@ final class CompanionViewModel: ObservableObject {
                 if uninstall {
                     let alert = NSAlert()
                     alert.messageText = "Companion 已停用"
-                    alert.informativeText = "现在可以将 Codex Companion App 移到废纸篓。配置保留在 ~/Library/Application Support/codex-companion。"
+                    alert.informativeText = "现在可以将 Agent Companion App 移到废纸篓。配置保留在 ~/Library/Application Support/agent-companion。"
                     alert.addButton(withTitle: "知道了")
                     alert.runModal()
                 }
@@ -684,11 +684,11 @@ private struct CardReorderDropDelegate: DropDelegate {
 
 #if !COMPANION_TESTING
 @main
-struct CodexCompanionApp: App {
+struct AgentCompanionApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     var body: some Scene {
-        WindowGroup("Codex Companion") {
+        WindowGroup("Agent Companion") {
             ContentView()
         }
         .windowResizability(.contentSize)

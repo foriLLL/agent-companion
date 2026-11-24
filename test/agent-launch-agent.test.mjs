@@ -27,14 +27,14 @@ test("ProgramArguments 区分 Bun 编译产物、Node、Bun 解释器", () => {
 
 test("install 使用启动脚本声明的固定入口，不记带版本号的 node 与源码路径", macOnly, async t => {
   const home = await temporary(t);
-  const program = "/opt/homebrew/opt/codex-companion/bin/codex-companion";
+  const program = "/opt/homebrew/opt/agent-companion/bin/agent-companion";
   const result = await installMac({ home, helperPath: null, uid: 501, execPath: "/opt/homebrew/Cellar/node/24.2.0/bin/node",
-    cliPath: "/opt/homebrew/Cellar/codex-companion/HEAD-1234567/libexec/src/cli.mjs", isBun: false,
-    env: { CODEX_COMPANION_AGENT_PROGRAM: program }, execFileImpl: async () => ({ stdout: "" }) });
+    cliPath: "/opt/homebrew/Cellar/agent-companion/HEAD-1234567/libexec/src/cli.mjs", isBun: false,
+    env: { AGENT_COMPANION_AGENT_PROGRAM: program }, execFileImpl: async () => ({ stdout: "" }) });
   const { stdout } = await validatePlist("/usr/bin/plutil", ["-convert", "json", "-o", "-", result.plistPath]);
   const plist = JSON.parse(stdout);
   assert.deepEqual(plist.ProgramArguments, [program, "agent"]);
-  assert.equal(plist.EnvironmentVariables.CODEX_COMPANION_AGENT_PROGRAM, undefined);
+  assert.equal(plist.EnvironmentVariables.AGENT_COMPANION_AGENT_PROGRAM, undefined);
 });
 
 test("install 在临时目录生成有效 plist，绝对助手路径/PATH，无代理变量；只调用假 launchctl", macOnly, async t => {
@@ -44,7 +44,7 @@ test("install 在临时目录生成有效 plist，绝对助手路径/PATH，无�
   await writeFile(helper, "fake native helper");
   const result = await installMac({ home, plistDir: join(home, "LaunchAgents & test"), uid: 501, label: "local.test.agent",
     execPath: "/fake/node", cliPath: "/repo/CLI & test.mjs", isBun: false, cwd: home,
-    env: { CODEX_COMPANION_NATIVE_HELPER: "helper", CODEX_COMPANION_CODEX_APP: "/test/Dummy.app", HTTP_PROXY: "secret", ALL_PROXY: "secret" },
+    env: { AGENT_COMPANION_NATIVE_HELPER: "helper", AGENT_COMPANION_CODEX_APP: "/test/Dummy.app", HTTP_PROXY: "secret", ALL_PROXY: "secret" },
     configPath: join(home, "config.json"), execFileImpl: async (...args) => { calls.push(args); return { stdout: "" }; }
   });
   assertMode(await stat(result.plistPath), 0o600);
@@ -59,10 +59,10 @@ test("install 在临时目录生成有效 plist，绝对助手路径/PATH，无�
   assert.equal(plist.RunAtLoad, true);
   assert.deepEqual(plist.KeepAlive, { SuccessfulExit: false });
   assert.equal(plist.ThrottleInterval, 10);
-  assert.equal(plist.StandardOutPath, join(home, "Library/Logs/codex-companion/agent.out.log"));
-  assert.equal(plist.StandardErrorPath, join(home, "Library/Logs/codex-companion/agent.err.log"));
-  assert.deepEqual(plist.EnvironmentVariables, { PATH: AGENT_PATH, CODEX_COMPANION_NATIVE_HELPER: helper,
-    CODEX_COMPANION_CODEX_APP: "/test/Dummy.app", CODEX_COMPANION_CONFIG_PATH: join(home, "config.json") });
+  assert.equal(plist.StandardOutPath, join(home, "Library/Logs/agent-companion/agent.out.log"));
+  assert.equal(plist.StandardErrorPath, join(home, "Library/Logs/agent-companion/agent.err.log"));
+  assert.deepEqual(plist.EnvironmentVariables, { PATH: AGENT_PATH, AGENT_COMPANION_NATIVE_HELPER: helper,
+    AGENT_COMPANION_CODEX_APP: "/test/Dummy.app", AGENT_COMPANION_CONFIG_PATH: join(home, "config.json") });
   assert.deepEqual(calls, [["/bin/launchctl", ["bootout", "gui/501/local.test.agent"]],
     ["/bin/launchctl", ["bootstrap", "gui/501", result.plistPath]]]);
 });
@@ -125,7 +125,7 @@ test("uninstall 先 bootout 再删除 plist，并验证同一实例端口后执�
 
 test("uninstall 过期端口不连接；未注册可幂等删除，bootout 权限错误保留 plist", async t => {
   const home = await temporary(t);
-  const plistPath = join(home, "Library/LaunchAgents/com.codexcompanion.agent.plist");
+  const plistPath = join(home, "Library/LaunchAgents/com.agentcompanion.agent.plist");
   await mkdir(dirname(plistPath), { recursive: true });
   await writeFile(plistPath, "test");
   const options = { home, helperPath: null, uid: 501, runtimeState: stateStore({ port: 51234, codexKey: "stale" }),
@@ -215,7 +215,7 @@ test("CLI agent 子命令解析，status/restart-codex 仅输出一行 JSON，�
 
 test("install 支持首次安装和重装：bootout 完成后才替换 plist，再 bootstrap", async t => {
   const home = await temporary(t);
-  const plistPath = join(home, "Library/LaunchAgents/com.codexcompanion.agent.plist");
+  const plistPath = join(home, "Library/LaunchAgents/com.agentcompanion.agent.plist");
   const calls = [];
   let loaded = false;
   let previousPlist = null;
@@ -225,7 +225,7 @@ test("install 支持首次安装和重装：bootout 完成后才替换 plist，�
       assert.equal(command, "/bin/launchctl");
       calls.push(args[0]);
       if (args[0] === "bootout") {
-        assert.deepEqual(args, ["bootout", "gui/501/com.codexcompanion.agent"]);
+        assert.deepEqual(args, ["bootout", "gui/501/com.agentcompanion.agent"]);
         if (previousPlist === null) await assert.rejects(access(plistPath), { code: "ENOENT" });
         else assert.equal(await readFile(plistPath, "utf8"), previousPlist);
         if (!loaded) throw Object.assign(new Error("not loaded"), { code: "ESRCH" });
@@ -248,7 +248,7 @@ test("install 支持首次安装和重装：bootout 完成后才替换 plist，�
 
 test("install 仅容忍未加载的 bootout 错误，其他错误不覆盖旧 plist 或尝试 bootstrap", async t => {
   const home = await temporary(t);
-  const plistPath = join(home, "Library/LaunchAgents/com.codexcompanion.agent.plist");
+  const plistPath = join(home, "Library/LaunchAgents/com.agentcompanion.agent.plist");
   await mkdir(dirname(plistPath), { recursive: true });
   const options = { home, helperPath: null, env: {}, isBun: true, execPath: "/fake/companion", uid: 501 };
   for (const code of [1, 5, 37, "EACCES"]) {

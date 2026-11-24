@@ -1,7 +1,7 @@
 // 实际 Emby 片源 → 后台 RPC → 注入的播放器 → Chromium 解码/seek/关闭。
 // 测试使用独立浏览器，禁止上报观看进度。用 Bun 运行可验证发布运行时。
 // node scripts/smoke-color.mjs <itemId> <sourceOrdinal>
-// 可追加字幕索引；CODEX_COMPANION_SUBTITLE_WINDOW_ONLY=1 模拟完整字幕端点阻塞，验证真实媒体分段路径。
+// 可追加字幕索引；AGENT_COMPANION_SUBTITLE_WINDOW_ONLY=1 模拟完整字幕端点阻塞，验证真实媒体分段路径。
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -41,7 +41,7 @@ const service = new EmbyService({
   clientFactory: (options) => {
     const client = new EmbyClient(options);
     client.reportPlaybackStarted = client.reportPlaybackProgress = client.reportPlaybackStopped = async () => ({});
-    if (process.env.CODEX_COMPANION_SUBTITLE_WINDOW_ONLY === "1") {
+    if (process.env.AGENT_COMPANION_SUBTITLE_WINDOW_ONLY === "1") {
       const loadResource = client.loadResource.bind(client);
       client.loadResource = (url, options) => options?.resourceType === "subtitle"
         ? new Promise((_resolve, reject) => {
@@ -92,16 +92,16 @@ try {
       if (await read(expression)) return;
       await new Promise((resolve) => setTimeout(resolve, 200));
     }
-    const diagnostics = await read(`(() => { const root=document.getElementById('codex-companion-root-shell')?.shadowRoot?.querySelector('#codex-companion-root')?.shadowRoot;const v=root?.querySelector('video');return {status:root?.querySelector('.emby-subtitle-status')?.textContent,subtitle:root?.querySelector('.emby-subtitle-button')?.title,tracks:[...(v?.textTracks??[])].map(t=>({mode:t.mode,cues:t.cues?.length})),elements:[...(v?.querySelectorAll('track')??[])].map(t=>({ready:t.readyState})),time:v?.currentTime}})()`);
+    const diagnostics = await read(`(() => { const root=document.getElementById('agent-companion-root-shell')?.shadowRoot?.querySelector('#agent-companion-root')?.shadowRoot;const v=root?.querySelector('video');return {status:root?.querySelector('.emby-subtitle-status')?.textContent,subtitle:root?.querySelector('.emby-subtitle-button')?.title,tracks:[...(v?.textTracks??[])].map(t=>({mode:t.mode,cues:t.cues?.length})),elements:[...(v?.querySelectorAll('track')??[])].map(t=>({ready:t.readyState})),time:v?.currentTime}})()`);
     throw new Error(`等待失败：${expression}; ${JSON.stringify({ diagnostics, subtitleExtractions })}`);
   };
-  const root = "document.getElementById('codex-companion-root-shell').shadowRoot";
-  const app = `${root}.querySelector('#codex-companion-root').shadowRoot`;
+  const root = "document.getElementById('agent-companion-root-shell').shadowRoot";
+  const app = `${root}.querySelector('#agent-companion-root').shadowRoot`;
   await read(buildInjectionSource("mount", { placement: "standalone-button", cards: { emby: true } }));
-  await waitFor("window.__CODEX_COMPANION__.emby.getState().view === 'home'");
+  await waitFor("window.__AGENT_COMPANION__.emby.getState().view === 'home'");
   await read(`${root}.querySelector('button').click()`);
   const mapped = { ...mapEmbyItem(item, client), positionTicks: 900_000_000 };
-  await read(`window.__CODEX_COMPANION__.emby.dispatch('showSeries', ${JSON.stringify({ series: { id: item.SeriesId ?? "color-smoke", name: item.SeriesName ?? item.Name }, episodes: [mapped], sourceOptions })})`);
+  await read(`window.__AGENT_COMPANION__.emby.dispatch('showSeries', ${JSON.stringify({ series: { id: item.SeriesId ?? "color-smoke", name: item.SeriesName ?? item.Name }, episodes: [mapped], sourceOptions })})`);
   await read(`${app}.querySelectorAll('.emby-source-chip')[${Number(ordinalArg)}]?.click()`);
   await read(`${app}.querySelector('.emby-episode-button').click()`);
   await waitFor(`${app}.querySelector('video')?.currentTime > 92`);
@@ -142,14 +142,14 @@ try {
   await read(`window.__backgroundVideo = ${app}.querySelector('video'); ${root}.querySelector('button').click()`);
   await waitFor(`${root}.querySelector('.drawer').hidden`);
   await waitFor(`window.__backgroundVideo.currentTime > ${beforeHide + 3}`);
-  const background = await read(`({time:__backgroundVideo.currentTime,paused:__backgroundVideo.paused,muted:__backgroundVideo.muted,volume:__backgroundVideo.volume,playing:__CODEX_COMPANION__.emby.getState().playing})`);
+  const background = await read(`({time:__backgroundVideo.currentTime,paused:__backgroundVideo.paused,muted:__backgroundVideo.muted,volume:__backgroundVideo.volume,playing:__AGENT_COMPANION__.emby.getState().playing})`);
   assert.equal(background.playing,true); assert.equal(background.paused,false); assert.equal(background.muted,false); assert.ok(background.volume>0);
   assert.equal(service.playbacks.size,1);
   await read(`${root}.querySelector('button').click()`);
-  await waitFor(`__CODEX_COMPANION__.isPlaced()`);
+  await waitFor(`__AGENT_COMPANION__.isPlaced()`);
   assert.equal(await read(`${app}.querySelector('video') === __backgroundVideo`),true);
   await read(`${app}.querySelector('.emby-playback-back').click()`);
-  await waitFor("!window.__CODEX_COMPANION__.emby.getState().playing");
+  await waitFor("!window.__AGENT_COMPANION__.emby.getState().playing");
   const cleanupDeadline = Date.now() + 5000;
   while (service.playbacks.size && Date.now() < cleanupDeadline) await new Promise((resolve) => setTimeout(resolve, 100));
   assert.equal(service.playbacks.size, 0);

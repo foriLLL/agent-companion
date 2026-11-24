@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
   <key>CFBundleName</key><string>Companion Native Dummy</string>
-  <key>CFBundleIdentifier</key><string>local.codexcompanion.dummy</string>
+  <key>CFBundleIdentifier</key><string>local.agentcompanion.dummy</string>
   <key>CFBundleExecutable</key><string>native-dummy</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleVersion</key><string>1</string>

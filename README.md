@@ -1,8 +1,8 @@
-# Codex Companion
+# Agent Companion
 
 **简体中文** | [English](README.en.md)
 
-Codex Companion 是 Codex 桌面端（macOS / Linux）的卡片平台：在对话旁边提供一块可扩展的卡片区，
+Agent Companion 是 Codex 桌面端（macOS / Linux）的卡片平台：在对话旁边提供一块可扩展的卡片区，
 并把写卡片这件事交给 AI。一张卡片就是一个目录，约定足够小，你只需要告诉 Codex 想要什么，
 它就能按仓库里的约定把卡片写出来，重新安装后出现在对话旁。
 
@@ -10,7 +10,7 @@ Codex Companion 是 Codex 桌面端（macOS / Linux）的卡片平台：在对�
 
 Companion 以后台服务的形式运行，安装一次后日常只需打开 Codex。它不修改 `app.asar`、Codex 安装包或应用签名。
 
-> Codex Companion 是非官方项目，与 OpenAI、ChatGPT、Codex、字节跳动、红果短剧及 Emby 均无隶属、
+> Agent Companion 是非官方项目，与 OpenAI、ChatGPT、Codex、字节跳动、红果短剧及 Emby 均无隶属、
 > 授权或背书关系；相关名称和商标归各自权利人所有。
 
 ![在 Codex 里打开卡片区：任务看板跟踪多个会话，悬停看 Trace，点击打开对应会话](assets/readme/demo-task-board.gif)
@@ -123,22 +123,22 @@ npm start                                           # 重新生成并重启后�
 
 | 平台 | 加载方式 | 数据目录 |
 |---|---|---|
-| macOS（Apple Silicon / Intel） | 后台服务识别刚打开的 Codex，安全退出后带调试参数重开 | `~/Library/Application Support/codex-companion/` |
-| Linux（预览，x64 / ARM64） | 覆盖应用菜单里的 ChatGPT 入口，打开时直接带上调试参数，不需要重开 | `~/.config/codex-companion/` |
+| macOS（Apple Silicon / Intel） | 后台服务识别刚打开的 Codex，安全退出后带调试参数重开 | `~/Library/Application Support/agent-companion/` |
+| Linux（预览，x64 / ARM64） | 覆盖应用菜单里的 ChatGPT 入口，打开时直接带上调试参数，不需要重开 | `~/.config/agent-companion/` |
 
 Linux 版为预览：已验证安装、启动、连接、注入与 RPC，登录后会话界面里的卡片位置尚未在 Linux 上验证。Windows 暂不支持。
 
 ### 系统要求
 
 - macOS 上的 Codex 桌面端，或 Linux 上官方 deb / rpm 安装的 ChatGPT 桌面版
-  （`/usr/lib/chatgpt/ChatGPT`，其它位置用 `CODEX_COMPANION_CODEX_EXECUTABLE` 指定）。
+  （`/usr/lib/chatgpt/ChatGPT`，其它位置用 `AGENT_COMPANION_CODEX_EXECUTABLE` 指定）。
 - 从源码安装需要 git、Node.js 22+ 与 npm（依赖安装会提供固定版本的 Bun）；用 Homebrew 安装只需要
   Homebrew，Node.js 与 FFmpeg 由它装上。
 - macOS 需要 Xcode Command Line Tools（`xcode-select --install`），用来编译识别并重开 Codex 的原生助手。
 - Linux 需要 systemd 用户服务（`systemctl --user`）；可选 `notify-send`（libnotify）用于提示重开，
   `secret-tool`（libsecret）用于保存 Emby Token，缺少时 Token 存到数据目录下 `0600` 的文件。
 - **FFmpeg**：红果短剧必须有它才能播放；Emby 的 HEVC、EC-3、MKV、超高码率媒体和图形字幕也要用。
-  Emby HLS、常规 MP4 与其它卡片不需要。项目不打包 FFmpeg，只查找 `CODEX_COMPANION_FFMPEG`、`PATH`
+  Emby HLS、常规 MP4 与其它卡片不需要。项目不打包 FFmpeg，只查找 `AGENT_COMPANION_FFMPEG`、`PATH`
   与 Homebrew / MacPorts（Linux 另含 `/usr/bin`、snap、Linuxbrew）目录。
 
 macOS 上的杜比视界 / HDR 本机播放需要 `brew install ffmpeg-full molten-vk`；
@@ -147,10 +147,10 @@ P5/P8 使用 RPU 映射到 BT.709 SDR，HDR10/HLG 做色调映射，这不是原
 ### 用 Homebrew 安装（macOS）
 
 ```sh
-brew tap foriLLL/codex-companion https://github.com/foriLLL/codex_companion
-brew trust --formula foriLLL/codex-companion/codex-companion
-brew install codex-companion
-codex-companion agent install
+brew tap foriLLL/agent-companion https://github.com/foriLLL/agent-companion
+brew trust --formula foriLLL/agent-companion/agent-companion
+brew install agent-companion
+agent-companion agent install
 ```
 
 Homebrew 7 起第三方 tap 里的 Formula 要先信任才会加载，第二条命令只信任这一个 Formula。
@@ -160,18 +160,18 @@ Homebrew 自动装好 Node.js 与 FFmpeg，在本机生成卡片渲染器并编�
 装好后由后台服务自动更新到最新正式版，见[更新](#更新)。想手动升级：
 
 ```sh
-brew upgrade codex-companion && codex-companion agent install
+brew upgrade agent-companion && agent-companion agent install
 ```
 
-想跟着 main 分支的最新代码，改用 `brew install --HEAD codex-companion`，手动升级时加 `--fetch-HEAD`；
+想跟着 main 分支的最新代码，改用 `brew install --HEAD agent-companion`，手动升级时加 `--fetch-HEAD`；
 自动更新同样只在有新的正式版时才触发。后台服务记的是 Homebrew 的固定路径，Homebrew 升级 Node.js 不影响它。
 Homebrew 安装与源码安装共用同一个后台服务和数据目录，二者装一个即可，以最后执行 `agent install` 的为准。
 
 ### 从源码安装
 
 ```sh
-git clone https://github.com/foriLLL/codex_companion.git
-cd codex_companion
+git clone https://github.com/foriLLL/agent-companion.git
+cd agent-companion
 npm ci
 npm start
 ```
@@ -181,7 +181,7 @@ npm start
 1. 生成卡片渲染器。
 2. macOS 上编译原生助手；缺少 Command Line Tools 时会停下并提示先运行 `xcode-select --install`。
 3. 检查 FFmpeg。macOS 上没有 FFmpeg 但有 Homebrew 时自动执行 `brew install ffmpeg`
-   （设置 `CODEX_COMPANION_SKIP_FFMPEG=1` 可跳过）；其余情况只提示，需要自行安装：
+   （设置 `AGENT_COMPANION_SKIP_FFMPEG=1` 可跳过）；其余情况只提示，需要自行安装：
 
    | 系统 | 命令 |
    |---|---|
@@ -201,27 +201,27 @@ npm start
 签名的 `.app` 与 Linux 单文件后端还没有随 Release 发布，下面的命令暂时不可用；发布后可以不装 Node.js 直接安装：
 
 ```sh
-curl -fsSL https://github.com/foriLLL/codex_companion/releases/latest/download/install.sh | bash
+curl -fsSL https://github.com/foriLLL/agent-companion/releases/latest/download/install.sh | bash
 ```
 
-macOS 上，安装器下载经 Developer ID 签名与 Apple 公证的 `Codex Companion.app`，校验后安装到
+macOS 上，安装器下载经 Developer ID 签名与 Apple 公证的 `Agent Companion.app`，校验后安装到
 `~/Applications` 并打开引导；在引导中点击「启用自动加载」，注册登录后自动启动的
 后台服务（如需批准，前往「系统设置 › 通用 › 登录项」）。已有 Homebrew 时会补装 FFmpeg。
 
 Linux 上先安装官方 ChatGPT 桌面版，再运行同一条命令。安装器下载与脚本同版本的单文件后端，
-按发布时写入脚本的 SHA256 校验后放到 `~/.local/share/codex-companion`，注册 systemd 用户服务
+按发布时写入脚本的 SHA256 校验后放到 `~/.local/share/agent-companion`，注册 systemd 用户服务
 并覆盖应用菜单里的 ChatGPT 入口，不需要 sudo。之后从应用菜单打开 ChatGPT 即可；安装时
 ChatGPT 若已开着，需要退出后从菜单重开一次。FFmpeg 需自行安装。
 
 ### Linux 安装写入的文件
 
-安装会写入两个文件：`~/.config/systemd/user/codex-companion-agent.service`，以及与系统同名的
+安装会写入两个文件：`~/.config/systemd/user/agent-companion-agent.service`，以及与系统同名的
 `~/.local/share/applications/chatgpt.desktop`。后者只把启动命令换成 Companion 的入口，
 名称、图标和 `codex://` 等协议关联保持不变。如果这个位置已有你自己的同名文件，安装会停下，不会覆盖。
 
 ### 首次打开
 
-**macOS**：后台服务（launchd `com.codexcompanion.agent`）在 Codex 刚启动（8 秒内）且位于前台时，
+**macOS**：后台服务（launchd `com.agentcompanion.agent`）在 Codex 刚启动（8 秒内）且位于前台时，
 请求它正常退出，再以 `--remote-debugging-address=127.0.0.1` 和随机端口重开并注入卡片；
 打开后立刻点击或输入也照常重开。启动更久的 Codex 不会被自动退出，只提示需要重开；
 两次自动重开至少间隔两分钟。
@@ -242,10 +242,10 @@ ChatGPT 若已开着，需要退出后从菜单重开一次。FFmpeg 需自行�
 
 ### 更新
 
-版本以本仓库打了 `vX.Y.Z` tag 的 [GitHub Release](https://github.com/foriLLL/codex_companion/releases) 为准。
+版本以本仓库打了 `vX.Y.Z` tag 的 [GitHub Release](https://github.com/foriLLL/agent-companion/releases) 为准。
 后台服务启动 2 分钟后检查一次，之后每 6 小时检查一次；设置的「更新」里也可以手动检查，并查看当前版本与更新内容。
 
-- **Homebrew 安装**：默认自动更新。发现新版本后在后台执行 `brew update` 与 `brew upgrade codex-companion`
+- **Homebrew 安装**：默认自动更新。发现新版本后在后台执行 `brew update` 与 `brew upgrade agent-companion`
   （Homebrew 可能顺带升级过期的依赖，例如 Node.js、FFmpeg），装好后重启 Companion 的后台服务换上新版本，
   不会重启 Codex。卡片里有视频在播时会等播放结束再重启，以免打断观看。新版本启动后删掉 Homebrew 里的旧版本。
   更新完成后「卡片配置」上出现红点，打开设置，「更新」一栏会提到最上面并显示更新内容。
@@ -256,12 +256,34 @@ ChatGPT 若已开着，需要退出后从菜单重开一次。FFmpeg 需自行�
 0.2.0 之前装的版本还没有自动更新，需要先手动升级一次：
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/foriLLL/codex_companion/main/scripts/upgrade.sh | bash
+curl -fsSL https://raw.githubusercontent.com/foriLLL/agent-companion/main/scripts/upgrade.sh | bash
 ```
 
 脚本按已注册的后台服务判断安装方式。Homebrew 安装：升级并重新注册后台服务，`--HEAD` 安装换成正式版。
 源码安装：仓库在 main 且没有未提交的改动时拉取并重新 `npm start`，否则停下说明原因、不动仓库；后台服务没指向
-仓库时，把仓库路径作为参数（`| bash -s -- /path/to/codex_companion`）。加 `--dry-run` 只打印将执行的命令。
+仓库时，把仓库路径作为参数（`| bash -s -- /path/to/agent-companion`）。加 `--dry-run` 只打印将执行的命令。
+
+#### 从 Codex Companion 升级
+
+0.4.0 起项目从 Codex Companion 改名为 Agent Companion：仓库、Homebrew formula、命令、数据目录和后台服务都换成了
+新名字。旧仓库地址会自动跳转到新地址。
+
+- **Homebrew 安装**：Homebrew 7 的信任记录按 formula 名字保存，原先信任的 `codex-companion` 不包括新名字，
+  所以自动更新会停在「Refusing to load formula … from untrusted tap」。运行一次升级脚本即可，它会信任新 formula、
+  把旧安装迁到新名字并重新注册后台服务：
+
+  ```sh
+  curl -fsSL https://raw.githubusercontent.com/foriLLL/agent-companion/main/scripts/upgrade.sh | bash
+  ```
+
+  也可以只执行 `brew trust --formula foriLLL/codex-companion/agent-companion`，再到设置里点「立即更新」。
+- **源码安装**：照常 `git pull && npm ci && npm start`。想把远程换成新地址：
+  `git remote set-url origin https://github.com/foriLLL/agent-companion.git`。
+
+新版本第一次启动时会自动完成其余迁移：数据目录搬到新位置（旧位置留一个指向新目录的软链），后台服务从
+`com.codexcompanion.agent` 交接到 `com.agentcompanion.agent`（Linux 上从 `codex-companion-agent` 换成
+`agent-companion-agent`），Emby 登录信息、卡片存档和「长任务先列计划」写进 Codex 的标记段都会沿用。
+旧的 `CODEX_COMPANION_*` 环境变量仍然有效，新名字是 `AGENT_COMPANION_*`。
 
 ### 任务看板
 
@@ -344,7 +366,7 @@ FFmpeg 的命令行参数里，本机同一用户的其他进程可以看到。
 
 首次打开卡片时输入服务器地址、用户名和密码。数据目录中的 `emby.json`（`0600`）
 只保存服务器地址与标识、UserId、用户名与 DeviceId；每个 AccessToken 单独存入
-系统凭证库（service 为 `codex-companion.emby`），密码不会落盘。
+系统凭证库（service 为 `agent-companion.emby`），密码不会落盘。
 
 有多个媒体版本时，手动选择始终优先；默认保留字幕与最高分辨率档，再优先逐行源，
 并估算输入、转码输出和页面解码的成本。播放路径：
@@ -376,7 +398,7 @@ npm run probe:emby -- --server https://emby.example.com --username alice --searc
 5. 返回、seek、切集、登出或关闭页面会取消对应请求并回收资源；心跳超时也会触发回收。
 
 注入依赖 Codex 的 DOM 结构，Codex 改版后可能需要更新。日志位于
-`~/Library/Logs/codex-companion/agent.log`（Linux：`journalctl --user -u codex-companion-agent`），
+`~/Library/Logs/agent-companion/agent.log`（Linux：`journalctl --user -u agent-companion-agent`），
 `node src/cli.mjs agent status` 输出状态。
 
 ## 安全与隐私
@@ -388,7 +410,7 @@ npm run probe:emby -- --server https://emby.example.com --username alice --searc
 - **依赖**：版本由 `package-lock.json` 固定，运行时不加载 CDN 脚本。
 - **检查更新**：后台服务定期请求 `api.github.com` 上本仓库的最新 Release；GitHub API 被限流时改为读取
   `github.com` 上 `releases/latest` 的跳转和 `raw.githubusercontent.com` 上该版本的 CHANGELOG。请求头只带
-  `codex-companion/<版本号>`，不发送任何本机数据；状态记在数据目录的 `update-state.json`（`0600`）。
+  `agent-companion/<版本号>`，不发送任何本机数据；状态记在数据目录的 `update-state.json`（`0600`）。
 - **红果**：匿名设备档案保存在数据目录的 `hongguo/anonymous.json`，供后续请求复用。
   封面只允许已加载内容中的红果 CDN HTTPS 地址，每次连接校验并固定公网 IP，重定向逐跳验证；
   片单输入不能添加未知封面地址。签名播放地址与内容密钥在播放期间会出现在 FFmpeg 命令行参数里。
@@ -427,7 +449,7 @@ node scripts/smoke-plan-messages.mjs             # 无计划工具的动态进�
 npm run card:create -- my-card --title 我的卡片  # 新建卡片骨架
 node src/cli.mjs agent                          # 前台运行后台服务
 node scripts/build-native.mjs                   # 编译原生助手
-npm run build:app                               # 构建 Codex Companion.app
+npm run build:app                               # 构建 Agent Companion.app
 npm run build:linux -- --target linux-x64       # 构建 Linux 单文件后端
 npm run start:legacy                            # 旧一次性 CDP 启动与注入
 npm run release -- 0.2.0                        # 发版：改版本号、整理 CHANGELOG、提交并打 tag（不推送）
@@ -442,15 +464,15 @@ npm run release -- 0.2.0                        # 发版：改版本号、整理
 
 ## 卸载
 
-用 Homebrew 安装的，先运行 `codex-companion agent uninstall` 停用后台服务，再执行
-`brew uninstall codex-companion && brew untap foriLLL/codex-companion`。
+用 Homebrew 安装的，先运行 `agent-companion agent uninstall` 停用后台服务，再执行
+`brew uninstall agent-companion && brew untap foriLLL/agent-companion`。
 
 从源码安装的，在仓库里运行 `node src/cli.mjs agent uninstall`（停用后台服务；Linux 同时删除 Companion
-生成的菜单入口，系统原有入口随之恢复），再删除仓库目录。发布版在 `Codex Companion.app` 中点击
+生成的菜单入口，系统原有入口随之恢复），再删除仓库目录。发布版在 `Agent Companion.app` 中点击
 「卸载 Companion」再删除 App，或运行 `bash install.sh --uninstall`。
 
 如需同时清除配置与存档，手动删除上文的数据目录；Emby Token 位于「钥匙串访问」
-（service 为 `codex-companion.emby`）。删除不可恢复。
+（service 为 `agent-companion.emby`）。删除不可恢复。
 
 ## 参与贡献与许可
 

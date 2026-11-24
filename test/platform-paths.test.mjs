@@ -3,14 +3,14 @@ import test from "node:test";
 import { companionDataDir, isPathInside, searchPathCandidates } from "../src/platform/paths.mjs";
 
 test("数据目录遵循各平台约定，且只接受绝对路径的环境变量", () => {
-  assert.equal(companionDataDir("/Users/a", { platform: "darwin" }), "/Users/a/Library/Application Support/codex-companion");
-  assert.equal(companionDataDir("/home/a", { platform: "linux", env: {} }), "/home/a/.config/codex-companion");
-  assert.equal(companionDataDir("/home/a", { platform: "linux", env: { XDG_CONFIG_HOME: "/xdg" } }), "/xdg/codex-companion");
-  assert.equal(companionDataDir("/home/a", { platform: "linux", env: { XDG_CONFIG_HOME: "relative" } }), "/home/a/.config/codex-companion");
+  assert.equal(companionDataDir("/Users/a", { platform: "darwin" }), "/Users/a/Library/Application Support/agent-companion");
+  assert.equal(companionDataDir("/home/a", { platform: "linux", env: {} }), "/home/a/.config/agent-companion");
+  assert.equal(companionDataDir("/home/a", { platform: "linux", env: { XDG_CONFIG_HOME: "/xdg" } }), "/xdg/agent-companion");
+  assert.equal(companionDataDir("/home/a", { platform: "linux", env: { XDG_CONFIG_HOME: "relative" } }), "/home/a/.config/agent-companion");
   // 未传 env 时，隔离 home 不受当前进程 XDG_CONFIG_HOME 影响
   const previous = process.env.XDG_CONFIG_HOME;
   process.env.XDG_CONFIG_HOME = "/real-xdg";
-  try { assert.equal(companionDataDir("/isolated/home", { platform: "linux" }), "/isolated/home/.config/codex-companion"); }
+  try { assert.equal(companionDataDir("/isolated/home", { platform: "linux" }), "/isolated/home/.config/agent-companion"); }
   finally { if (previous === undefined) delete process.env.XDG_CONFIG_HOME; else process.env.XDG_CONFIG_HOME = previous; }
 });
 
@@ -33,6 +33,6 @@ test("PATH 查找兼容 Windows 的变量名大小写与带引号条目", () => 
 });
 
 test("Windows 数据目录使用 APPDATA，未设置时回退到用户目录", () => {
-  assert.equal(companionDataDir("C:\\Users\\a", { platform: "win32", env: { APPDATA: "D:\\Roaming" } }), "D:\\Roaming\\codex-companion");
-  assert.equal(companionDataDir("C:\\Users\\a", { platform: "win32", env: {} }), "C:\\Users\\a\\AppData\\Roaming\\codex-companion");
+  assert.equal(companionDataDir("C:\\Users\\a", { platform: "win32", env: { APPDATA: "D:\\Roaming" } }), "D:\\Roaming\\agent-companion");
+  assert.equal(companionDataDir("C:\\Users\\a", { platform: "win32", env: {} }), "C:\\Users\\a\\AppData\\Roaming\\agent-companion");
 });

@@ -207,7 +207,7 @@ test("顶层浮层第一次取 root 时才挂到文档根上，被移走后重�
   assert.equal(layer.root, root);
   assert.equal(documentElement.children.length, 1);
   const [host] = documentElement.children;
-  assert.equal(host.id, "codex-companion-overlay-tasks");
+  assert.equal(host.id, "agent-companion-overlay-tasks");
   assert.equal(root.mode, "open");
   assert.match(host.style.cssText, /pointer-events:none !important/);
   assert.match(host.style.cssText, /z-index:2147483647 !important/);

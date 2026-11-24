@@ -6,10 +6,14 @@ import { dirname, isAbsolute, join } from "node:path";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
-export const SYSTEMD_UNIT = "codex-companion-agent.service";
+export const SYSTEMD_UNIT = "agent-companion-agent.service";
 export const LINUX_AGENT_PATH = "/usr/local/bin:/usr/bin:/bin";
 export const DESKTOP_ENTRY = "chatgpt.desktop";
-export const DESKTOP_MARKER = "X-Codex-Companion-Override=true";
+export const DESKTOP_MARKER = "X-Agent-Companion-Override=true";
+// 改名前的单元名与菜单入口标记：认作 Companion 自己的文件，安装和卸载时清理。
+export const LEGACY_SYSTEMD_UNIT = "codex-companion-agent.service";
+export const LEGACY_DESKTOP_MARKER = "X-Codex-Companion-Override=true";
+const DESKTOP_MARKERS = [DESKTOP_MARKER, LEGACY_DESKTOP_MARKER];
 
 // 与 companionDataDir 一致：只有真实用户目录才读 XDG 变量，隔离的 home 不被带回真实目录。
 export function linuxLocations({ home = homedir(), env } = {}) {
@@ -20,6 +24,7 @@ export function linuxLocations({ home = homedir(), env } = {}) {
   const dataDirs = String(env.XDG_DATA_DIRS || "/usr/local/share:/usr/share").split(":").filter(isAbsolute);
   return {
     unitPath: join(configHome, "systemd", "user", SYSTEMD_UNIT),
+    legacyUnitPath: join(configHome, "systemd", "user", LEGACY_SYSTEMD_UNIT),
     applicationsDir: join(dataHome, "applications"),
     desktopPath: join(dataHome, "applications", DESKTOP_ENTRY),
     systemDesktopPaths: dataDirs.map((directory) => join(directory, "applications", DESKTOP_ENTRY))
@@ -31,8 +36,8 @@ const systemdQuote = (value) => `"${String(value).replace(/[\\"]/g, "\\$&").repl
 
 export function buildSystemdUnit({ programArguments, environment = {} }) {
   return `[Unit]
-Description=Codex Companion agent
-Documentation=https://github.com/foriLLL/codex_companion
+Description=Agent Companion agent
+Documentation=https://github.com/foriLLL/agent-companion
 
 [Service]
 Type=simple
@@ -74,7 +79,7 @@ export function buildDesktopOverride(source, launcherArguments) {
   const launcher = launcherArguments.map(desktopQuote).join(" ");
   const lines = [];
   for (const line of String(source).split("\n")) {
-    if (/^DBusActivatable\s*=/.test(line) || line === DESKTOP_MARKER) continue;
+    if (/^DBusActivatable\s*=/.test(line) || DESKTOP_MARKERS.includes(line)) continue;
     const exec = line.match(/^Exec\s*=\s*(.*)$/);
     if (exec) {
       lines.push(`Exec=${launcher}${exec[1].slice(programEnd(exec[1]))}`);
@@ -102,7 +107,15 @@ async function replaceFile(path, text, mode) {
   } finally { await unlink(temporary).catch((error) => { if (error.code !== "ENOENT") throw error; }); }
 }
 
-const ownsDesktopEntry = (text) => text !== null && text.split("\n").includes(DESKTOP_MARKER);
+const ownsDesktopEntry = (text) => text !== null && text.split("\n").some((line) => DESKTOP_MARKERS.includes(line));
+
+// 停用并删除改名前的单元；返回是否删除了文件。
+async function removeLegacyUnit(locations, run) {
+  if (await readOptional(locations.legacyUnitPath) === null) return false;
+  await run("systemctl", ["--user", "disable", "--now", LEGACY_SYSTEMD_UNIT]).catch(() => {});
+  await unlink(locations.legacyUnitPath).catch((error) => { if (error.code !== "ENOENT") throw error; });
+  return true;
+}
 
 async function refreshDesktopDatabase(directory, run) {
   // 只影响 MimeType 关联缓存；缺少 update-desktop-database 时菜单仍按文件生效。
@@ -129,12 +142,14 @@ export async function installLinuxAgent({
   }
   await replaceFile(locations.desktopPath, buildDesktopOverride(source, launcherArguments), 0o644);
   await refreshDesktopDatabase(locations.applicationsDir, run);
+  const legacyRemoved = await removeLegacyUnit(locations, run);
   await replaceFile(locations.unitPath, buildSystemdUnit({ programArguments, environment: { PATH: LINUX_AGENT_PATH, ...environment } }), 0o644);
   await run("systemctl", ["--user", "daemon-reload"]);
   await run("systemctl", ["--user", "enable", SYSTEMD_UNIT]);
   // restart 在未运行时等同 start，升级后也能换上新版本。
   await run("systemctl", ["--user", "restart", SYSTEMD_UNIT]);
-  return { installed: true, unit: SYSTEMD_UNIT, unitPath: locations.unitPath, desktopPath: locations.desktopPath };
+  return { installed: true, unit: SYSTEMD_UNIT, unitPath: locations.unitPath, desktopPath: locations.desktopPath,
+    ...(legacyRemoved ? { legacyRemoved: LEGACY_SYSTEMD_UNIT } : {}) };
 }
 
 export async function uninstallLinuxAgent({ home, env, execFileImpl = execFileAsync }) {
@@ -145,6 +160,7 @@ export async function uninstallLinuxAgent({ home, env, execFileImpl = execFileAs
     await unlink(locations.unitPath).catch((error) => { if (error.code !== "ENOENT") throw error; });
     await run("systemctl", ["--user", "daemon-reload"]);
   }
+  if (await removeLegacyUnit(locations, run)) await run("systemctl", ["--user", "daemon-reload"]);
   let desktopRemoved = false;
   if (ownsDesktopEntry(await readOptional(locations.desktopPath))) {
     await unlink(locations.desktopPath);

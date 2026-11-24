@@ -16,7 +16,7 @@ function validateParams(params, allowed) {
 }
 
 // 保留旧构造注入边界，具体引擎与方法清单由各卡片 service entry 拥有。
-export class CodexCompanionService {
+export class AgentCompanionService {
   constructor({ configStore = new CompanionConfig(), inspectCodexProxy, logger = console, embyService, hongguoService, modules, manifests = CARD_MANIFESTS, platform = {} } = {}) {
     this.configStore = configStore;
     this.platform = platform;

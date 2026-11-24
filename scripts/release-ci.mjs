@@ -12,7 +12,7 @@ const [command, version, sha256] = process.argv.slice(2);
 if (command === "notes") {
   process.stdout.write(extractReleaseNotes(readFileSync(join(root, "CHANGELOG.md"), "utf8"), version));
 } else if (command === "formula") {
-  const path = join(root, "Formula", "codex-companion.rb");
+  const path = join(root, "Formula", "agent-companion.rb");
   writeFileSync(path, updateFormula(readFileSync(path, "utf8"), { version, sha256 }));
 } else {
   console.error("用法：release-ci.mjs notes <X.Y.Z> | formula <X.Y.Z> <sha256>");

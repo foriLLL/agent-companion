@@ -30,17 +30,17 @@ test("发版：Unreleased 改名为新版本并留空的 Unreleased；说明只�
 });
 
 test("Formula：url/sha256 按 Homebrew 顺序插在 homepage 后，重复更新只替换不叠加，head 保留", async () => {
-  const formula = await readFile(new URL("../Formula/codex-companion.rb", import.meta.url), "utf8");
-  assert.match(formula, /export CODEX_COMPANION_INSTALL_CHANNEL=homebrew/);
-  assert.match(formula, /export CODEX_COMPANION_BREW="#\{HOMEBREW_PREFIX\}\/bin\/brew"/);
+  const formula = await readFile(new URL("../Formula/agent-companion.rb", import.meta.url), "utf8");
+  assert.match(formula, /export AGENT_COMPANION_INSTALL_CHANNEL=homebrew/);
+  assert.match(formula, /export AGENT_COMPANION_BREW="#\{HOMEBREW_PREFIX\}\/bin\/brew"/);
   const once = updateFormula(formula, { version: "0.2.0", sha256: "a".repeat(64) });
   const twice = updateFormula(once, { version: "0.2.1", sha256: "b".repeat(64) });
   const lines = twice.split("\n");
   const at = prefix => lines.findIndex(line => line.startsWith(prefix));
   assert.deepEqual([at("  homepage "), at("  url "), at("  sha256 "), at("  license ")].map((value, _, all) => value - all[0]), [0, 1, 2, 3]);
   assert.equal(lines[at("  url ")], `  url "${releaseAssetUrl("0.2.1")}"`);
-  assert.equal(releaseAssetUrl("0.2.1"), "https://github.com/foriLLL/codex_companion/releases/download/v0.2.1/codex-companion-0.2.1.tar.gz");
+  assert.equal(releaseAssetUrl("0.2.1"), "https://github.com/foriLLL/agent-companion/releases/download/v0.2.1/agent-companion-0.2.1.tar.gz");
   assert.equal(lines.filter(line => line.startsWith("  url ")).length, 1);
-  assert.match(twice, /^ {2}head "https:\/\/github\.com\/foriLLL\/codex_companion\.git", branch: "main"$/m);
+  assert.match(twice, /^ {2}head "https:\/\/github\.com\/foriLLL\/agent-companion\.git", branch: "main"$/m);
   assert.throws(() => updateFormula(formula, { version: "0.2.0", sha256: "xyz" }), /sha256 无效/);
 });

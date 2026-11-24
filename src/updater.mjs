@@ -14,10 +14,10 @@ import { companionDataDir } from "./platform/paths.mjs";
 // - 源码安装：只提醒并给出更新命令，不替用户 git pull，避免冲掉本地改动。
 // - 其它（打包的 .app、Linux 单文件后端）：只提醒，指向 Release 页面。
 
-export const REPOSITORY = "foriLLL/codex_companion";
+export const REPOSITORY = "foriLLL/agent-companion";
 export const RELEASE_API = `https://api.github.com/repos/${REPOSITORY}/releases/latest`;
 export const RELEASES_PAGE = `https://github.com/${REPOSITORY}/releases`;
-export const FORMULA = "codex-companion";
+export const FORMULA = "agent-companion";
 // launchd 只在非零退出时重新拉起 agent；75 即 EX_TEMPFAIL，日志里能和崩溃区分开。
 export const RESTART_EXIT_CODE = 75;
 export const CHECK_DELAY_MS = 2 * 60_000;
@@ -63,16 +63,16 @@ async function exists(path, accessImpl) {
 
 /**
  * 判断当前代码是怎么装的。Homebrew 的启动脚本会声明渠道和 brew 路径；没有声明时按源码真实路径是否在
- * Cellar/codex-companion 下判断。源码安装以仓库根目录有 .git 为准。
+ * Cellar/agent-companion 下判断。源码安装以仓库根目录有 .git 为准。
  */
 export async function detectInstall({ env = process.env, root = PACKAGE_ROOT, hostPlatform = process.platform,
   realpathImpl = realpath, accessImpl = access } = {}) {
   let real = root;
   try { real = await realpathImpl(root); } catch {}
-  const cellar = /\/Cellar\/codex-companion\/([^/]+)(?:\/|$)/.exec(real);
-  if (hostPlatform === "darwin" && (env.CODEX_COMPANION_INSTALL_CHANNEL === "homebrew" || cellar)) {
-    const prefix = cellar ? real.slice(0, cellar.index) : env.CODEX_COMPANION_BREW ? dirname(dirname(env.CODEX_COMPANION_BREW)) : null;
-    let brew = env.CODEX_COMPANION_BREW || (prefix ? join(prefix, "bin", "brew") : null);
+  const cellar = /\/Cellar\/(?:agent|codex)-companion\/([^/]+)(?:\/|$)/.exec(real);
+  if (hostPlatform === "darwin" && (env.AGENT_COMPANION_INSTALL_CHANNEL === "homebrew" || cellar)) {
+    const prefix = cellar ? real.slice(0, cellar.index) : env.AGENT_COMPANION_BREW ? dirname(dirname(env.AGENT_COMPANION_BREW)) : null;
+    let brew = env.AGENT_COMPANION_BREW || (prefix ? join(prefix, "bin", "brew") : null);
     if (!brew || !await exists(brew, accessImpl)) {
       brew = null;
       for (const candidate of ["/opt/homebrew/bin/brew", "/usr/local/bin/brew"]) {
@@ -87,7 +87,7 @@ export async function detectInstall({ env = process.env, root = PACKAGE_ROOT, ho
 }
 
 /** 读取最新正式 Release；还没有任何 Release 时返回 null。只信任指向本仓库的链接。 */
-export async function fetchLatestRelease({ fetchImpl = globalThis.fetch, signal, userAgent = "codex-companion", dispatcher } = {}) {
+export async function fetchLatestRelease({ fetchImpl = globalThis.fetch, signal, userAgent = "agent-companion", dispatcher } = {}) {
   const init = (headers = {}) => ({ headers: { "user-agent": userAgent, ...headers }, signal, ...(dispatcher ? { dispatcher } : {}) });
   const response = await fetchImpl(RELEASE_API, init({ accept: "application/vnd.github+json", "x-github-api-version": "2022-11-28" }));
   if (response.status === 404) return null;
@@ -183,8 +183,8 @@ export function createUpdater({
   let checkTimer = null;
   let restartTimer = null;
   let writes = Promise.resolve();
-  const warn = message => logger.warn?.(`[codex-companion] 更新：${message}`);
-  const info = message => logger.info?.(`[codex-companion] 更新：${message}`);
+  const warn = message => logger.warn?.(`[agent-companion] 更新：${message}`);
+  const info = message => logger.info?.(`[agent-companion] 更新：${message}`);
 
   const autoEnabled = () => getConfig()?.updates?.auto !== false;
   const available = () => Boolean(state.latest && isNewer(state.latest.version, currentVersion));
@@ -284,7 +284,7 @@ export function createUpdater({
       if (phase === "idle") phase = "checking";
       try {
         const latest = await fetchRelease({ config: getConfig(), signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-          userAgent: `codex-companion/${currentVersion}` });
+          userAgent: `agent-companion/${currentVersion}` });
         state.latest = sanitizeRelease(latest);
         state.lastCheckAt = now();
         state.error = null;

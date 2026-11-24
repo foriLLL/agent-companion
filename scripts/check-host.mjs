@@ -23,7 +23,7 @@ export const HOST_HOOKS = [
 // 在页面里执行；必须自包含。
 function probe(hooks) {
   const visible = (node) => { const rect = node.getBoundingClientRect(); return rect.width > 0 && rect.height > 0; };
-  const companion = globalThis.__CODEX_COMPANION__;
+  const companion = globalThis.__AGENT_COMPANION__;
   let diagnostics = null;
   try { diagnostics = companion?.runtime?.getDiagnostics?.() ?? null; } catch {}
   const composer = Array.from(document.querySelectorAll('textarea, [contenteditable="true"], [contenteditable="plaintext-only"], [role="textbox"]')).some(visible);

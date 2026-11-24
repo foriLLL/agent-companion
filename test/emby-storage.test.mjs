@@ -6,13 +6,13 @@ import test from "node:test";
 import {
   EmbyStorage,
   KEYCHAIN_SERVICE,
-  LEGACY_KEYCHAIN_SERVICE,
+  LEGACY_KEYCHAIN_SERVICE, LEGACY_KEYCHAIN_SERVICES,
   embyServerKey
 } from "../src/emby-storage.mjs";
 import { assertMode } from "./helpers/permissions.mjs";
 
 test("配置只保存非敏感字段、权限为 0600 且 DeviceId 稳定", async (t) => {
-  const directory = await mkdtemp(join(tmpdir(), "codex-companion-emby-storage-"));
+  const directory = await mkdtemp(join(tmpdir(), "agent-companion-emby-storage-"));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const configPath = join(directory, "nested", "emby.json");
   const storage = new EmbyStorage({
@@ -43,7 +43,7 @@ test("配置只保存非敏感字段、权限为 0600 且 DeviceId 稳定", asyn
 });
 
 test("旧单服务器配置自动迁移，并在新增连接时保留全部服务器", async (t) => {
-  const directory = await mkdtemp(join(tmpdir(), "codex-companion-emby-migration-"));
+  const directory = await mkdtemp(join(tmpdir(), "agent-companion-emby-migration-"));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const configPath = join(directory, "emby.json");
   const first = {
@@ -75,10 +75,10 @@ test("旧单服务器配置自动迁移，并在新增连接时保留全部服�
   assert.deepEqual(await storage.loadConfig(), second);
 });
 
-test("codex-hg 配置自动复制到 codex-companion 路径", async (t) => {
-  const directory = await mkdtemp(join(tmpdir(), "codex-companion-name-migration-"));
+test("codex-hg 配置自动复制到 agent-companion 路径", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "agent-companion-name-migration-"));
   t.after(() => rm(directory, { recursive: true, force: true }));
-  const configPath = join(directory, "codex-companion", "emby.json");
+  const configPath = join(directory, "agent-companion", "emby.json");
   const legacyConfigPath = join(directory, "codex-hg", "emby.json");
   await mkdir(join(directory, "codex-hg"), { recursive: true });
   await writeFile(legacyConfigPath, `${JSON.stringify({
@@ -95,7 +95,7 @@ test("codex-hg 配置自动复制到 codex-companion 路径", async (t) => {
 });
 
 test("首页缓存原子保存、权限为 0600 且与账号绑定", async (t) => {
-  const directory = await mkdtemp(join(tmpdir(), "codex-companion-emby-home-cache-"));
+  const directory = await mkdtemp(join(tmpdir(), "agent-companion-emby-home-cache-"));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const homeCachePath = join(directory, "nested", "emby-home.json");
   const storage = new EmbyStorage({
@@ -113,10 +113,10 @@ test("首页缓存原子保存、权限为 0600 且与账号绑定", async (t) =
   assert.equal(await storage.loadHomeCache("server", "another-user"), null);
 });
 
-test("codex-hg 首页缓存自动复制到 codex-companion 路径", async (t) => {
-  const directory = await mkdtemp(join(tmpdir(), "codex-companion-cache-migration-"));
+test("codex-hg 首页缓存自动复制到 agent-companion 路径", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "agent-companion-cache-migration-"));
   t.after(() => rm(directory, { recursive: true, force: true }));
-  const homeCachePath = join(directory, "codex-companion", "emby-home.json");
+  const homeCachePath = join(directory, "agent-companion", "emby-home.json");
   const legacyHomeCachePath = join(directory, "codex-hg", "emby-home.json");
   await mkdir(join(directory, "codex-hg"), { recursive: true });
   await writeFile(legacyHomeCachePath, `${JSON.stringify({
@@ -145,36 +145,40 @@ test("Keychain 始终通过 /usr/bin/security execFile 调用并使用 ServerId:
   assert.equal(await storage.readToken("server", "user"), "secret-token");
   assert.equal(await storage.deleteToken("server", "user"), true);
 
-  assert.equal(calls.length, 4);
+  assert.equal(calls.length, 5);
   assert.ok(calls.every((call) => call.file === "/usr/bin/security"));
   assert.ok(calls.slice(0, 3).every((call) => call.args.includes(KEYCHAIN_SERVICE)));
-  assert.ok(calls[3].args.includes(LEGACY_KEYCHAIN_SERVICE));
+  // 删除时连同改名前和 codex-hg 时代的条目一起删。
+  assert.deepEqual(calls.slice(3).map((call) => call.args[call.args.indexOf("-s") + 1]), [...LEGACY_KEYCHAIN_SERVICES]);
   assert.ok(calls.every((call) => call.args.includes("server:user")));
   assert.deepEqual(calls[0].args.slice(-2), ["-w", "secret-token"]);
 });
 
-test("旧 Keychain Token 首次读取时迁移到 codex-companion service", async () => {
-  const missing = Object.assign(new Error("missing"), { code: 44 });
-  const calls = [];
-  const storage = new EmbyStorage({
-    platform: "darwin",
-    execFileImpl: async (file, args) => {
-      calls.push({ file, args });
-      if (args[0] === "find-generic-password" && args.includes(KEYCHAIN_SERVICE)) throw missing;
-      if (args[0] === "find-generic-password" && args.includes(LEGACY_KEYCHAIN_SERVICE)) {
-        return { stdout: "legacy-token\n" };
+for (const [label, legacyService, expectedLookups] of [
+  ["改名前（codex-companion）", "codex-companion.emby", ["codex-companion.emby"]],
+  ["codex-hg 时代", LEGACY_KEYCHAIN_SERVICE, ["codex-companion.emby", LEGACY_KEYCHAIN_SERVICE]]
+]) {
+  test(`${label}的旧 Keychain Token 首次读取时迁移到 agent-companion service`, async () => {
+    const missing = Object.assign(new Error("missing"), { code: 44 });
+    const calls = [];
+    const storage = new EmbyStorage({
+      platform: "darwin",
+      execFileImpl: async (file, args) => {
+        calls.push({ file, args });
+        if (args[0] === "find-generic-password" && args.includes(legacyService)) return { stdout: "legacy-token\n" };
+        if (args[0] === "find-generic-password") throw missing;
+        return { stdout: "" };
       }
-      return { stdout: "" };
-    }
-  });
+    });
 
-  assert.equal(await storage.readToken("server", "user"), "legacy-token");
-  assert.deepEqual(calls.map(({ args }) => [args[0], args[args.indexOf("-s") + 1]]), [
-    ["find-generic-password", KEYCHAIN_SERVICE],
-    ["find-generic-password", LEGACY_KEYCHAIN_SERVICE],
-    ["add-generic-password", KEYCHAIN_SERVICE]
-  ]);
-});
+    assert.equal(await storage.readToken("server", "user"), "legacy-token");
+    assert.deepEqual(calls.map(({ args }) => [args[0], args[args.indexOf("-s") + 1]]), [
+      ["find-generic-password", KEYCHAIN_SERVICE],
+      ...expectedLookups.map((service) => ["find-generic-password", service]),
+      ["add-generic-password", KEYCHAIN_SERVICE]
+    ]);
+  });
+}
 
 test("Keychain 中没有 Token 时返回 null，读取失败给出平台化错误", async () => {
   const missing = Object.assign(new Error("missing"), { code: 44 });

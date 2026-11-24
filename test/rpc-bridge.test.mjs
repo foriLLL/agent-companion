@@ -49,7 +49,7 @@ class FakeConnection {
     if (method !== "Runtime.callFunctionOn") return {};
 
     const context = {
-      __CODEX_COMPANION__: {
+      __AGENT_COMPANION__: {
         emby: { receiveRpc: () => { this.fallbackCalls += 1; } },
         [this.sinkName]: {
           receiveRpc: (response) => this.responses.push({

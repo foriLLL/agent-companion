@@ -42,8 +42,8 @@ test("拒绝未登记端口、非代理路径、点段与伪造来源", () => {
       `${MEDIA_INTERCEPT_ORIGIN}/41003/hls/${SECRET}/%2e%2e/json`,
       `${MEDIA_INTERCEPT_ORIGIN}/41003/hls/${SECRET}/%E0%A4%A`,
       `https://evil.invalid/41003/hls/${SECRET}/a.mp4`,
-      `http://codex-companion.invalid/41003/hls/${SECRET}/a.mp4`,
-      `https://user:pass@codex-companion.invalid/41003/hls/${SECRET}/a.mp4`,
+      `http://agent-companion.invalid/41003/hls/${SECRET}/a.mp4`,
+      `https://user:pass@agent-companion.invalid/41003/hls/${SECRET}/a.mp4`,
       "not a url"
     ]) {
       assert.equal(resolveMediaInterceptUrl(value), null, value);

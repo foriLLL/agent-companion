@@ -1,4 +1,4 @@
-export const RPC_BINDING_NAME = "__CODEX_COMPANION_RPC__";
+export const RPC_BINDING_NAME = "__AGENT_COMPANION_RPC__";
 export const RPC_CANCEL_METHOD = "rpc.cancel";
 // 传输层自检：页面经 binding 发出、后台收到、回包投递回页面，整条链路走一遍，不进入任何业务服务。
 export const RPC_PING_METHOD = "rpc.ping";
@@ -7,7 +7,7 @@ export const RPC_PING_METHOD = "rpc.ping";
 // above that end-to-end path; renderer requests still cancel shorter methods.
 export const DEFAULT_RPC_TIMEOUT_MS = 70_000;
 
-const DEFAULT_BRIDGE_KEY = "__CODEX_COMPANION__";
+const DEFAULT_BRIDGE_KEY = "__AGENT_COMPANION__";
 // Runtime.addBinding 会把 binding 暴露给 target 内的每个执行上下文，包括同进程 iframe。
 // RPC 能改配置、重启 Codex、读会话记录，只接受顶层页面的调用；window 与 top 都是
 // 不可伪造属性，子框架里的脚本无法让这个表达式为真。
@@ -234,7 +234,7 @@ export class CdpRpcBridge {
 
     subscribe("Runtime.bindingCalled", (params) => {
       void this.#handleBindingCalled(params).catch((error) => {
-        this.#warn(`[codex-companion] RPC binding 处理失败：${sanitizeRpcError(error).message}`);
+        this.#warn(`[agent-companion] RPC binding 处理失败：${sanitizeRpcError(error).message}`);
       });
     });
     subscribe("Runtime.executionContextDestroyed", (params) => {
@@ -362,7 +362,7 @@ export class CdpRpcBridge {
     } catch (error) {
       if (error?.code === "RPC_RESPONSE_TOO_LARGE") {
         this.#warn(
-          `[codex-companion] ${request.method} RPC 返回值超过大小限制：${error.responseLength} 字符`
+          `[agent-companion] ${request.method} RPC 返回值超过大小限制：${error.responseLength} 字符`
         );
       }
       if (entry.canReply && this.#attached) {
@@ -390,7 +390,7 @@ export class CdpRpcBridge {
     })).then((evaluation) => {
       const allowed = !evaluation?.exceptionDetails && evaluation?.result?.value === true;
       if (!allowed && this.#verifiedContexts.get(executionContextId) === verification) {
-        this.#warn(`[codex-companion] 忽略非顶层页面的 RPC 调用（执行上下文 ${executionContextId}）`);
+        this.#warn(`[agent-companion] 忽略非顶层页面的 RPC 调用（执行上下文 ${executionContextId}）`);
       }
       return allowed;
     }, () => {
@@ -448,7 +448,7 @@ export class CdpRpcBridge {
     this.#contexts.delete(executionContextId);
     for (const [key, value] of this.#generations) if (value.executionContextId === executionContextId) this.#generations.delete(key);
     if (this.#disposeContext) Promise.resolve().then(() => this.#disposeContext(this.#targetId, executionContextId)).catch(error => {
-      this.#warn(`[codex-companion] 清理 renderer 上下文失败：${sanitizeRpcError(error).message}`);
+      this.#warn(`[agent-companion] 清理 renderer 上下文失败：${sanitizeRpcError(error).message}`);
     });
   }
 
@@ -465,7 +465,7 @@ export class CdpRpcBridge {
     Promise.resolve()
       .then(() => this.#disposeTarget(this.#targetId))
       .catch((error) => {
-        this.#warn(`[codex-companion] 清理 renderer ${this.#targetId} 失败：${sanitizeRpcError(error).message}`);
+        this.#warn(`[agent-companion] 清理 renderer ${this.#targetId} 失败：${sanitizeRpcError(error).message}`);
       });
   }
 
@@ -510,7 +510,7 @@ export class CdpRpcBridge {
       this.#rendererGcInFlight = true;
       void this.#connection.send("HeapProfiler.collectGarbage").catch((error) => {
         if (this.#attached) {
-          this.#warn(`[codex-companion] Renderer 媒体内存回收失败：${sanitizeRpcError(error).message}`);
+          this.#warn(`[agent-companion] Renderer 媒体内存回收失败：${sanitizeRpcError(error).message}`);
         }
       }).finally(() => {
         this.#rendererGcInFlight = false;

@@ -1,22 +1,28 @@
 #!/bin/bash
-# Codex Companion 一键升级到最新正式版。自动更新从 0.2.0 起才有，之前装的版本要用它（或手动命令）升级一次：
-#   curl -fsSL https://raw.githubusercontent.com/foriLLL/codex_companion/main/scripts/upgrade.sh | bash
+# Agent Companion 一键升级到最新正式版。自动更新从 0.2.0 起才有，之前装的版本要用它（或手动命令）升级一次：
+#   curl -fsSL https://raw.githubusercontent.com/foriLLL/agent-companion/main/scripts/upgrade.sh | bash
 #
 # 按已注册的后台服务（macOS launchd / Linux systemd 用户服务）判断安装方式：
 #   Homebrew：brew update 后升级；--HEAD 安装换成正式版（之后由后台服务自动更新），再重新注册后台服务。
 #   源码安装：仓库在 main 且没有未提交的改动时 git pull --ff-only、npm ci、npm start；否则停下说明原因，不动仓库。
 # 参数：源码仓库路径（后台服务没指向该仓库时用）；--dry-run 只打印将执行的命令。
-# CODEX_COMPANION_BREW 指定 brew 时只用它（测试用）。
+# AGENT_COMPANION_BREW 指定 brew 时只用它（测试用）。
 set -euo pipefail
 
-FORMULA=codex-companion
-TAP=foriLLL/codex-companion
+FORMULA=agent-companion
+TAP=foriLLL/agent-companion
 # 装、升级都用完整名：Homebrew 7 的 brew uninstall 会删掉这个 Formula 的信任记录，
 # 而 brew install / upgrade 带完整名时会先自动信任再加载。
 QUALIFIED=$TAP/$FORMULA
-REPOSITORY=foriLLL/codex_companion
-AGENT_LABEL=com.codexcompanion.agent
-SYSTEMD_UNIT=codex-companion-agent.service
+REPOSITORY=foriLLL/agent-companion
+AGENT_LABEL=com.agentcompanion.agent
+SYSTEMD_UNIT=agent-companion-agent.service
+# 0.4.0 改名前的名字：老安装的 formula、tap、仓库地址与后台服务还用它们。
+LEGACY_FORMULA=codex-companion
+LEGACY_TAP=foriLLL/codex-companion
+LEGACY_REPOSITORY=foriLLL/codex_companion
+LEGACY_AGENT_LABEL=com.codexcompanion.agent
+LEGACY_SYSTEMD_UNIT=codex-companion-agent.service
 
 dry_run=0
 source_dir=""
@@ -31,20 +37,25 @@ run() {
   [ "$dry_run" = 1 ] || "$@" </dev/null
 }
 
-# 后台服务登记的启动参数，每行一个；没注册时为空。
+# 后台服务登记的启动参数，每行一个；没注册时为空。新标签优先，其次是改名前的旧标签。
 agent_arguments() {
   case "$(uname -s)" in
     Darwin)
-      local plist="$HOME/Library/LaunchAgents/$AGENT_LABEL.plist" index=0 value
-      [ -f "$plist" ] || return 0
+      local plist="" candidate index=0 value
+      for candidate in "$AGENT_LABEL" "$LEGACY_AGENT_LABEL"; do
+        if [ -f "$HOME/Library/LaunchAgents/$candidate.plist" ]; then plist="$HOME/Library/LaunchAgents/$candidate.plist"; break; fi
+      done
+      [ -n "$plist" ] || return 0
       while value=$(plutil -extract "ProgramArguments.$index" raw -o - "$plist" 2>/dev/null); do
         printf '%s\n' "$value"
         index=$((index + 1))
       done
       ;;
     Linux)
-      local unit="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/$SYSTEMD_UNIT"
-      [ -f "$unit" ] || return 0
+      local units="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user" unit=""
+      if [ -f "$units/$SYSTEMD_UNIT" ]; then unit="$units/$SYSTEMD_UNIT"
+      elif [ -f "$units/$LEGACY_SYSTEMD_UNIT" ]; then unit="$units/$LEGACY_SYSTEMD_UNIT"; fi
+      [ -n "$unit" ] || return 0
       # ExecStart 的每个参数都是 "..."，其中 \ 与 " 前加了反斜杠，% 与 $ 写成两个。
       sed -n 's/^ExecStart=//p' "$unit" | head -n 1 | grep -oE '"([^"\\]|\\.)*"' \
         | sed -e 's/^"//' -e 's/"$//' -e 's/\\\(.\)/\1/g' -e 's/%%/%/g' -e 's/\$\$/$/g' || true
@@ -53,8 +64,8 @@ agent_arguments() {
 }
 
 brew_bin() {
-  if [ -n "${CODEX_COMPANION_BREW+set}" ]; then
-    [ -x "$CODEX_COMPANION_BREW" ] && printf '%s\n' "$CODEX_COMPANION_BREW"
+  if [ -n "${AGENT_COMPANION_BREW+set}" ]; then
+    [ -x "$AGENT_COMPANION_BREW" ] && printf '%s\n' "$AGENT_COMPANION_BREW"
     return
   fi
   local candidate
@@ -67,10 +78,27 @@ brew_bin() {
   return 1
 }
 
-# 仓库里指向 foriLLL/codex_companion 的远程名（https 或 ssh 地址都认）。
+# 仓库里指向 foriLLL/agent-companion 的远程名（https 或 ssh 地址都认；改名前克隆的仓库还指向旧地址，GitHub 会重定向）。
 companion_remote() {
   git -C "$1" config --get-regexp '^remote\..*\.url$' 2>/dev/null \
-    | sed -nE "s#^remote\\.(.+)\\.url .*github\\.com[:/]${REPOSITORY}(\\.git)?/?\$#\\1#p" | head -n 1 || true
+    | sed -nE "s#^remote\\.(.+)\\.url .*github\\.com[:/](${REPOSITORY}|${LEGACY_REPOSITORY})(\\.git)?/?\$#\\1#p" | head -n 1 || true
+}
+
+# 已安装的 formula 名：改名后的新名字，或还没迁移的旧名字；都没有时为空。
+installed_formula() {
+  local brew=$1 name
+  for name in "$FORMULA" "$LEGACY_FORMULA"; do
+    if [ -n "$("$brew" list --versions "$name" 2>/dev/null </dev/null || true)" ]; then printf '%s\n' "$name"; return 0; fi
+  done
+}
+
+# 本机这个 tap 的名字：改名前 tap 的是 foriLLL/codex-companion，改名后新 tap 的是 foriLLL/agent-companion。
+installed_tap() {
+  local brew=$1 taps
+  taps=$("$brew" tap 2>/dev/null </dev/null | tr '[:upper:]' '[:lower:]' || true)
+  if printf '%s\n' "$taps" | grep -qx "$(printf '%s' "$TAP" | tr '[:upper:]' '[:lower:]')"; then printf '%s\n' "$TAP"
+  elif printf '%s\n' "$taps" | grep -qx "$(printf '%s' "$LEGACY_TAP" | tr '[:upper:]' '[:lower:]')"; then printf '%s\n' "$LEGACY_TAP"
+  else printf '%s\n' "$TAP"; fi
 }
 
 upgrade_source() {
@@ -99,16 +127,26 @@ upgrade_source() {
 }
 
 upgrade_brew() {
-  local brew=$1 agent=$2 versions program
-  versions=$("$brew" list --versions "$FORMULA" 2>/dev/null || true)
-  [ -n "$versions" ] || die "Homebrew 里没有安装 $FORMULA"
-  say "Homebrew 安装：${versions#"$FORMULA" }"
+  local brew=$1 agent=$2 versions program installed tap
+  installed=$(installed_formula "$brew")
+  [ -n "$installed" ] || die "Homebrew 里没有安装 $FORMULA"
+  versions=$("$brew" list --versions "$installed" 2>/dev/null || true)
+  say "Homebrew 安装：${versions#"$installed" }"
+  tap=$(installed_tap "$brew")
+  QUALIFIED=$tap/$FORMULA
   export HOMEBREW_NO_ENV_HINTS=1 HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1
   run "$brew" update
   export HOMEBREW_NO_AUTO_UPDATE=1
   # Homebrew 7 起第三方 tap 的 Formula 要信任后才能加载；按名字信任，重复执行无副作用。
+  # 改名后信任记录要落在新名字上：老安装原先信任的是 codex-companion，不信任新名字就无法迁移。
   if "$brew" trust --help >/dev/null 2>&1 </dev/null; then
     run "$brew" trust --formula "$QUALIFIED"
+  fi
+  if [ "$installed" = "$LEGACY_FORMULA" ]; then
+    # 用旧名字升级：Homebrew 按 formula_renames.json 把旧 keg 迁到新名字，并把旧 opt 路径链到新 keg。
+    say "Formula 已改名为 $FORMULA，迁移旧安装"
+    run "$brew" upgrade "$LEGACY_FORMULA"
+    versions=$("$brew" list --versions "$FORMULA" 2>/dev/null || true)
   fi
 
   if [[ " $versions " == *" HEAD"* ]]; then
@@ -155,24 +193,25 @@ main() {
     cli=$(printf '%s\n' "$arguments" | grep -E '/src/cli\.mjs$' | head -n 1 || true)
     if [ -n "$cli" ]; then
       upgrade_source "$(dirname "$(dirname "$cli")")"
-    elif [[ "$first" == */opt/$FORMULA/bin/$FORMULA || "$first" == */Cellar/$FORMULA/* ]]; then
+    elif [[ "$first" == */opt/$FORMULA/bin/$FORMULA || "$first" == */Cellar/$FORMULA/* \
+      || "$first" == */opt/$LEGACY_FORMULA/bin/$LEGACY_FORMULA || "$first" == */Cellar/$LEGACY_FORMULA/* ]]; then
       brew=$(brew_bin) || die "后台服务指向 Homebrew 安装（$first），但找不到 brew"
       upgrade_brew "$brew" registered
     elif [ -n "$first" ]; then
       die "后台服务运行的是 $first，不是 Homebrew 或源码安装，无法判断怎么升级"
-    elif brew=$(brew_bin) && [ -n "$("$brew" list --versions "$FORMULA" 2>/dev/null </dev/null || true)" ]; then
+    elif brew=$(brew_bin) && [ -n "$(installed_formula "$brew")" ]; then
       upgrade_brew "$brew" none
     elif [ -n "$(companion_remote "$PWD")" ]; then
       upgrade_source "$PWD"
     else
-      die "没找到已安装的 Codex Companion（后台服务未注册，Homebrew 里也没有）。源码安装请带上仓库路径：curl -fsSL https://raw.githubusercontent.com/$REPOSITORY/main/scripts/upgrade.sh | bash -s -- /path/to/codex_companion"
+      die "没找到已安装的 Agent Companion（后台服务未注册，Homebrew 里也没有）。源码安装请带上仓库路径：curl -fsSL https://raw.githubusercontent.com/$REPOSITORY/main/scripts/upgrade.sh | bash -s -- /path/to/agent-companion"
     fi
   fi
 
   if [ "$dry_run" = 1 ]; then
     say "（--dry-run：以上命令都没有执行）"
   else
-    say "完成${upgraded:+：Codex Companion $upgraded}。之后有新版本时，Homebrew 安装会自动更新，源码安装会在设置里提醒。"
+    say "完成${upgraded:+：Agent Companion $upgraded}。之后有新版本时，Homebrew 安装会自动更新，源码安装会在设置里提醒。"
   fi
 }
 

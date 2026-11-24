@@ -1,6 +1,6 @@
 # Third-party notices
 
-Codex Companion 自身以 MIT License 发布。构建产物还包含以下直接依赖；完整
+Agent Companion 自身以 MIT License 发布。构建产物还包含以下直接依赖；完整
 许可证文本会复制到 `.app` 的 Resources。
 
 | 组件 | 固定版本 | 许可证 | 用途 |
@@ -17,7 +17,7 @@ openhongguo 的 Apache-2.0 许可文本随包复制为 Resources 下的 `openhon
 
 ## FFmpeg
 
-Codex Companion **不打包或再分发 FFmpeg 二进制**。当媒体必须在本机重封装、
+Agent Companion **不打包或再分发 FFmpeg 二进制**。当媒体必须在本机重封装、
 转码或烧录字幕时，应用只调用用户自行安装并通过 `PATH`、Homebrew/MacPorts
-标准路径或 `CODEX_COMPANION_FFMPEG` 指定的 FFmpeg。该安装由用户独立获取，
+标准路径或 `AGENT_COMPANION_FFMPEG` 指定的 FFmpeg。该安装由用户独立获取，
 适用其自身构建和分发渠道的许可证。

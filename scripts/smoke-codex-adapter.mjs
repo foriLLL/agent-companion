@@ -98,7 +98,7 @@ try {
       document.getElementById('summary-animation').style.opacity = open ? '1' : '0';
     };
     globalThis.host = document.createElement('div');
-    host.id = 'codex-companion-root';
+    host.id = 'agent-companion-root';
     host.style.cssText = 'display:block;width:300px;height:1100px';
     host.attachShadow({mode:'open'});
     const canvas = document.createElement('canvas'); canvas.width = 32; canvas.height = 32;
@@ -110,35 +110,35 @@ try {
     globalThis.nativeBefore = ['floating-root','summary-animation','native-panel','frame'].map(id => document.getElementById(id).style.cssText);
     globalThis.adapter = createCodexAdapter({host,hasCards:false,onVisibilityChange:event=>events.push(event),onError:error=>errors.push(error.message)});
   })()`);
-  assert.equal(await evaluate(`host.isConnected || !!document.getElementById('codex-companion-root-shell')`), false, "初始空集合不能挂载占位");
+  assert.equal(await evaluate(`host.isConnected || !!document.getElementById('agent-companion-root-shell')`), false, "初始空集合不能挂载占位");
   await evaluate(`adapter.setHasCards(true)`);
   assert.equal(await evaluate(`adapter.isOpen()`), false);
-  assert.equal(await evaluate(`!!document.getElementById('codex-companion-root-toolbar')`), true, "优先顶栏入口");
+  assert.equal(await evaluate(`!!document.getElementById('agent-companion-root-toolbar')`), true, "优先顶栏入口");
   assert.equal(await evaluate(`host.isConnected`), true, "初始隐藏也连接 host");
   await evaluate(`adapter.setOpen(true)`);
   await waitFor(`adapter.isOpen()`, "独立面板未打开");
   // 铺满整窗的 shell 不能是 no-drag，否则 Electron 把整窗从标题栏可拖动区域里扣掉、窗口拖不动；
   // 只有可点的入口和抽屉声明 no-drag。
   assert.deepEqual(await evaluate(`(() => {
-    const shell=document.getElementById('codex-companion-root-shell'), region=(el)=>getComputedStyle(el).getPropertyValue('-webkit-app-region');
-    return {shell:region(shell), drawer:region(shell.shadowRoot.querySelector('.drawer')), entry:region(document.getElementById('codex-companion-root-toolbar'))};
+    const shell=document.getElementById('agent-companion-root-shell'), region=(el)=>getComputedStyle(el).getPropertyValue('-webkit-app-region');
+    return {shell:region(shell), drawer:region(shell.shadowRoot.querySelector('.drawer')), entry:region(document.getElementById('agent-companion-root-toolbar'))};
   })()`), { shell: "none", drawer: "no-drag", entry: "no-drag" }, "整窗 shell 不得阻止拖动窗口");
   await waitFor(`video.currentTime > .1`, "测试媒体未播放");
   assert.equal(await evaluate(`getComputedStyle(document.getElementById('frame')).transform`), "matrix(1, 0, 0, 1, -80, 0)", "不改写原生自己的平移");
   // 没有原生平移钩子（也没有输入框）：按内置公式判档，改为限制会话面板宽度来让位，抽屉不压会话。
-  const drawerLeft = `document.getElementById('codex-companion-root-shell').shadowRoot.querySelector('.drawer').getBoundingClientRect().left`;
+  const drawerLeft = `document.getElementById('agent-companion-root-shell').shadowRoot.querySelector('.drawer').getBoundingClientRect().left`;
   await waitFor(`adapter.getDiagnostics().room === 'clamp' && document.querySelector('.thread-scroll-container').getBoundingClientRect().right <= innerWidth - 324 + 1`, "没有平移钩子时应收窄会话面板让位");
   assert.deepEqual(await evaluate(`(() => { const {drawerSurface, thread, entry} = adapter.getDiagnostics(); return {drawerSurface, thread, entry}; })()`),
     { drawerSurface: "inline", thread: "hooks", entry: "summary" });
   const beforeHide = await evaluate(`video.currentTime`);
   await evaluate(`adapter.setOpen(false)`);
-  await waitFor(`!adapter.isOpen() && document.getElementById('codex-companion-root-shell').shadowRoot.querySelector('.drawer').hidden`, "关闭动画未结束");
+  await waitFor(`!adapter.isOpen() && document.getElementById('agent-companion-root-shell').shadowRoot.querySelector('.drawer').hidden`, "关闭动画未结束");
   await waitFor(`video.currentTime > ${beforeHide} + .2`, "收起必须继续播放");
   assert.equal(await evaluate(`host.isConnected && video === host.shadowRoot.querySelector('video') && !video.paused`), true);
   await waitFor(`document.querySelector('[data-companion-dock]') === null`, "关闭后撤销让位标记");
   assert.equal(await evaluate(`document.querySelector('.thread-scroll-container').getBoundingClientRect().width === innerWidth && adapter.getDiagnostics().room`), null, "关闭后会话面板恢复原宽");
   await evaluate(`adapter.setOpen(true);adapter.setOpen(false);adapter.setOpen(true)`);
-  await waitFor(`adapter.isOpen() && document.getElementById('codex-companion-root-shell').shadowRoot.querySelector('.drawer').dataset.state === 'open'`, "快速反向动画");
+  await waitFor(`adapter.isOpen() && document.getElementById('agent-companion-root-shell').shadowRoot.querySelector('.drawer').dataset.state === 'open'`, "快速反向动画");
   await evaluate(`toggle.click()`);
   await waitFor(`!adapter.isOpen()`, "Summary 打开必须关闭独立卡片");
   assert.equal(await evaluate(`toggle.getAttribute('aria-pressed')`), "true");
@@ -148,7 +148,7 @@ try {
   await evaluate(`toggle.click();globalThis.nativeClick=toggle.onclick;toggle.onclick=()=>setTimeout(nativeClick,80);adapter.setOpen(true)`);
   assert.equal(await evaluate(`adapter.isOpen()`), false);
   await waitFor(`adapter.isOpen() && toggle.getAttribute('aria-pressed') === 'false'`, "等待原生异步关闭");
-  await evaluate(`toggle.onclick=nativeClick;document.getElementById('codex-companion-root-toolbar').shadowRoot.querySelector('button').dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true,composed:true,cancelable:true}))`);
+  await evaluate(`toggle.onclick=nativeClick;document.getElementById('agent-companion-root-toolbar').shadowRoot.querySelector('button').dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true,composed:true,cancelable:true}))`);
   await waitFor(`!adapter.isOpen()`, "入口 Escape 应关闭");
   await evaluate(`adapter.setPlacement('inline-in-summary');adapter.setOpen(true)`);
   await waitFor(`adapter.getDiagnostics().mode === 'animated-summary'`, "inline 未挂载");
@@ -162,14 +162,14 @@ try {
   assert.equal(await evaluate(`host.isConnected && host.parentElement.hidden`), true, "inline 关闭保留原 rail/host");
   await waitFor(`video.currentTime > ${beforeInlineHide} + .2`, "inline 收起媒体必须继续");
   // 「摘要下方」模式：摘要关着时顶栏入口仍在；点它用原生开关打开摘要，卡片回到摘要下方，入口不跟着消失。
-  const inlineEntry = `(() => { const entry = document.getElementById('codex-companion-root-toolbar'); const box = entry?.getBoundingClientRect(); return { shown: Boolean(entry?.isConnected && box.width > 0 && box.height > 0), expanded: entry?.shadowRoot.querySelector('button').getAttribute('aria-expanded') ?? null }; })()`;
+  const inlineEntry = `(() => { const entry = document.getElementById('agent-companion-root-toolbar'); const box = entry?.getBoundingClientRect(); return { shown: Boolean(entry?.isConnected && box.width > 0 && box.height > 0), expanded: entry?.shadowRoot.querySelector('button').getAttribute('aria-expanded') ?? null }; })()`;
   assert.deepEqual(await evaluate(inlineEntry), { shown: true, expanded: "false" }, "摘要关着时顶栏入口必须保留");
   assert.equal(await evaluate(`adapter.getDiagnostics().entry`), "summary");
-  await evaluate(`document.getElementById('codex-companion-root-toolbar').shadowRoot.querySelector('button').click()`);
+  await evaluate(`document.getElementById('agent-companion-root-toolbar').shadowRoot.querySelector('button').click()`);
   await waitFor(`adapter.isOpen() && toggle.getAttribute('aria-pressed') === 'true' && adapter.getDiagnostics().mode === 'animated-summary'`, "点入口应打开原生摘要并显示卡片");
   assert.deepEqual(await evaluate(inlineEntry), { shown: true, expanded: "true" }, "摘要打开后入口仍在");
   // 摘要已经开着时再点入口不关摘要。
-  await evaluate(`document.getElementById('codex-companion-root-toolbar').shadowRoot.querySelector('button').click()`);
+  await evaluate(`document.getElementById('agent-companion-root-toolbar').shadowRoot.querySelector('button').click()`);
   await new Promise((resolve) => setTimeout(resolve, 150));
   assert.equal(await evaluate(`adapter.isOpen() && toggle.getAttribute('aria-pressed') === 'true'`), true, "开着时点入口不关闭摘要");
   await evaluate(`adapter.setOpen(false)`);
@@ -180,7 +180,7 @@ try {
   // 保留原生退场动画直到 opacity 归零；scale 期间仍保持 24px 未变换布局间距。
   await evaluate(`toggle.setAttribute('aria-pressed','false');document.getElementById('summary-animation').style.opacity='.04';document.getElementById('summary-animation').style.transform='translateX(50px) scale(.8)'`);
   assert.equal(await evaluate(`adapter.isOpen()`), true);
-  assert.equal(await evaluate(`document.getElementById('codex-companion-rail').style.top`), "252px");
+  assert.equal(await evaluate(`document.getElementById('agent-companion-rail').style.top`), "252px");
   await evaluate(`document.getElementById('summary-animation').style.opacity='0'`);
   await waitFor(`!adapter.isOpen()`, "原生退场未完成");
   // 原生 popover 的 flex 压缩、共享滚动和状态还原。
@@ -201,18 +201,18 @@ try {
   // 入口锚点缺失时仍有独立按钮。
   await evaluate(`document.querySelector('header.toolbar').style.display='none';adapter.setPlacement('standalone-button');adapter.setOpen(true)`);
   await waitFor(`adapter.isOpen()`, "悬浮入口打开");
-  assert.equal(await evaluate(`document.getElementById('codex-companion-root-shell').shadowRoot.querySelector('button').hidden`), false);
+  assert.equal(await evaluate(`document.getElementById('agent-companion-root-shell').shadowRoot.querySelector('button').hidden`), false);
   await connection.send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] });
   await evaluate(`adapter.setOpen(false)`);
-  await waitFor(`document.getElementById('codex-companion-root-shell').shadowRoot.querySelector('.drawer').hidden`, "减少动态效果关闭");
-  assert.equal(await evaluate(`document.getElementById('codex-companion-root-shell').shadowRoot.querySelector('.drawer').getAnimations().length`), 0);
+  await waitFor(`document.getElementById('agent-companion-root-shell').shadowRoot.querySelector('.drawer').hidden`, "减少动态效果关闭");
+  assert.equal(await evaluate(`document.getElementById('agent-companion-root-shell').shadowRoot.querySelector('.drawer').getAnimations().length`), 0);
   await evaluate(`adapter.setHasCards(false)`);
-  assert.equal(await evaluate(`host.isConnected || !!document.getElementById('codex-companion-root-shell') || !!document.querySelector('[data-companion-dock]')`), false, "空集合无入口或占位");
+  assert.equal(await evaluate(`host.isConnected || !!document.getElementById('agent-companion-root-shell') || !!document.querySelector('[data-companion-dock]')`), false, "空集合无入口或占位");
   await evaluate(`adapter.setHasCards(true);adapter.setOpen(true)`);
   await waitFor(`adapter.isOpen()`, "重新启用");
   assert.equal(await evaluate(`video === host.shadowRoot.querySelector('video')`), true);
   await evaluate(`adapter.dispose();adapter.dispose()`);
-  assert.equal(await evaluate(`host.isConnected || !!document.getElementById('codex-companion-root-shell') || !!document.getElementById('codex-companion-root-toolbar') || !!document.querySelector('[data-companion-dock]')`), false);
+  assert.equal(await evaluate(`host.isConnected || !!document.getElementById('agent-companion-root-shell') || !!document.getElementById('agent-companion-root-toolbar') || !!document.querySelector('[data-companion-dock]')`), false);
   assert.equal(await evaluate(`adapter.getDiagnostics().disposed`), true);
   assert.equal(await evaluate(`document.getElementById('floating-root').style.cssText === nativeBefore[0]`), true, "原生滚动样式还原");
   assert.equal(await evaluate(`document.getElementById('native-panel').style.cssText === nativeBefore[2]`), true);
@@ -221,7 +221,7 @@ try {
   const evidence = await evaluate(`({events:events.length,moveFallbacks:adapter.getDiagnostics().moveFallbacks,final:events.at(-1),moveBefore:typeof Element.prototype.moveBefore})`);
   // 新版嵌套 Summary，样式和 marker 均须在 dispose 后原样恢复。
   await evaluate(`(() => {
-    document.body.innerHTML='<button id="modern-toggle" aria-label="Toggle pinned summary" aria-pressed="true"></button><div id="modern-root" class="thread-floating-content-top-inset right-0" style="position:absolute;top:48px;bottom:16px;right:0;width:316px"><div style="position:relative;max-height:100%;width:316px"><div id="modern-scroll" data-codex-companion-scroll-root="original-scroll" style="position:absolute;top:0;bottom:0;left:0;width:300px"><div id="modern-column" class="origin-top-right" data-codex-companion-animation-column="original-column" style="opacity:1;width:300px;position:static!important"><div style="display:flex;flex-direction:column"><div id="modern-native" style="height:430px;width:300px;border-radius:24px;background:white">Summary</div></div></div></div></div></div>';
+    document.body.innerHTML='<button id="modern-toggle" aria-label="Toggle pinned summary" aria-pressed="true"></button><div id="modern-root" class="thread-floating-content-top-inset right-0" style="position:absolute;top:48px;bottom:16px;right:0;width:316px"><div style="position:relative;max-height:100%;width:316px"><div id="modern-scroll" data-agent-companion-scroll-root="original-scroll" style="position:absolute;top:0;bottom:0;left:0;width:300px"><div id="modern-column" class="origin-top-right" data-agent-companion-animation-column="original-column" style="opacity:1;width:300px;position:static!important"><div style="display:flex;flex-direction:column"><div id="modern-native" style="height:430px;width:300px;border-radius:24px;background:white">Summary</div></div></div></div></div></div>';
     globalThis.modernAdapter=createCodexAdapter({host,placement:'inline-in-summary',onError:error=>errors.push(error.message)});
   })()`);
   assert.equal(await evaluate(`modernAdapter.getDiagnostics().mode`), "animated-summary");
@@ -233,7 +233,7 @@ try {
     return {gap,x,delta:Math.round(before-panel.getBoundingClientRect().top),height:scroll.clientHeight,available:Math.floor(innerHeight-64)};
   })()`), { gap: 24, x: 0, delta: 120, height: await evaluate(`Math.floor(innerHeight-64)`), available: await evaluate(`Math.floor(innerHeight-64)`) });
   await evaluate(`modernAdapter.dispose()`);
-  assert.deepEqual(await evaluate(`({scroll:document.getElementById('modern-scroll').getAttribute('data-codex-companion-scroll-root'),column:document.getElementById('modern-column').getAttribute('data-codex-companion-animation-column'),position:document.getElementById('modern-column').style.position,priority:document.getElementById('modern-column').style.getPropertyPriority('position')})`), { scroll: "original-scroll", column: "original-column", position: "static", priority: "important" });
+  assert.deepEqual(await evaluate(`({scroll:document.getElementById('modern-scroll').getAttribute('data-agent-companion-scroll-root'),column:document.getElementById('modern-column').getAttribute('data-agent-companion-animation-column'),position:document.getElementById('modern-column').style.position,priority:document.getElementById('modern-column').style.getPropertyPriority('position')})`), { scroll: "original-scroll", column: "original-column", position: "static", priority: "important" });
   // 原生测量失败必须恢复修改并提供入口，回调抛错不能摧毁布局。
   await evaluate(`(() => {
     const panel=document.getElementById('modern-native');
@@ -245,11 +245,11 @@ try {
   })()`);
   assert.equal(await evaluate(`fallbackAdapter.getDiagnostics().fallbackActive`), true);
   assert.equal(await evaluate(`fallbackErrors.includes('fixture-native-measure') && fallbackErrors.includes('fixture-listener')`), true);
-  assert.equal(await evaluate(`document.getElementById('codex-companion-root-shell').shadowRoot.querySelector('button').hidden`), false);
+  assert.equal(await evaluate(`document.getElementById('agent-companion-root-shell').shadowRoot.querySelector('button').hidden`), false);
   await evaluate(`document.getElementById('modern-toggle').setAttribute('aria-pressed','false');document.getElementById('modern-column').style.opacity='0';fallbackAdapter.setOpen(true)`);
   await waitFor(`fallbackAdapter.isOpen()`, "异常降级按钮仍可打开");
   await evaluate(`fallbackAdapter.dispose()`);
-  assert.equal(await evaluate(`document.getElementById('modern-scroll').getAttribute('data-codex-companion-scroll-root')`), "original-scroll");
+  assert.equal(await evaluate(`document.getElementById('modern-scroll').getAttribute('data-agent-companion-scroll-root')`), "original-scroll");
   // Summary 变体：无 origin-top-right 动画列，面板经 display:contents 包装在 flex 纵列里。
   await evaluate(`(() => {
     document.body.innerHTML='<header style="display:flex;justify-content:flex-end"><button id="variant-toggle" aria-label="Toggle pinned summary" aria-pressed="true"><svg></svg></button><button aria-label="New tab"><svg></svg></button></header><div class="thread-floating-content-top-inset right-0" style="display:none"><div style="display:flex;flex-direction:column;width:300px"><div style="display:contents"><div data-summary-panel-variant="summary" style="height:212px;border-radius:20px;background:white">后台标签</div></div></div></div><div id="variant-root" class="thread-floating-content-top-inset right-0" style="position:absolute;top:48px;bottom:16px;right:0;max-width:100%"><div style="position:relative;display:flex;max-height:100%;padding-right:8px"><div id="variant-scroll" style="max-height:100%;min-height:0"><div id="variant-column" style="display:flex;flex-direction:column;gap:12px;max-height:100%;width:300px"><div style="display:contents"><div id="variant-native" data-summary-panel-variant="summary" style="display:flex;flex-direction:column;height:212px;width:300px;border-radius:20px;background:white">Summary</div></div></div></div></div></div>';
@@ -269,8 +269,8 @@ try {
   assert.equal(await evaluate(`Math.round(innerWidth-host.getBoundingClientRect().right) < 60`), true, "卡片与摘要一样靠右");
   // 摘要关着：入口留在顶栏，点它打开摘要。
   await evaluate(`document.getElementById('inset-toggle').onclick=function(){const open=this.getAttribute('aria-pressed')!=='true';this.setAttribute('aria-pressed',String(open));document.getElementById('inset-root').style.display=open?'':'none';};document.getElementById('inset-toggle').click()`);
-  await waitFor(`insetAdapter.getDiagnostics().mode === 'hidden' && document.getElementById('codex-companion-root-toolbar')?.getBoundingClientRect().width > 0`, "摘要关着时入口保留在顶栏");
-  await evaluate(`document.getElementById('codex-companion-root-toolbar').shadowRoot.querySelector('button').click()`);
+  await waitFor(`insetAdapter.getDiagnostics().mode === 'hidden' && document.getElementById('agent-companion-root-toolbar')?.getBoundingClientRect().width > 0`, "摘要关着时入口保留在顶栏");
+  await evaluate(`document.getElementById('agent-companion-root-toolbar').shadowRoot.querySelector('button').click()`);
   await waitFor(`insetAdapter.getDiagnostics().mode === 'animated-summary' && document.getElementById('inset-toggle').getAttribute('aria-pressed') === 'true'`, "点入口打开摘要并显示卡片");
   await evaluate(`insetAdapter.dispose()`);
   // 未知结构：Summary 已打开却定位不到面板时，短暂等待后退回独立入口，不能让入口消失。
@@ -280,7 +280,7 @@ try {
   })()`);
   assert.equal(await evaluate(`unknownAdapter.getDiagnostics().summaryUnsupported`), false, "宽限期内不立即切换");
   await waitFor(`unknownAdapter.getDiagnostics().summaryUnsupported && unknownAdapter.getDiagnostics().inlineEntryFallback`, "未知 Summary 结构退回独立入口");
-  assert.equal(await evaluate(`Boolean(document.getElementById('codex-companion-root-toolbar')?.isConnected) || document.getElementById('codex-companion-root-shell').shadowRoot.querySelector('button').hidden === false`), true, "退回后顶栏或悬浮入口可见");
+  assert.equal(await evaluate(`Boolean(document.getElementById('agent-companion-root-toolbar')?.isConnected) || document.getElementById('agent-companion-root-shell').shadowRoot.querySelector('button').hidden === false`), true, "退回后顶栏或悬浮入口可见");
   await evaluate(`unknownAdapter.setOpen(true)`);
   await waitFor(`unknownAdapter.isOpen()`, "退回后入口可打开");
   assert.equal(await evaluate(`unknownAdapter.getDiagnostics().inlineEntryFallback`), true, "Summary 关闭后仍保持独立入口");
@@ -290,16 +290,16 @@ try {
     document.body.innerHTML='<header style="position:fixed;top:0;left:0;right:0;height:44px;display:flex"><div style="display:flex;gap:6px"><button aria-label="Back">B</button></div><div style="margin-left:auto;display:inline-flex;height:100%;align-items:center"><div style="display:flex;gap:6px;align-items:center"><div><button id="new-tab" aria-label="New tab" style="width:28px;height:28px">+</button></div></div></div></header>';
     globalThis.titlebarAdapter=createCodexAdapter({host,onError:error=>errors.push(error.message)});
   })()`);
-  await waitFor(`!!document.getElementById('codex-companion-root-toolbar')`, "标题栏只有单个按钮时未进入顶栏");
+  await waitFor(`!!document.getElementById('agent-companion-root-toolbar')`, "标题栏只有单个按钮时未进入顶栏");
   assert.deepEqual(await evaluate(`(() => {
-    const entry=document.getElementById('codex-companion-root-toolbar').getBoundingClientRect(), tab=document.getElementById('new-tab').getBoundingClientRect();
+    const entry=document.getElementById('agent-companion-root-toolbar').getBoundingClientRect(), tab=document.getElementById('new-tab').getBoundingClientRect();
     return {leftOfNative:entry.right<=tab.left, sameRow:Math.round(entry.top)===Math.round(tab.top), nativeAtEdge:Math.round(innerWidth-tab.right)===0,
-      floatingHidden:document.getElementById('codex-companion-root-shell').shadowRoot.querySelector('button').hidden};
+      floatingHidden:document.getElementById('agent-companion-root-shell').shadowRoot.querySelector('button').hidden};
   })()`), { leftOfNative: true, sameRow: true, nativeAtEdge: true, floatingHidden: true });
   await evaluate(`titlebarAdapter.setOpen(true)`);
   await waitFor(`titlebarAdapter.isOpen()`, "顶栏入口打开");
   await evaluate(`titlebarAdapter.dispose()`);
-  assert.equal(await evaluate(`!!document.getElementById('codex-companion-root-toolbar')`), false, "dispose 移除顶栏入口");
+  assert.equal(await evaluate(`!!document.getElementById('agent-companion-root-toolbar')`), false, "dispose 移除顶栏入口");
   // 宿主改版保障：标题栏不再是 header / toolbar，Summary 开关的文案也认不出，只剩自动化属性和位置。
   // 入口仍进顶栏、紧贴 Summary 开关左侧；整页的横向布局不是标题栏，不能把入口塞进去。
   await evaluate(`(() => {
@@ -309,14 +309,14 @@ try {
     globalThis.semanticAdapter=createCodexAdapter({host,onError:error=>errors.push(error.message)});
   })()`);
   assert.deepEqual(await evaluate(`(() => {
-    const entry=document.getElementById('codex-companion-root-toolbar'), toggle=document.getElementById('attr-toggle');
+    const entry=document.getElementById('agent-companion-root-toolbar'), toggle=document.getElementById('attr-toggle');
     return {entry:semanticAdapter.getDiagnostics().entry, beforeToggle:entry?.nextElementSibling===toggle,
       sameRow:Math.round(entry?.getBoundingClientRect().top)===Math.round(toggle.getBoundingClientRect().top),
       color:getComputedStyle(entry.shadowRoot.querySelector('button')).color};
   })()`), { entry: "summary", beforeToggle: true, sameRow: true, color: "rgb(1, 2, 3)" }, "按自动化属性和位置定位顶栏入口，图标颜色照抄同组原生图标按钮");
   await evaluate(`document.getElementById('attr-toggle').parentElement.parentElement.remove()`);
   await waitFor(`semanticAdapter.getDiagnostics().entry === 'floating'`, "标题栏消失后退回悬浮入口");
-  assert.equal(await evaluate(`!document.getElementById('codex-companion-root-toolbar') && document.getElementById('codex-companion-root-shell').shadowRoot.querySelector('button').hidden === false`), true, "不把入口放进页面正文");
+  assert.equal(await evaluate(`!document.getElementById('agent-companion-root-toolbar') && document.getElementById('agent-companion-root-shell').shadowRoot.querySelector('button').hidden === false`), true, "不把入口放进页面正文");
   await evaluate(`semanticAdapter.dispose()`);
   assert.deepEqual(await evaluate(`errors`), []);
 
@@ -334,7 +334,7 @@ try {
       + '<div id="shift-footer" class="_shiftWithTranscript_t_2" style="position:absolute;left:0;right:0;bottom:0">Input</div></div>';
     globalThis.shiftAdapter=createCodexAdapter({host,onError:error=>errors.push(error.message)});
     globalThis.shiftOf=(id)=>{const t=getComputedStyle(document.getElementById(id)).translate;return t==='none'?0:-parseFloat(t);};
-    globalThis.drawerOf=()=>document.getElementById('codex-companion-root-shell').shadowRoot.querySelector('.drawer');
+    globalThis.drawerOf=()=>document.getElementById('agent-companion-root-shell').shadowRoot.querySelector('.drawer');
     globalThis.setRootWidth=(width)=>new Promise(resolve=>{document.getElementById('layout-root').style.width=width+'px';requestAnimationFrame(()=>requestAnimationFrame(resolve));});
     globalThis.sampleShift=(ms)=>new Promise(resolve=>{const out=[],start=performance.now();const tick=()=>{out.push(Math.round(shiftOf('shift-column')*10)/10);if(performance.now()-start<ms)requestAnimationFrame(tick);else resolve(out);};requestAnimationFrame(tick);});
   })()`);
@@ -366,7 +366,7 @@ try {
   assert.equal(await evaluate(`document.getElementById('layout-root').getAttribute('style').includes('--thread-content-x: initial')`), true, "原生 inline style 原样保留");
   await evaluate(`setRootWidth(1000)`);
   await waitFor(`shiftAdapter.getDiagnostics().displayMode === 'overlay'`, "切到 overlay 档");
-  await evaluate(`document.getElementById('codex-companion-root-toolbar').shadowRoot.querySelector('button').click()`);
+  await evaluate(`document.getElementById('agent-companion-root-toolbar').shadowRoot.querySelector('button').click()`);
   await waitFor(`shiftAdapter.isOpen() && drawerOf().dataset.state === 'open'`, "overlay 档点入口浮出抽屉");
   assert.deepEqual(await evaluate(`({surface:shiftAdapter.getDiagnostics().drawerSurface,shift:shiftOf('shift-column'),marks:document.querySelectorAll('[data-companion-dock]').length})`),
     { surface: "popover", shift: 0, marks: 0 }, "浮层不推会话");
@@ -379,7 +379,7 @@ try {
   await waitFor(`shiftAdapter.getDiagnostics().displayMode === 'gutter' && shiftAdapter.isOpen()`, "gutter 档打开");
   assert.deepEqual(await evaluate(`({surface:shiftAdapter.getDiagnostics().drawerSurface,shift:shiftOf('shift-column')})`), { surface: "inline", shift: 0 }, "gutter 档不平移");
   await evaluate(`shiftAdapter.dispose()`);
-  assert.equal(await evaluate(`!!document.querySelector('[data-companion-dock]') || !!document.getElementById('codex-companion-root-dock-style')`), false, "dispose 撤销平移");
+  assert.equal(await evaluate(`!!document.querySelector('[data-companion-dock]') || !!document.getElementById('agent-companion-root-dock-style')`), false, "dispose 撤销平移");
   assert.deepEqual(await evaluate(`errors`), []);
 
   // 没有原生布局模块（新版并进主 chunk）：用照抄原生的内置公式，同样判定 shift 档并平移 154px。
@@ -441,12 +441,12 @@ try {
     globalThis.modalAdapter=createCodexAdapter({host,onError:error=>errors.push(error.message)});
   })()`);
   await evaluate(`modalAdapter.setOpen(true)`);
-  await waitFor(`modalAdapter.isOpen() && document.getElementById('codex-companion-root-shell').shadowRoot.querySelector('.drawer').dataset.state === 'open'`, "弹窗场景抽屉打开");
+  await waitFor(`modalAdapter.isOpen() && document.getElementById('agent-companion-root-shell').shadowRoot.querySelector('.drawer').dataset.state === 'open'`, "弹窗场景抽屉打开");
   const drawerHit = `(() => {
-    const drawer=document.getElementById('codex-companion-root-shell').shadowRoot.querySelector('.drawer').getBoundingClientRect();
+    const drawer=document.getElementById('agent-companion-root-shell').shadowRoot.querySelector('.drawer').getBoundingClientRect();
     return document.elementFromPoint(drawer.x+drawer.width/2,drawer.y+40);
   })()`;
-  assert.equal(await evaluate(`${drawerHit}?.id`), "codex-companion-root-shell", "无弹窗时抽屉置顶");
+  assert.equal(await evaluate(`${drawerHit}?.id`), "agent-companion-root-shell", "无弹窗时抽屉置顶");
   await evaluate(`(() => {
     const overlay=document.createElement('div');
     overlay.id='modal-overlay';overlay.className='codex-dialog-overlay';
@@ -455,7 +455,7 @@ try {
   })()`);
   await waitFor(`${drawerHit}?.id === 'modal-overlay'`, "模态遮罩必须盖过抽屉");
   await evaluate(`document.getElementById('modal-overlay').remove()`);
-  await waitFor(`${drawerHit}?.id === 'codex-companion-root-shell'`, "弹窗关闭后抽屉恢复置顶");
+  await waitFor(`${drawerHit}?.id === 'agent-companion-root-shell'`, "弹窗关闭后抽屉恢复置顶");
   // 遮罩类名改掉后，凭 aria-modal 仍能识别模态弹窗。
   await evaluate(`(() => {
     const dialog=document.createElement('div');
@@ -465,7 +465,7 @@ try {
   })()`);
   await waitFor(`${drawerHit}?.id === 'aria-modal'`, "只有 ARIA 语义的模态弹窗也必须盖过抽屉");
   await evaluate(`document.getElementById('aria-modal').remove()`);
-  await waitFor(`${drawerHit}?.id === 'codex-companion-root-shell'`, "ARIA 弹窗关闭后抽屉恢复置顶");
+  await waitFor(`${drawerHit}?.id === 'agent-companion-root-shell'`, "ARIA 弹窗关闭后抽屉恢复置顶");
   await evaluate(`modalAdapter.dispose()`);
   assert.deepEqual(await evaluate(`errors`), []);
 
@@ -484,8 +484,8 @@ try {
     globalThis.dotAdapter=createCodexAdapter({host,onError:error=>errors.push(error.message),onVisibilityChange:({visible,reason})=>dotVisibility.push([visible,reason])});
   })()`);
   const entryShown = `(() => {
-    const shell=document.getElementById('codex-companion-root-shell');
-    return {toolbar:Boolean(document.getElementById('codex-companion-root-toolbar')?.isConnected),
+    const shell=document.getElementById('agent-companion-root-shell');
+    return {toolbar:Boolean(document.getElementById('agent-companion-root-toolbar')?.isConnected),
       floating:shell?.shadowRoot.querySelector('button').hidden === false, drawer:shell?.shadowRoot.querySelector('.drawer').hidden === false};
   })()`;
   await evaluate(`dotAdapter.setOpen(true)`);
@@ -567,7 +567,7 @@ try {
   await evaluate(`(() => { const input=document.querySelector('[contenteditable]'); input.style.cssText='position:fixed;left:500px;bottom:16px;width:600px;height:40px'; })()`);
   await evaluate(`unknownAdapter.setOpen(true)`);
   await waitFor(`unknownAdapter.isOpen() && drawerOf().dataset.state === 'open'`, "让位失败时抽屉仍可打开");
-  assert.deepEqual(await evaluate(`(() => { const {room, roomFallbacks, drawerSurface}=unknownAdapter.getDiagnostics(); return {room, roomFallbacks, drawerSurface, marks:document.querySelectorAll('[data-companion-dock],[data-companion-dock-probe]').length, padding:getComputedStyle(document.querySelector('main')).paddingRight, probe:!!document.getElementById('codex-companion-root-dock-probe')}; })()`),
+  assert.deepEqual(await evaluate(`(() => { const {room, roomFallbacks, drawerSurface}=unknownAdapter.getDiagnostics(); return {room, roomFallbacks, drawerSurface, marks:document.querySelectorAll('[data-companion-dock],[data-companion-dock-probe]').length, padding:getComputedStyle(document.querySelector('main')).paddingRight, probe:!!document.getElementById('agent-companion-root-dock-probe')}; })()`),
     { room: null, roomFallbacks: 2, drawerSurface: "inline", marks: 0, padding: "0px", probe: false }, "两种让位都不生效时不改动页面");
   await evaluate(`unknownAdapter.dispose()`);
   assert.deepEqual(await evaluate(`errors`), []);

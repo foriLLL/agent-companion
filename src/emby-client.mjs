@@ -11,7 +11,7 @@ const DEFAULT_JSON_LIMIT = 4 * 1024 * 1024;
 export const DEFAULT_RESOURCE_LIMIT = 8 * 1024 * 1024;
 export const DEFAULT_DIRECT_RANGE_LIMIT = 2 * 1024 * 1024;
 export const DEFAULT_SUBTITLE_LIMIT = 4 * 1024 * 1024;
-export const EMBY_CLIENT_NAME = "Codex Companion";
+export const EMBY_CLIENT_NAME = "Agent Companion";
 export const EMBY_CLIENT_VERSION = "0.0.1";
 export const EMBY_USER_AGENT = `Emby/${EMBY_CLIENT_VERSION}`;
 

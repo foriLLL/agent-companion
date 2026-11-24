@@ -129,7 +129,7 @@ try {
   };
   debugPage = evaluate;
   await inspector.send("Page.enable");
-  backend = spawn(executable, [String(targetServer.address().port), configPath], { stdio: ["pipe", "pipe", "pipe"], env: { ...process.env, CODEX_COMPANION_CONFIG_PATH: configPath } });
+  backend = spawn(executable, [String(targetServer.address().port), configPath], { stdio: ["pipe", "pipe", "pipe"], env: { ...process.env, AGENT_COMPANION_CONFIG_PATH: configPath } });
   backendExited = new Promise((resolve) => backend.once("exit", (code, signal) => resolve({ code, signal })));
   backend.stderr.on("data", (chunk) => { stderr += chunk; });
   const pending = new Map();
@@ -150,20 +150,20 @@ try {
   await wait(() => ready || (backend.exitCode !== null ? Promise.reject(new Error(stderr || `backend exit ${backend.exitCode}`)) : false), "compiled backend ready", 15000);
   verify(ready.compiled && ready.counters.socketsOpen === 1 && ready.counters.bindings === 1, "编译后端建立真实 CDP session 与 RPC binding");
   verify(ready.serviceScopes === 0, "仅启用静态夹具卡，媒体服务没有请求 scope");
-  await evaluate("globalThis.__CODEX_COMPANION__.setOpen(true)");
-  await wait(() => evaluate('Boolean(__find("#codex-companion-root")?.shadowRoot.querySelector("[data-card=fixture-static] .content")?.shadowRoot.querySelector(".fixture-static"))'), "fixture mount");
+  await evaluate("globalThis.__AGENT_COMPANION__.setOpen(true)");
+  await wait(() => evaluate('Boolean(__find("#agent-companion-root")?.shadowRoot.querySelector("[data-card=fixture-static] .content")?.shadowRoot.querySelector(".fixture-static"))'), "fixture mount");
   await evaluate(`globalThis.__backendNodes = {
     native: document.getElementById("native-panel"),
-    runtime: globalThis.__CODEX_COMPANION__.runtime,
-    slot: __find("#codex-companion-root").shadowRoot.querySelector("[data-card=fixture-static]"),
-    card: __find("#codex-companion-root").shadowRoot.querySelector("[data-card=fixture-static] .content").shadowRoot.querySelector(".fixture-static")
+    runtime: globalThis.__AGENT_COMPANION__.runtime,
+    slot: __find("#agent-companion-root").shadowRoot.querySelector("[data-card=fixture-static]"),
+    card: __find("#agent-companion-root").shadowRoot.querySelector("[data-card=fixture-static] .content").shadowRoot.querySelector(".fixture-static")
   }`);
-  const state = () => evaluate("globalThis.__CODEX_COMPANION__?.runtime?.getConfig() ?? null");
+  const state = () => evaluate("globalThis.__AGENT_COMPANION__?.runtime?.getConfig() ?? null");
   const patch = async (change) => {
     config = await store.patch(change, { expectedRevision: config.revision });
     await wait(async () => (await state())?.revision === config.revision, `watch revision ${config.revision}`);
   };
-  const sameNodes = () => evaluate('globalThis.__CODEX_COMPANION__.runtime === __backendNodes.runtime && document.getElementById("native-panel") === __backendNodes.native && __find("#codex-companion-root").shadowRoot.querySelector("[data-card=fixture-static] .content").shadowRoot.querySelector(".fixture-static") === __backendNodes.card');
+  const sameNodes = () => evaluate('globalThis.__AGENT_COMPANION__.runtime === __backendNodes.runtime && document.getElementById("native-panel") === __backendNodes.native && __find("#agent-companion-root").shadowRoot.querySelector("[data-card=fixture-static] .content").shadowRoot.querySelector(".fixture-static") === __backendNodes.card');
   await patch({ cards: { [FIXTURE_ID]: { settings: { fixtureTheme: "amber" } }, "future-card": { enabled: false, settings: { retained: true } } } });
   verify((await state()).cards[FIXTURE_ID].settings.fixtureTheme === "amber" && await sameNodes(), "外部配置 patch→watcher→injector→settings，卡片/原生节点不重建");
   const nextOrder = ["future-card", ...CARD_MANIFESTS.map((manifest) => manifest.id).reverse()];
@@ -171,14 +171,14 @@ try {
   verify(JSON.stringify((await state()).order) === JSON.stringify(nextOrder) && await sameNodes(), "排序透传且保留现有卡片节点");
   verify(await evaluate(`Number(__backendNodes.slot.style.order) === ${nextOrder.indexOf(FIXTURE_ID)}`), "排序实际更新 CardSlot order");
   await patch({ placement: "inline-in-summary" });
-  await evaluate("globalThis.__CODEX_COMPANION__.setOpen(true)");
-  await wait(() => evaluate('__CODEX_COMPANION__.runtime.getDiagnostics().adapter.mode === "animated-summary"'), "inline native layout");
+  await evaluate("globalThis.__AGENT_COMPANION__.setOpen(true)");
+  await wait(() => evaluate('__AGENT_COMPANION__.runtime.getDiagnostics().adapter.mode === "animated-summary"'), "inline native layout");
   verify(await sameNodes(), "placement 改为 inline 后保留卡片实例与原生面板");
   await patch({ cards: { [FIXTURE_ID]: { enabled: false } } });
-  verify(await evaluate('!__backendNodes.card.isConnected && __CODEX_COMPANION__.runtime.getDiagnostics().shell.count === 0'), "禁用回收卡片并保持 runtime");
+  verify(await evaluate('!__backendNodes.card.isConnected && __AGENT_COMPANION__.runtime.getDiagnostics().shell.count === 0'), "禁用回收卡片并保持 runtime");
   await patch({ cards: { [FIXTURE_ID]: { enabled: true } } });
-  await wait(() => evaluate('Boolean(__find("#codex-companion-root")?.shadowRoot.querySelector("[data-card=fixture-static] .content")?.shadowRoot.querySelector(".fixture-static"))'), "fixture re-enable");
-  verify(await evaluate('__find("#codex-companion-root").shadowRoot.querySelector("[data-card=fixture-static] .content").shadowRoot.querySelector(".fixture-static") !== __backendNodes.card && __CODEX_COMPANION__.runtime === __backendNodes.runtime'), "重新启用创建新卡片，runtime 保持原实例");
+  await wait(() => evaluate('Boolean(__find("#agent-companion-root")?.shadowRoot.querySelector("[data-card=fixture-static] .content")?.shadowRoot.querySelector(".fixture-static"))'), "fixture re-enable");
+  verify(await evaluate('__find("#agent-companion-root").shadowRoot.querySelector("[data-card=fixture-static] .content").shadowRoot.querySelector(".fixture-static") !== __backendNodes.card && __AGENT_COMPANION__.runtime === __backendNodes.runtime'), "重新启用创建新卡片，runtime 保持原实例");
   let status = await command("status");
   verify(status.counters.mounts === 1 && status.counters.configUpdates === 5 && status.counters.watchUpdates >= 6, "五次配置变化只 applyConfig，不重跑 bundle");
   verify(status.serviceScopes === 0 && status.errors.length === 0, "配置链路未触发媒体请求或后端错误");
@@ -191,12 +191,12 @@ try {
   status = await command("status");
   verify(status.counters.mounts === 1, "reload 无需后端重新执行 bundle");
 
-  await evaluate("globalThis.__CODEX_COMPANION__.setOpen(true)");
+  await evaluate("globalThis.__AGENT_COMPANION__.setOpen(true)");
   await wait(() => evaluate('Boolean(__find(".fixture-static"))'), "reload fixture mount");
   // 原始 binding 发起请求，接收端只观察真实 CDP 响应并继续转发到产品客户端。
   // 夹具卡无业务 RPC；独立 generation 不影响 renderer 的卡片实例。
   const rpc = await evaluate(`(async () => {
-    const runtime = __CODEX_COMPANION__.runtime;
+    const runtime = __AGENT_COMPANION__.runtime;
     const original = runtime.receiveRpc;
     const card = __find(".fixture-static");
     const pending = new Map();
@@ -207,13 +207,13 @@ try {
     const request = (id, method, generation) => new Promise((resolve, reject) => {
       const timer = setTimeout(() => { pending.delete(id); reject(new Error("RPC response timeout: " + method)); }, 5000);
       pending.set(id, response => { clearTimeout(timer); pending.delete(id); resolve(response); });
-      try { __CODEX_COMPANION_RPC__(JSON.stringify({ id, method, params: {}, cardId: "fixture-static", generation })); }
+      try { __AGENT_COMPANION_RPC__(JSON.stringify({ id, method, params: {}, cardId: "fixture-static", generation })); }
       catch (error) { clearTimeout(timer); pending.delete(id); reject(error); }
     });
     try {
       const success = await request("backend-rpc-dispose", "fixture-static.lifecycle.dispose", 900001);
       const failure = await request("backend-rpc-unknown", "fixture-static.fixtureUnknown", 900002);
-      return { success, failure, cardRetained: card.isConnected && __find(".fixture-static") === card && __CODEX_COMPANION__.runtime === runtime };
+      return { success, failure, cardRetained: card.isConnected && __find(".fixture-static") === card && __AGENT_COMPANION__.runtime === runtime };
     } finally { runtime.receiveRpc = original; }
   })()`);
   verify(rpc.success.ok === true && rpc.success.result?.disposed === true, "浏览器 binding→编译 Bun RPC bridge→Registry 清理→真实 CDP 成功响应");
@@ -227,10 +227,10 @@ try {
 
   // 会话自愈：页面里的 binding 失效时 WebSocket 仍是 OPEN，只有端到端探活能发现；
   // 后端应自行断开重连、重新注册 binding，且不重建页面 runtime。
-  verify((await evaluate("__CODEX_COMPANION__.runtime.probeRpc(3000)"))?.ok === true, "页面 probeRpc 经真实 binding→Bun bridge→CDP 回包");
+  verify((await evaluate("__AGENT_COMPANION__.runtime.probeRpc(3000)"))?.ok === true, "页面 probeRpc 经真实 binding→Bun bridge→CDP 回包");
   const beforeHeal = (await command("status")).counters;
-  await evaluate("globalThis.__healRuntime = __CODEX_COMPANION__.runtime; globalThis.__CODEX_COMPANION_RPC__ = () => {}; true");
-  verify((await evaluate("__CODEX_COMPANION__.runtime.probeRpc(300)"))?.reason === "RPC_TIMEOUT", "binding 失效后页面 RPC 不通");
+  await evaluate("globalThis.__healRuntime = __AGENT_COMPANION__.runtime; globalThis.__AGENT_COMPANION_RPC__ = () => {}; true");
+  verify((await evaluate("__AGENT_COMPANION__.runtime.probeRpc(300)"))?.reason === "RPC_TIMEOUT", "binding 失效后页面 RPC 不通");
   // 断开期间打开设置页：读取请求丢在坏掉的 binding 上；恢复后应自动读到配置，不需要点重试。
   await evaluate(`__find('[aria-label="Companion 设置"]').click(); true`);
   const settingsEnabled = `(() => { const input = __find('#companion-settings [data-setting="enabled"]'); return Boolean(input) && !input.disabled; })()`;
@@ -240,8 +240,8 @@ try {
     return counters.bindings > beforeHeal.bindings ? counters : false;
   }, "后端发现 RPC 不通并重连", 30000);
   verify(healed.socketsOpen === 1 && healed.socketsCreated === beforeHeal.socketsCreated + 1, "旧会话已关闭，只新建一条 CDP 连接");
-  verify((await evaluate("__CODEX_COMPANION__.runtime.probeRpc(3000)"))?.ok === true, "重连后新 binding 生效，页面 RPC 恢复");
-  verify(await evaluate("__CODEX_COMPANION__.runtime === globalThis.__healRuntime && Boolean(__find('.fixture-static'))"), "自愈不重建页面 runtime 与卡片");
+  verify((await evaluate("__AGENT_COMPANION__.runtime.probeRpc(3000)"))?.ok === true, "重连后新 binding 生效，页面 RPC 恢复");
+  verify(await evaluate("__AGENT_COMPANION__.runtime === globalThis.__healRuntime && Boolean(__find('.fixture-static'))"), "自愈不重建页面 runtime 与卡片");
   verify((await command("status")).errors.some((message) => message.includes("无响应，已断开")), "自愈过程写入 warn 日志");
   await wait(() => evaluate(settingsEnabled), "设置页恢复后自动重新读取", 45000);
   verify(await evaluate(`__find('#companion-settings .cc-settings-message').textContent !== "后台连接已断开，正在自动恢复…"`), "设置页恢复后不再显示断开提示");
@@ -259,7 +259,7 @@ try {
   console.log(JSON.stringify({ ok: true, checks, artifactHash, counters: stopped.counters, errors: stopped.errors }, null, 2));
 } catch (error) {
   if (stderr) console.error(stderr);
-  if (debugPage) console.error(JSON.stringify(await debugPage("globalThis.__CODEX_COMPANION__?.runtime?.getDiagnostics() ?? null").catch(() => null)));
+  if (debugPage) console.error(JSON.stringify(await debugPage("globalThis.__AGENT_COMPANION__?.runtime?.getDiagnostics() ?? null").catch(() => null)));
   console.error(JSON.stringify({ ok: false, checks, error: error.stack }, null, 2));
   process.exitCode = 1;
 } finally {

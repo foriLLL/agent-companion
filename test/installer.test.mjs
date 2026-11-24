@@ -49,7 +49,7 @@ test("卸载先验证目标 App，再停用服务，失败时保留 App", () => 
   const remove = uninstall.indexOf('rm -rf "$APP_PATH"');
   assert.ok(validate >= 0 && validate < stop && stop < remove);
   assert.match(uninstall, /\[ -L "\$APP_PATH" \]; then die/);
-  assert.match(uninstall, /配置保留在 ~\/Library\/Application Support\/codex-companion/);
+  assert.match(uninstall, /配置保留在 ~\/Library\/Application Support\/agent-companion/);
   assert.doesNotMatch(uninstall, /open |agent install|ensure_optional_ffmpeg/);
 });
 
@@ -66,12 +66,12 @@ test("Linux 安装：先查前置条件与模板，按写入脚本的校验和�
   const linux = section("install_linux");
   const order = ["/usr/lib/chatgpt/ChatGPT", "systemctl --user show-environment", "未注入发布版本与校验和",
     "linux_dir_is_ours", "releases/download/$RELEASE_TAG/$asset", "sha256sum", "校验和不匹配", "verify_archive",
-    'mv "$staged" "$INSTALL_DIR"', '"$INSTALL_DIR/codex-companion" agent install'];
+    'mv "$staged" "$INSTALL_DIR"', '"$INSTALL_DIR/agent-companion" agent install'];
   const positions = order.map((needle) => linux.indexOf(needle));
   assert.ok(positions.every((position) => position >= 0), JSON.stringify(Object.fromEntries(order.map((n, i) => [n, positions[i]]))));
   assert.deepEqual([...positions].sort((a, b) => a - b), positions);
   // Linux 不跟随 latest、不读 Release 同源 .sha256，也不自动 sudo 安装依赖。
-  assert.doesNotMatch(linux, /latest|\.sha256|sudo apt|CODEX_COMPANION_VERSION/);
+  assert.doesNotMatch(linux, /latest|\.sha256|sudo apt|AGENT_COMPANION_VERSION/);
   assert.match(linux, /从应用菜单打开 ChatGPT/);
 });
 
@@ -112,7 +112,7 @@ test("可选 FFmpeg 保留已安装检查、显式跳过与失败提示", () => 
   const end = installer.indexOf("print_ffmpeg_summary() {", start);
   const optional = installer.slice(start, end);
   assert.match(optional, /if has_ffmpeg; then/);
-  assert.match(optional, /CODEX_COMPANION_SKIP_FFMPEG:-0/);
+  assert.match(optional, /AGENT_COMPANION_SKIP_FFMPEG:-0/);
   assert.match(optional, /if "\$brew_bin" install ffmpeg; then/);
   assert.match(optional, /FFMPEG_STATUS="install-failed"/);
   assert.match(installer, /如需补装，请运行：brew install ffmpeg/);
@@ -125,7 +125,7 @@ test("经管道执行（curl … | bash）也会进入 main，而不是因 BASH_
     assert.equal(result.status, 1);
     assert.doesNotMatch(result.stderr, /unbound variable|未绑定/);
     // 模板没有注入发布信息：main 在任何下载或写入之前就以 die 的提示结束。
-    assert.match(result.stderr, /\[codex-companion\]/);
+    assert.match(result.stderr, /\[agent-companion\]/);
   } finally { rmSync(home, { recursive: true, force: true }); }
 });
 

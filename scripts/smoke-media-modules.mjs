@@ -15,7 +15,7 @@ const run = promisify(execFile);
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const temporary = await mkdtemp(path.join(tmpdir(), "companion-media-modules-"));
 const chromePath = process.env.CHROME || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
-const ffmpeg = process.env.CODEX_COMPANION_FFMPEG || "ffmpeg";
+const ffmpeg = process.env.AGENT_COMPANION_FFMPEG || "ffmpeg";
 let chrome;
 let cdp;
 let server;

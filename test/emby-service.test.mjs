@@ -1443,7 +1443,7 @@ test("仅支持直连的 MP4 优先返回本机 Range 代理并保留 MSE 会话
     sourceKey: "sd|mp4#0"
   });
   // 页面拿到的是拦截域名；CDP 拦截把它改写回已登记的 loopback 代理端口。
-  assert.match(directMediaUrl, /^https:\/\/codex-companion\.invalid\/\d+\/hls\/direct-playback\/Videos\/movie\/stream\.mp4(\?Static=true)?$/);
+  assert.match(directMediaUrl, /^https:\/\/agent-companion\.invalid\/\d+\/hls\/direct-playback\/Videos\/movie\/stream\.mp4(\?Static=true)?$/);
   const directProxyUrl = resolveMediaInterceptUrl(directMediaUrl);
   const directProxy = new URL(directProxyUrl);
   assert.equal(directProxy.hostname, "127.0.0.1");

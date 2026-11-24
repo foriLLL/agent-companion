@@ -6,7 +6,7 @@ import { EmbyClient, sanitizeDirectStreamUrl } from "../src/emby-client.mjs";
 import { FfmpegFmp4Session } from "../src/ffmpeg-fmp4-session.mjs";
 import { videoColorInfo } from "../src/video-color.mjs";
 
-const [itemId, ordinalArg, startArg = "60", output = "/tmp/codex-companion-color-probe.mp4"] = process.argv.slice(2);
+const [itemId, ordinalArg, startArg = "60", output = "/tmp/agent-companion-color-probe.mp4"] = process.argv.slice(2);
 if (!itemId || !/^\d+$/.test(ordinalArg ?? "")) throw new Error("用法：node scripts/probe-color.mjs <itemId> <sourceOrdinal> [startSeconds] [output.mp4]");
 const storage = new EmbyStorage();
 const config = await storage.loadConfig();

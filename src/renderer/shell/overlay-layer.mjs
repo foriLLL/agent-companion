@@ -18,7 +18,7 @@ export function createOverlayLayer({ document: doc, cardId, effects }) {
       if (!host?.isConnected) {
         host?.remove();
         host = doc.createElement("div");
-        host.id = `codex-companion-overlay-${cardId}`;
+        host.id = `agent-companion-overlay-${cardId}`;
         // 高于卡片抽屉（2147483646）；color-scheme 让浮层里的系统色随宿主明暗切换。
         host.style.cssText = "all:initial !important;position:fixed !important;inset:0 !important;z-index:2147483647 !important;"
           + "pointer-events:none !important;color-scheme:light dark !important";

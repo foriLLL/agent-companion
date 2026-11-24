@@ -17,11 +17,11 @@ const RESET_BACKOFF_BASE_MS = 1_000;
 const RESET_BACKOFF_MAX_MS = 30_000;
 
 const MEDIA_PLAYING_SOURCE = `(() => {
-  const playing = globalThis.__CODEX_COMPANION__?.runtime?.getDiagnostics?.()?.attention?.playing;
+  const playing = globalThis.__AGENT_COMPANION__?.runtime?.getDiagnostics?.()?.attention?.playing;
   if (typeof playing === "boolean") return playing;
   const scan = root => [...root.querySelectorAll("video,audio")].some(media => !media.paused && !media.ended)
     || [...root.querySelectorAll("*")].some(element => element.shadowRoot && scan(element.shadowRoot));
-  return [...document.querySelectorAll('[id^="codex-companion"]')].some(host => host.shadowRoot && scan(host.shadowRoot));
+  return [...document.querySelectorAll('[id^="agent-companion"]')].some(host => host.shadowRoot && scan(host.shadowRoot));
 })()`;
 
 export class CodexInjector {
@@ -202,7 +202,7 @@ export class CodexInjector {
     if (this.#stopped) return;
     // 注意：不要 unref 这个定时器——它是常驻进程保持事件循环存活的关键。
     this.#scanTimer = setInterval(() => {
-      this.#runScan().catch((error) => this.#logger.warn(`[codex-companion] 扫描失败：${error.message}`));
+      this.#runScan().catch((error) => this.#logger.warn(`[agent-companion] 扫描失败：${error.message}`));
     }, 1_500);
   }
 
@@ -281,14 +281,14 @@ export class CodexInjector {
             this.#resets.delete(targetId);
           }
         } else {
-          this.#logger.info(`[codex-companion] 重新注入页面：${targetId}`);
+          this.#logger.info(`[agent-companion] 重新注入页面：${targetId}`);
           await this.#evaluate(session.connection, this.#buildMountSource(config));
           session.probedAt = this.#now();
         }
       } catch (error) {
         if (this.#stopped) return;
         session.failures += 1;
-        this.#logger.warn(`[codex-companion] 会话健康检查失败 ${targetId}（连续 ${session.failures} 次）：${error.message}`);
+        this.#logger.warn(`[agent-companion] 会话健康检查失败 ${targetId}（连续 ${session.failures} 次）：${error.message}`);
         if (session.failures >= this.#maxFailures) this.#resetSession(targetId, session, error);
       }
     }
@@ -314,10 +314,10 @@ export class CodexInjector {
           return;
         }
         this.#sessions.set(target.id, { connection, target, rpcBridge, failures: 0, probedAt: this.#now() });
-        this.#logger.info(`[codex-companion] 已注入 ${target.title || target.url}：${result.status}`);
+        this.#logger.info(`[agent-companion] 已注入 ${target.title || target.url}：${result.status}`);
       } catch (error) {
         connection.close();
-        this.#logger.warn(`[codex-companion] 注入 target ${target.id} 失败：${error.message}`);
+        this.#logger.warn(`[agent-companion] 注入 target ${target.id} 失败：${error.message}`);
       }
     }
   }
@@ -340,7 +340,7 @@ export class CodexInjector {
     this.#sessions.delete(targetId);
     session.rpcBridge?.detach();
     session.connection.close();
-    this.#logger.warn(`[codex-companion] 会话 ${targetId} 无响应，已断开，${delay}ms 后重连（第 ${attempts} 次）`);
+    this.#logger.warn(`[agent-companion] 会话 ${targetId} 无响应，已断开，${delay}ms 后重连（第 ${attempts} 次）`);
     try {
       Promise.resolve(this.#onEvent("session-reset", { targetId, attempts, reason: error.message })).catch(() => {});
     } catch {}
@@ -369,7 +369,7 @@ export class CodexInjector {
         });
         this.#cleanedAuxiliaryTargets.add(target.id);
       } catch (error) {
-        this.#logger.warn(`[codex-companion] 清理辅助 renderer ${target.id} 失败：${error.message}`);
+        this.#logger.warn(`[agent-companion] 清理辅助 renderer ${target.id} 失败：${error.message}`);
       } finally {
         connection.close();
       }

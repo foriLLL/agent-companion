@@ -17,11 +17,12 @@ import { CompanionConfig } from "./companion-config.mjs";
 import { startCodexWatchdog } from "./daemon.mjs";
 import { createCodexSession, createEmbyRuntime } from "./agent/session.mjs";
 import { runAgentCommand } from "./agent/launch-agent.mjs";
+import { migrateLegacyDataDir, normalizeLegacyEnv } from "./platform/legacy-names.mjs";
 export { createEmbyRuntime, createRuntimeShutdown } from "./agent/session.mjs";
 
 function printHelp() {
   console.log(`
-Codex Companion — CDP DOM 注入器
+Agent Companion — CDP DOM 注入器
 
 用法：
   node src/cli.mjs launch [--port <CDP端口>] [--proxy-port <代理端口>] [--app <可执行文件>] [--once]
@@ -54,12 +55,12 @@ export function parseArgs(argv) {
     command: "launch",
     port: null,
     proxyPort: null,
-    executable: process.env.CODEX_COMPANION_CODEX_EXECUTABLE
+    executable: process.env.AGENT_COMPANION_CODEX_EXECUTABLE
       || process.env.CODEX_HG_CODEX_EXECUTABLE
       || DEFAULT_CODEX_EXECUTABLE,
     once: false,
     help: false,
-    configPath: process.env.CODEX_COMPANION_CONFIG_PATH,
+    configPath: process.env.AGENT_COMPANION_CONFIG_PATH,
     subcommand: null
   };
 
@@ -119,7 +120,7 @@ export function parseArgs(argv) {
   if (options.command === "config" && !["get", "patch"].includes(options.subcommand)) throw new Error("config 仅支持 get / patch");
   if (options.command === "agent" && ![null, "install", "uninstall", "status", "restart-codex"].includes(options.subcommand)) throw new Error("agent 子命令无效");
   if (options.command === "agent" && (options.once || options.port !== null || argv.includes("--app"))) {
-    throw new Error("agent 不接受 --once / --port / --app；目标应用请使用 CODEX_COMPANION_CODEX_APP");
+    throw new Error("agent 不接受 --once / --port / --app；目标应用请使用 AGENT_COMPANION_CODEX_APP");
   }
   return options;
 }
@@ -211,7 +212,7 @@ export async function runCli(argv = process.argv.slice(2), dependencies = {}) {
         if (options.proxyPort !== null) {
           throw new Error("Codex 已在运行；代理只在启动新进程时生效。请先退出 Codex 和旧维护进程，再重新启动。");
         }
-        console.log(`[codex-companion] 已有守护实例在运行（PID ${saved.daemonPid}，CDP 端口 ${saved.port}），本次不重复启动。`);
+        console.log(`[agent-companion] 已有守护实例在运行（PID ${saved.daemonPid}，CDP 端口 ${saved.port}），本次不重复启动。`);
         return;
       }
     }
@@ -224,7 +225,7 @@ export async function runCli(argv = process.argv.slice(2), dependencies = {}) {
           throw new Error("Codex 已在运行；代理只在启动新进程时生效。请先退出 Codex，再重新启动。");
         }
         port = saved.port;
-        console.log(`[codex-companion] 复用已在运行的 Codex（CDP 端口 ${port}）`);
+        console.log(`[agent-companion] 复用已在运行的 Codex（CDP 端口 ${port}）`);
       }
     }
 
@@ -241,13 +242,13 @@ export async function runCli(argv = process.argv.slice(2), dependencies = {}) {
       if (running.length > 0) {
         throw new Error(
           `Codex 已在运行（PID ${running.join(", ")}），但端口 ${port} 不可用。\n` +
-          "请先从菜单完全退出 Codex，再重新启动 Codex Companion；当前任务和终端不会被强制关闭。"
+          "请先从菜单完全退出 Codex，再重新启动 Agent Companion；当前任务和终端不会被强制关闭。"
         );
       }
 
       const pid = launchCodex({ executable: options.executable, port, proxyPort: options.proxyPort });
       launchedCodexPid = pid;
-      console.log(`[codex-companion] 已启动 Codex（PID ${pid}，CDP 127.0.0.1:${port}）`);
+      console.log(`[agent-companion] 已启动 Codex（PID ${pid}，CDP 127.0.0.1:${port}）`);
     }
   }
 
@@ -260,13 +261,13 @@ export async function runCli(argv = process.argv.slice(2), dependencies = {}) {
       );
     }
     port = saved.port;
-    console.log(`[codex-companion] 从运行时状态解析到 CDP 端口 ${port}`);
+    console.log(`[agent-companion] 从运行时状态解析到 CDP 端口 ${port}`);
   }
 
   if (options.command === "unmount") {
     const injector = new CodexInjector(port);
     const results = await injector.injectOnce("unmount");
-    console.log(`[codex-companion] 已移除 ${results.length} 个 renderer 中的注入卡片`);
+    console.log(`[agent-companion] 已移除 ${results.length} 个 renderer 中的注入卡片`);
     return;
   }
 
@@ -274,7 +275,7 @@ export async function runCli(argv = process.argv.slice(2), dependencies = {}) {
     const { injector, embyService } = await createEmbyRuntime(port, { configStore: companionConfig, executable: options.executable });
     try {
       const results = await injector.injectOnce("mount");
-      console.log(`[codex-companion] 已向 ${results.length} 个 renderer 注入卡片`);
+      console.log(`[agent-companion] 已向 ${results.length} 个 renderer 注入卡片`);
     } finally {
       await embyService.dispose();
     }
@@ -289,7 +290,7 @@ export async function runCli(argv = process.argv.slice(2), dependencies = {}) {
     await shutdown("启动失败");
     throw error;
   }
-  console.log(`[codex-companion] 常驻维护中，CDP 端口 ${port}；按 Ctrl-C 停止维护（不会关闭 Codex）`);
+  console.log(`[agent-companion] 常驻维护中，CDP 端口 ${port}；按 Ctrl-C 停止维护（不会关闭 Codex）`);
 
   // 进入常驻后写运行时状态：记录本守护进程 pid，供后续 launch 的单实例检查与 stop/status 使用。
   // codexPid 仅在本次亲自启动 Codex 时可靠；复用既有 Codex 时保留上次记录的值。
@@ -300,7 +301,7 @@ export async function runCli(argv = process.argv.slice(2), dependencies = {}) {
     daemonPid: process.pid,
     startedAt: Date.now()
   }).catch((error) => {
-    console.error(`[codex-companion] 运行时状态写入失败：${error.message}`);
+    console.error(`[agent-companion] 运行时状态写入失败：${error.message}`);
   });
 
   // 服务先关停被禁用卡片的后台会话，再让 renderer 应用同一 revision。
@@ -308,16 +309,16 @@ export async function runCli(argv = process.argv.slice(2), dependencies = {}) {
     config: companionConfig,
     onChange: async (next) => {
       await session.applyConfig(next);
-      console.log(`[codex-companion] 配置已更新，revision=${next.revision}`);
+      console.log(`[agent-companion] 配置已更新，revision=${next.revision}`);
     },
-    onError: error => console.error(`[codex-companion] 保留上次有效配置：${error.message}`)
+    onError: error => console.error(`[agent-companion] 保留上次有效配置：${error.message}`)
   });
 
   // 守护：Codex 退出则清状态并停止维护；Codex 无 flag 运行则发通知引导重启（不 kill）。
   const watchdog = startCodexWatchdog({
     executable: options.executable,
     onGone: async () => {
-      console.log("[codex-companion] Codex 已退出，停止维护。");
+      console.log("[agent-companion] Codex 已退出，停止维护。");
       await shutdownAll("codex-gone");
     }
   });
@@ -335,10 +336,10 @@ export async function runCli(argv = process.argv.slice(2), dependencies = {}) {
   // 常驻进程不应因为某个未捕获的异步错误就直接崩溃并留下未清理的注入/播放会话。
   process.on("unhandledRejection", (reason) => {
     const message = reason instanceof Error ? reason.message : String(reason);
-    console.error(`[codex-companion] 未处理的 Promise 拒绝：${message}`);
+    console.error(`[agent-companion] 未处理的 Promise 拒绝：${message}`);
   });
   process.on("uncaughtException", (error) => {
-    console.error(`[codex-companion] 未捕获异常，正在停止维护：${error?.message ?? error}`);
+    console.error(`[agent-companion] 未捕获异常，正在停止维护：${error?.message ?? error}`);
     // 完整清理（含 watchdog/watcher/状态文件）后退出，避免残留陈旧 runtime.json 误导下次启动。
     void shutdownAll("uncaughtException").finally(() => process.exit(1));
   });
@@ -346,9 +347,14 @@ export async function runCli(argv = process.argv.slice(2), dependencies = {}) {
 
 // Bun 编译时多个模块共用入口 URL；import.meta.main 才能区分被导入与直接执行。
 // 只有真实进程入口为常驻 agent 开启主线程看门狗；测试直接调用 runCli 时不启用。
-// 调试时在断点停住超过 30 秒会被看门狗终止，可用 CODEX_COMPANION_WATCHDOG=0 关闭。
+// 调试时在断点停住超过 30 秒会被看门狗终止，可用 AGENT_COMPANION_WATCHDOG=0 关闭。
 if (import.meta.main ?? (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href)) {
-  runCli(process.argv.slice(2), { mainThreadWatchdog: process.env.CODEX_COMPANION_WATCHDOG !== "0" }).catch((error) => {
+  // 改名兼容：先把旧环境变量映射过来、把旧数据目录搬到新位置，再读任何配置。
+  normalizeLegacyEnv(process.env);
+  migrateLegacyDataDir()
+    .then((result) => { if (result.migrated) console.error(`[agent-companion] 数据目录已从 ${result.from} 迁移到 ${result.to}`); },
+      (error) => console.error(`[agent-companion] 旧数据目录迁移失败，继续使用新目录：${error.message}`))
+    .then(() => runCli(process.argv.slice(2), { mainThreadWatchdog: process.env.AGENT_COMPANION_WATCHDOG !== "0" })).catch((error) => {
     console.error(JSON.stringify({ error: { code: error.code ?? "CLI_ERROR", message: error.message, ...(error.revision === undefined ? {} : { revision: error.revision }) } }));
     process.exitCode = 1;
   });

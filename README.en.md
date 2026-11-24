@@ -1,8 +1,8 @@
-# Codex Companion
+# Agent Companion
 
 [简体中文](README.md) | **English**
 
-Codex Companion is a card platform for the Codex desktop app (macOS / Linux). It adds an extensible
+Agent Companion is a card platform for the Codex desktop app (macOS / Linux). It adds an extensible
 card area next to the conversation and hands the job of writing cards to the AI. A card is a single
 directory with a small contract: tell Codex what you want, it writes the card following the conventions
 in this repository, and the card shows up next to your chat after a reinstall.
@@ -13,7 +13,7 @@ sessions, a Hongguo short-drama player, an Emby player, and a proxy status card.
 Companion runs as a background service. Install it once, then just open Codex as usual. It does not
 modify `app.asar`, the Codex installation, or the app signature.
 
-> Codex Companion is an unofficial project. It is not affiliated with, authorized by, or endorsed by
+> Agent Companion is an unofficial project. It is not affiliated with, authorized by, or endorsed by
 > OpenAI, ChatGPT, Codex, ByteDance, Hongguo, or Emby. All names and trademarks belong to their respective owners.
 
 > The user interface is currently available in Chinese only.
@@ -142,8 +142,8 @@ together with the repository; no external code is loaded at runtime.
 
 | Platform | How cards are loaded | Data directory |
 |---|---|---|
-| macOS (Apple Silicon / Intel) | The background service detects a freshly opened Codex, quits it gracefully, and reopens it with debugging flags | `~/Library/Application Support/codex-companion/` |
-| Linux (preview, x64 / ARM64) | Overrides the ChatGPT entry in the application menu so it launches with debugging flags; no reopen needed | `~/.config/codex-companion/` |
+| macOS (Apple Silicon / Intel) | The background service detects a freshly opened Codex, quits it gracefully, and reopens it with debugging flags | `~/Library/Application Support/agent-companion/` |
+| Linux (preview, x64 / ARM64) | Overrides the ChatGPT entry in the application menu so it launches with debugging flags; no reopen needed | `~/.config/agent-companion/` |
 
 Linux support is a preview: installation, launch, connection, injection, and RPC have been verified, but
 card placement in the signed-in session view has not been verified on Linux. Windows is not supported yet.
@@ -151,7 +151,7 @@ card placement in the signed-in session view has not been verified on Linux. Win
 ### Requirements
 
 - The Codex desktop app on macOS, or the official ChatGPT desktop app installed from deb / rpm on Linux
-  (`/usr/lib/chatgpt/ChatGPT`; use `CODEX_COMPANION_CODEX_EXECUTABLE` for other locations).
+  (`/usr/lib/chatgpt/ChatGPT`; use `AGENT_COMPANION_CODEX_EXECUTABLE` for other locations).
 - For a source installation: git, Node.js 22+, and npm (installing dependencies provides a pinned version of
   Bun). A Homebrew installation only needs Homebrew, which installs Node.js and FFmpeg.
 - On macOS, Xcode Command Line Tools (`xcode-select --install`), used to compile the native helper that
@@ -161,7 +161,7 @@ card placement in the signed-in session view has not been verified on Linux. Win
   `0600` file in the data directory.
 - **FFmpeg.** Required for Hongguo playback. Also used by Emby for HEVC, EC-3, MKV, very high bitrate
   media, and image-based subtitles. Emby HLS, regular MP4, and the other cards do not need it. The project
-  does not bundle FFmpeg; it only looks in `CODEX_COMPANION_FFMPEG`, `PATH`, and the Homebrew / MacPorts
+  does not bundle FFmpeg; it only looks in `AGENT_COMPANION_FFMPEG`, `PATH`, and the Homebrew / MacPorts
   directories (plus `/usr/bin`, snap, and Linuxbrew on Linux).
 
 Local Dolby Vision / HDR playback on macOS requires `brew install ffmpeg-full molten-vk`. P5/P8 is mapped
@@ -170,10 +170,10 @@ to BT.709 SDR using the RPU, and HDR10/HLG is tone-mapped. This is not native HD
 ### Install with Homebrew (macOS)
 
 ```sh
-brew tap foriLLL/codex-companion https://github.com/foriLLL/codex_companion
-brew trust --formula foriLLL/codex-companion/codex-companion
-brew install codex-companion
-codex-companion agent install
+brew tap foriLLL/agent-companion https://github.com/foriLLL/agent-companion
+brew trust --formula foriLLL/agent-companion/agent-companion
+brew install agent-companion
+agent-companion agent install
 ```
 
 Since Homebrew 7, formulae from third-party taps must be trusted before they load; the second command
@@ -185,10 +185,10 @@ After that, the background service keeps Companion on the latest release by itse
 To upgrade by hand:
 
 ```sh
-brew upgrade codex-companion && codex-companion agent install
+brew upgrade agent-companion && agent-companion agent install
 ```
 
-To follow the latest code on `main`, install with `brew install --HEAD codex-companion` and add `--fetch-HEAD`
+To follow the latest code on `main`, install with `brew install --HEAD agent-companion` and add `--fetch-HEAD`
 when upgrading by hand; automatic updates still only run when a new release is published. The background
 service points at Homebrew's stable paths, so Homebrew upgrading Node.js does not break it. Homebrew and source
 installations share the same background service and data directory, so install only one; whichever ran
@@ -197,8 +197,8 @@ installations share the same background service and data directory, so install o
 ### Install from source
 
 ```sh
-git clone https://github.com/foriLLL/codex_companion.git
-cd codex_companion
+git clone https://github.com/foriLLL/agent-companion.git
+cd agent-companion
 npm ci
 npm start
 ```
@@ -209,7 +209,7 @@ npm start
 2. On macOS, compiles the native helper. If the Command Line Tools are missing, it stops and asks you to
    run `xcode-select --install` first.
 3. Checks for FFmpeg. On macOS, if FFmpeg is missing and Homebrew is available, it runs
-   `brew install ffmpeg` automatically (set `CODEX_COMPANION_SKIP_FFMPEG=1` to skip). Otherwise it only
+   `brew install ffmpeg` automatically (set `AGENT_COMPANION_SKIP_FFMPEG=1` to skip). Otherwise it only
    prints a notice and you need to install FFmpeg yourself:
 
    | System | Command |
@@ -234,24 +234,24 @@ The signed `.app` and the Linux single-file backend are not attached to GitHub R
 does not work for now. Once they are published, it will install Companion without Node.js:
 
 ```sh
-curl -fsSL https://github.com/foriLLL/codex_companion/releases/latest/download/install.sh | bash
+curl -fsSL https://github.com/foriLLL/agent-companion/releases/latest/download/install.sh | bash
 ```
 
-On macOS, the installer downloads `Codex Companion.app`, signed with a Developer ID and notarized by
+On macOS, the installer downloads `Agent Companion.app`, signed with a Developer ID and notarized by
 Apple, verifies it, installs it to `~/Applications`, and opens the onboarding window. Click "启用自动加载"
 (Enable auto-load) there to register the background service that starts at login (approve it under
 System Settings › General › Login Items if asked). If Homebrew is present, FFmpeg is installed as well.
 
 On Linux, install the official ChatGPT desktop app first, then run the same command. The installer
 downloads the single-file backend of the same version, verifies it against the SHA256 written into the
-script at release time, places it in `~/.local/share/codex-companion`, registers a systemd user service,
+script at release time, places it in `~/.local/share/agent-companion`, registers a systemd user service,
 and overrides the ChatGPT entry in the application menu. No sudo is required. Afterwards, open ChatGPT
 from the application menu. If ChatGPT was already running during installation, quit it and reopen it from
 the menu once. FFmpeg must be installed separately.
 
 ### Files written on Linux
 
-Installation writes two files: `~/.config/systemd/user/codex-companion-agent.service`, and
+Installation writes two files: `~/.config/systemd/user/agent-companion-agent.service`, and
 `~/.local/share/applications/chatgpt.desktop`, which shadows the system entry of the same name. The latter
 only replaces the launch command with Companion's entry point; the name, icon, and protocol associations
 such as `codex://` stay the same. If you already have your own file at that location, installation stops
@@ -260,7 +260,7 @@ and does not overwrite it.
 ### First launch
 
 **macOS.** When Codex has just started (within 8 seconds) and is in the foreground, the background service
-(launchd `com.codexcompanion.agent`) asks it to quit normally, then reopens it with
+(launchd `com.agentcompanion.agent`) asks it to quit normally, then reopens it with
 `--remote-debugging-address=127.0.0.1` and a random port and injects the cards. Clicking or typing right
 after launch does not prevent the reopen. A Codex instance that has been running longer is never quit
 automatically; you are only notified that a reopen is needed. Automatic reopens are at least two minutes apart.
@@ -287,12 +287,12 @@ launch proxy you also need to reopen it from the menu yourself.
 
 ### Updates
 
-Versions are the [GitHub Releases](https://github.com/foriLLL/codex_companion/releases) tagged `vX.Y.Z` in this
+Versions are the [GitHub Releases](https://github.com/foriLLL/agent-companion/releases) tagged `vX.Y.Z` in this
 repository. The background service checks 2 minutes after it starts and every 6 hours after that; "更新" (Updates)
 in the settings also lets you check by hand and shows the current version and release notes.
 
 - **Homebrew installations** update automatically by default. When a new release is found, the service runs
-  `brew update` and `brew upgrade codex-companion` in the background (Homebrew may also upgrade outdated
+  `brew update` and `brew upgrade agent-companion` in the background (Homebrew may also upgrade outdated
   dependencies such as Node.js or FFmpeg), then restarts Companion's background service on the new version.
   Codex itself is not restarted. If a video is playing in a card, the restart waits until playback stops.
   Once the new version is running, the old version is removed from Homebrew.
@@ -307,14 +307,41 @@ in the settings also lets you check by hand and shows the current version and re
 Installations older than 0.2.0 have no automatic updates yet and need one manual upgrade:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/foriLLL/codex_companion/main/scripts/upgrade.sh | bash
+curl -fsSL https://raw.githubusercontent.com/foriLLL/agent-companion/main/scripts/upgrade.sh | bash
 ```
 
 The script picks the installation the registered background service runs. For Homebrew it upgrades the formula and
 registers the service again, switching a `--HEAD` installation to the release. For a source checkout it pulls and
 reruns `npm start` only when the checkout is on main with no uncommitted changes; otherwise it stops, explains why
 and leaves the checkout alone. If the service does not point at your checkout, pass the path
-(`| bash -s -- /path/to/codex_companion`). Add `--dry-run` to print the commands without running them.
+(`| bash -s -- /path/to/agent-companion`). Add `--dry-run` to print the commands without running them.
+
+#### Upgrading from Codex Companion
+
+Starting with 0.4.0 the project is renamed from Codex Companion to Agent Companion: the repository, the Homebrew
+formula, the command, the data directory and the background service all use the new name. The old repository
+URL redirects to the new one.
+
+- **Homebrew installations.** Homebrew 7 stores trust per formula name, and the `codex-companion` you trusted
+  does not cover the new name, so automatic updates stop at "Refusing to load formula … from untrusted tap".
+  Run the upgrade script once. It trusts the new formula, migrates the installation to the new name and registers
+  the background service again:
+
+  ```sh
+  curl -fsSL https://raw.githubusercontent.com/foriLLL/agent-companion/main/scripts/upgrade.sh | bash
+  ```
+
+  Alternatively, run `brew trust --formula foriLLL/codex-companion/agent-companion` and then click "立即更新"
+  (Update now) in the settings.
+- **Source installations.** Update as usual with `git pull && npm ci && npm start`. To point the remote at the
+  new URL: `git remote set-url origin https://github.com/foriLLL/agent-companion.git`.
+
+The first time the new version starts, it migrates the rest by itself. The data directory moves to the new
+location, and a symlink to it is left at the old one. The background service is handed over from
+`com.codexcompanion.agent` to `com.agentcompanion.agent` (on Linux, from `codex-companion-agent` to
+`agent-companion-agent`). The Emby sign-in, card data, and the marked block that "长任务先列计划" writes into
+Codex's files are all kept. The old `CODEX_COMPANION_*` environment variables still work; the new names are
+`AGENT_COMPANION_*`.
 
 ### Task board
 
@@ -435,7 +462,7 @@ rights allow this kind of access. This project does not provide, host, or licens
 
 Enter the server address, username, and password the first time you open the card. `emby.json` (`0600`) in
 the data directory stores only the server address and identifier, UserId, username, and DeviceId. Each
-AccessToken is stored separately in the system credential store (service `codex-companion.emby`). The
+AccessToken is stored separately in the system credential store (service `agent-companion.emby`). The
 password is never written to disk.
 
 When several media versions exist, a manual choice always wins. By default the card keeps subtitles and the
@@ -473,7 +500,7 @@ npm run probe:emby -- --server https://emby.example.com --username alice --searc
    requests and releases resources. A heartbeat timeout triggers cleanup as well.
 
 Injection depends on Codex's DOM structure and may need updating when Codex changes. Logs are in
-`~/Library/Logs/codex-companion/agent.log` (Linux: `journalctl --user -u codex-companion-agent`), and
+`~/Library/Logs/agent-companion/agent.log` (Linux: `journalctl --user -u agent-companion-agent`), and
 `node src/cli.mjs agent status` prints the current status.
 
 ## Security and privacy
@@ -488,7 +515,7 @@ Injection depends on Codex's DOM structure and may need updating when Codex chan
 - **Dependencies.** Versions are pinned by `package-lock.json`. No CDN scripts are loaded at runtime.
 - **Update checks.** The background service periodically asks `api.github.com` for this repository's latest
   release. When the GitHub API is rate limited, it reads the `releases/latest` redirect on `github.com` and that
-  version's CHANGELOG on `raw.githubusercontent.com` instead. The requests only carry `codex-companion/<version>` as its user agent and sends no local data; the
+  version's CHANGELOG on `raw.githubusercontent.com` instead. The requests only carry `agent-companion/<version>` as its user agent and sends no local data; the
   result is kept in `update-state.json` (`0600`) in the data directory.
 - **Hongguo.** The anonymous device profile is stored in `hongguo/anonymous.json` in the data directory and
   reused for later requests. Covers are only loaded from Hongguo CDN HTTPS addresses found in already loaded
@@ -535,7 +562,7 @@ node scripts/smoke-plan-messages.mjs             # smoke test for progress and t
 npm run card:create -- my-card --title "My card" # scaffold a new card
 node src/cli.mjs agent                          # run the background service in the foreground
 node scripts/build-native.mjs                   # compile the native helper
-npm run build:app                               # build Codex Companion.app
+npm run build:app                               # build Agent Companion.app
 npm run build:linux -- --target linux-x64       # build the single-file Linux backend
 npm run start:legacy                            # legacy one-shot CDP launch and injection
 npm run release -- 0.2.0                        # release: bump version, roll CHANGELOG, commit and tag (no push)
@@ -551,16 +578,16 @@ Development conventions are in [AGENTS.md](AGENTS.md) and [CONTRIBUTING.md](CONT
 
 ## Uninstalling
 
-For a Homebrew installation, run `codex-companion agent uninstall` to stop the background service, then
-`brew uninstall codex-companion && brew untap foriLLL/codex-companion`.
+For a Homebrew installation, run `agent-companion agent uninstall` to stop the background service, then
+`brew uninstall agent-companion && brew untap foriLLL/agent-companion`.
 
 For a source installation, run `node src/cli.mjs agent uninstall` in the repository (this stops the
 background service; on Linux it also removes the menu entry created by Companion, which restores the
 system's original entry), then delete the repository directory. For a release build, click "卸载 Companion"
-(Uninstall Companion) in `Codex Companion.app` and delete the app, or run `bash install.sh --uninstall`.
+(Uninstall Companion) in `Agent Companion.app` and delete the app, or run `bash install.sh --uninstall`.
 
 To also remove configuration and saved data, delete the data directory listed above. The Emby token is in
-Keychain Access (service `codex-companion.emby`). Deletion cannot be undone.
+Keychain Access (service `agent-companion.emby`). Deletion cannot be undone.
 
 ## Contributing and license
 
