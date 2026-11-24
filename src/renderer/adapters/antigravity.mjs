@@ -82,7 +82,8 @@ export function createAntigravityAdapter({ host, placement = "standalone-button"
     setHostVariable("--hg-panel-bg", bg);
     setHostVariable("--hg-panel-color", fg);
     setHostVariable("--hg-panel-radius", "14px");
-    setHostVariable("--hg-panel-shadow", `0 0 0 1px ${border}, 0 8px 28px rgba(0,0,0,.12), 0 2px 6px rgba(0,0,0,.06)`);
+    // 透明浮层：卡片只要一圈细边，不要投影。
+    setHostVariable("--hg-panel-shadow", `0 0 0 1px ${border}`);
     // 卡片区顶部「卡片配置」那一行没有外框托着，背景要透明。
     setHostVariable("--hg-header-bg", "transparent");
     setHostVariable("--hg-header-color", token("--muted-foreground") || (dark ? "#9aa0a6" : "#80868b"));

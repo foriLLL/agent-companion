@@ -56,109 +56,146 @@ export function antigravityGroupLabel(group) {
   return group?.name || "模型";
 }
 
+// 圆环下的短写法：「1h48m 后」「12/1 04:08」；完整说法放在 title 里。
+export function shortResetText(resetsAt, now = Date.now()) {
+  if (!Number.isFinite(resetsAt)) return "";
+  const at = new Date(resetsAt * 1000);
+  const minutes = Math.max(0, Math.round((at.getTime() - now) / 60_000));
+  if (minutes < 1) return "即将重置";
+  if (minutes < 60) return `${minutes}m 后`;
+  if (minutes < 24 * 60) {
+    const rest = minutes % 60;
+    return `${Math.floor(minutes / 60)}h${rest ? `${rest}m` : ""} 后`;
+  }
+  return `${at.getMonth() + 1}/${at.getDate()} ${String(at.getHours()).padStart(2, "0")}:${String(at.getMinutes()).padStart(2, "0")}`;
+}
+
 function agoText(fetchedAt, now = Date.now()) {
   const minutes = Math.floor((now - fetchedAt) / 60_000);
   return minutes < 1 ? "刚刚更新" : minutes < 60 ? `${minutes} 分钟前更新` : `${Math.floor(minutes / 60)} 小时前更新`;
 }
 
+// 两家的数据整理成同一种形状：若干组，每组若干窗口（剩余百分比 0..100 或 null）。
+function sectionsOf(data) {
+  const sections = [];
+  for (const group of data.groups ?? []) {
+    if (!group.buckets?.length) continue;
+    sections.push({ title: antigravityGroupLabel(group), items: group.buckets.map((bucket) => ({
+      label: antigravityWindowLabel(bucket.window, bucket.name), hint: bucket.description || bucket.name,
+      remaining: bucket.remaining === null ? null : Math.round(bucket.remaining * 100), resetsAt: bucket.resetsAt, disabled: bucket.disabled
+    })) });
+  }
+  if (data.limits?.length) {
+    sections.push({ title: "", items: data.limits.map((limit) => ({
+      label: windowLabel(limit.windowMinutes), hint: limit.scope ?? "",
+      remaining: limit.usedPercent === null ? null : Math.round(100 - limit.usedPercent), resetsAt: limit.resetsAt, disabled: false
+    })) });
+  }
+  return sections;
+}
+
+const RING_R = 19;
+const RING_C = 2 * Math.PI * RING_R;
+
 export function mount({ root, rpc, effects, signal, host }) {
   const antigravity = host?.id === "antigravity" && typeof host.quota === "function";
   root.innerHTML = `<style>
-    :host{display:block;--text:color-mix(in srgb,currentColor 64%,transparent);--line:color-mix(in srgb,currentColor 10%,transparent);
+    :host{display:block;--text:color-mix(in srgb,currentColor 60%,transparent);--line:color-mix(in srgb,currentColor 10%,transparent);
       font-family:"Inter",ui-sans-serif,system-ui,-apple-system,"PingFang SC",sans-serif;letter-spacing:-.006em;-webkit-font-smoothing:antialiased}
     *{box-sizing:border-box}
-    .wrap{padding:12px 12px 14px 14px;display:flex;flex-direction:column;gap:12px;font-size:13.5px;line-height:1.4}
+    .wrap{padding:10px 12px 12px 14px;display:flex;flex-direction:column;gap:8px;font-size:13px;line-height:1.35}
     .head{display:flex;align-items:center;gap:8px}
     .head strong{font-weight:600}
-    .plan{font-size:11.5px;padding:1px 7px;border-radius:999px;color:var(--text);box-shadow:inset 0 0 0 1px var(--line)}
+    .plan{font-size:11px;padding:0 6px;border-radius:999px;color:var(--text);box-shadow:inset 0 0 0 1px var(--line)}
     .plan:empty{display:none}
-    .ago{margin-left:auto;font-size:12px;color:var(--text)}
-    button{flex:none;font:inherit;font-size:12px;letter-spacing:inherit;border:0;border-radius:8px;padding:4px 10px;cursor:pointer;color:inherit;
+    .ago{margin-left:auto;font-size:11.5px;color:var(--text)}
+    button{flex:none;font:inherit;font-size:11.5px;letter-spacing:inherit;border:0;border-radius:7px;padding:2px 8px;cursor:pointer;color:inherit;
       background:color-mix(in srgb,currentColor 5%,transparent);box-shadow:inset 0 0 0 1px var(--line);transition:background-color .16s ease}
     button:hover{background:color-mix(in srgb,currentColor 9%,transparent)}
     button:disabled{opacity:.5;cursor:default}
-    .limits{display:flex;flex-direction:column;gap:11px}
-    .limit{--tone:#8b8d98;display:flex;flex-direction:column;gap:5px}
-    .limit[data-tone=ok]{--tone:#2f9e6e}.limit[data-tone=warn]{--tone:#d9661b}.limit[data-tone=bad]{--tone:#d93025}
-    .line{display:flex;align-items:baseline;gap:8px}
-    .name{font-weight:500}.scope{font-size:12px;color:var(--text)}
-    .left{margin-left:auto;font-variant-numeric:tabular-nums;font-weight:600;color:var(--tone)}
-    .bar{height:6px;border-radius:999px;background:color-mix(in srgb,currentColor 8%,transparent);overflow:hidden}
-    .fill{height:100%;border-radius:inherit;background:var(--tone);transition:width .3s ease}
-    .reset{font-size:12px;color:var(--text);font-variant-numeric:tabular-nums}
-    .note{font-size:12px;color:var(--text);overflow-wrap:anywhere}
+    .sections{display:flex;flex-wrap:wrap;gap:8px 18px}
+    .section{display:flex;flex-direction:column;gap:4px;min-width:0}
+    .title{font-size:11.5px;color:var(--text);white-space:nowrap}
+    .title:empty{display:none}
+    .rings{display:flex;gap:6px}
+    .ring{--tone:#8b8d98;width:62px;display:flex;flex-direction:column;align-items:center;gap:1px;text-align:center}
+    .ring[data-tone=ok]{--tone:#2f9e6e}.ring[data-tone=warn]{--tone:#d9661b}.ring[data-tone=bad]{--tone:#d93025}
+    .dial{position:relative;width:46px;height:46px}
+    .dial svg{display:block;width:100%;height:100%;transform:rotate(-90deg)}
+    .track{fill:none;stroke:color-mix(in srgb,currentColor 9%,transparent);stroke-width:4.5}
+    .arc{fill:none;stroke:var(--tone);stroke-width:4.5;stroke-linecap:round;transition:stroke-dashoffset .3s ease}
+    .pct{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:11.5px;letter-spacing:-.02em;font-weight:600;font-variant-numeric:tabular-nums;color:var(--tone)}
+    .pct small{font-size:8px;font-weight:500;margin-left:.5px;margin-top:2px}
+    .name{font-size:12px;font-weight:500;margin-top:2px}
+    .reset{font-size:11px;color:var(--text);font-variant-numeric:tabular-nums;white-space:nowrap}
+    .note{font-size:11.5px;color:var(--text);overflow-wrap:anywhere}
     .note[data-tone=warn]{color:#d9661b}.note[data-tone=bad]{color:#d93025}
     .note:empty{display:none}
-    .group{font-size:12px;font-weight:600;color:var(--text);margin-top:2px}
-    .group:first-child{margin-top:0}
   </style><div class="wrap">
     <div class="head"><strong>${antigravity ? "Antigravity" : "Codex"}</strong><span class="plan"></span><span class="ago" role="status">正在读取额度…</span>
       <button type="button" aria-label="刷新额度">刷新</button></div>
-    <div class="limits"></div>
+    <div class="sections"></div>
     <div class="note"></div>
   </div>`;
   const plan = root.querySelector(".plan");
   const ago = root.querySelector(".ago");
-  const list = root.querySelector(".limits");
+  const list = root.querySelector(".sections");
   const note = root.querySelector(".note");
   const button = root.querySelector("button");
+  const doc = root.ownerDocument;
   const el = (tag, cls, text) => {
-    const node = root.ownerDocument.createElement(tag);
+    const node = doc.createElement(tag);
     if (cls) node.className = cls;
     if (text != null) node.textContent = text;
     return node;
   };
+  const svg = (tag, attrs) => {
+    const node = doc.createElementNS("http://www.w3.org/2000/svg", tag);
+    for (const [name, value] of Object.entries(attrs)) node.setAttribute(name, String(value));
+    return node;
+  };
   let data = null;
   let pending = null;
+
+  function ring(item, now) {
+    const node = el("div", "ring");
+    const remaining = item.disabled ? null : item.remaining;
+    node.dataset.tone = item.disabled ? "off" : remainingTone(remaining);
+    const dial = el("div", "dial");
+    const graphic = svg("svg", { viewBox: "0 0 46 46", "aria-hidden": "true" });
+    graphic.append(svg("circle", { class: "track", cx: 23, cy: 23, r: RING_R }));
+    if (remaining !== null && remaining > 0) {
+      graphic.append(svg("circle", { class: "arc", cx: 23, cy: 23, r: RING_R, "stroke-dasharray": RING_C.toFixed(2), "stroke-dashoffset": (RING_C * (1 - remaining / 100)).toFixed(2) }));
+    }
+    const pct = el("span", "pct", item.disabled || remaining === null ? "—" : String(remaining));
+    if (!item.disabled && remaining !== null) pct.append(el("small", "", "%"));
+    dial.append(graphic, pct);
+    const reset = item.disabled ? "不可用" : remaining === 100 ? "未使用" : remaining === 0 ? "已用完" : shortResetText(item.resetsAt, now);
+    node.append(dial, el("div", "name", item.label), el("div", "reset", reset));
+    const full = item.disabled ? "不可用" : remaining === null ? "未知" : `剩余 ${remaining}%`;
+    node.title = [item.label + (item.hint ? `（${item.hint}）` : ""), full, remaining === 100 ? "" : resetText(item.resetsAt, now)].filter(Boolean).join(" · ");
+    return node;
+  }
 
   function render() {
     if (!data) return;
     const now = Date.now();
     plan.textContent = data.plan ?? "";
     ago.textContent = data.fetchedAt && (data.ok || data.stale) ? agoText(data.fetchedAt, now) : "";
-    list.replaceChildren();
-    const row = (label, scope, remaining, resetsAt, disabled = false) => {
-      const item = el("div", "limit");
-      item.dataset.tone = disabled ? "off" : remainingTone(remaining);
-      const line = el("div", "line");
-      line.append(el("span", "name", label));
-      if (scope) line.append(el("span", "scope", scope));
-      line.append(el("span", "left", disabled ? "不可用" : remaining === null ? "—" : `剩余 ${remaining}%`));
-      const bar = el("div", "bar");
-      const fill = el("div", "fill");
-      fill.style.width = `${disabled ? 0 : remaining ?? 0}%`;
-      bar.append(fill);
-      item.append(line, bar, el("div", "reset", remaining === 100 ? "未使用" : resetText(resetsAt, now)));
-      return item;
-    };
-    for (const group of data.groups ?? []) {
-      if (!group.buckets?.length) continue;
-      list.append(el("div", "group", antigravityGroupLabel(group)));
-      for (const bucket of group.buckets) {
-        list.append(row(antigravityWindowLabel(bucket.window, bucket.name), "", bucket.remaining === null ? null : Math.round(bucket.remaining * 100), bucket.resetsAt, bucket.disabled));
-      }
-    }
-    for (const limit of data.limits ?? []) {
-      const remaining = limit.usedPercent === null ? null : Math.round(100 - limit.usedPercent);
-      const row = el("div", "limit");
-      row.dataset.tone = remainingTone(remaining);
-      const line = el("div", "line");
-      line.append(el("span", "name", windowLabel(limit.windowMinutes)));
-      if (limit.scope) line.append(el("span", "scope", limit.scope));
-      line.append(el("span", "left", remaining === null ? "—" : `剩余 ${remaining}%`));
-      const bar = el("div", "bar");
-      const fill = el("div", "fill");
-      fill.style.width = `${remaining ?? 0}%`;
-      bar.append(fill);
-      row.append(line, bar, el("div", "reset", resetText(limit.resetsAt, now)));
-      list.append(row);
-    }
+    const sections = sectionsOf(data);
+    list.replaceChildren(...sections.map((section) => {
+      const node = el("div", "section");
+      const rings = el("div", "rings");
+      rings.append(...section.items.map((item) => ring(item, now)));
+      node.append(el("div", "title", section.title), rings);
+      return node;
+    }));
     const notes = [];
     let tone = "";
     if (data.limitReached) { notes.push("已用完额度，重置前无法继续使用"); tone = "bad"; }
     if (data.credits !== null && data.credits !== undefined) notes.push(`积分余额 ${Math.floor(data.credits).toLocaleString()}`);
     if (!data.ok || data.stale) { notes.push(data.stale ? `刷新失败，显示的是上次结果：${data.error}` : data.error); tone ||= "warn"; }
-    if (data.ok && !data.limits?.length && !data.groups?.some((group) => group.buckets?.length) && !notes.length) notes.push("这个账号没有返回额度窗口");
+    if (data.ok && !sections.length && !notes.length) notes.push("这个账号没有返回额度窗口");
     note.textContent = notes.join(" · ");
     note.dataset.tone = tone;
   }

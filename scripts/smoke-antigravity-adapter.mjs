@@ -134,8 +134,31 @@ try {
     assert.equal(await evaluate("pops"), 1, "已在该会话时不重复跳转");
     assert.deepEqual(await evaluate("threads.reveal('../settings')"), { ok: false, reason: "invalid" });
 
+    // 侧栏颜色标记：第一级 [data-cascade-id]；React 替换条目后补回；没有自动化属性时退到 /c/<id> 链接
+    const other = "116aed13-e977-429d-9b9e-ba854977fd4a";
+    const third = "0a2b3c4d-1111-4222-8333-944455556666";
+    await evaluate(`document.body.insertAdjacentHTML('beforeend', '<nav id="side"><div data-sidebar-row-id="${id}"><div id="row1" class="rounded-lg" data-cascade-id="${id}"><a href="/c/${id}"></a>Pi</div></div><div data-sidebar-row-id="${other}"><div id="row2" data-cascade-id="${other}">Ping</div></div></nav><main id="pane" data-cascade-id="${id}" style="height:400px">正文</main>')`);
+    await evaluate(`threads.setMarks([{ id: "${id}", color: 2 }, { id: "bad", color: 1 }, { id: "${other}", color: 99 }])`);
+    assert.equal(await evaluate("document.getElementById('row1').getAttribute('data-agent-companion-task')"), "2");
+    assert.equal(await evaluate("document.getElementById('row2').hasAttribute('data-agent-companion-task')"), false, "颜色越界不标");
+    assert.equal(await evaluate("document.getElementById('pane').hasAttribute('data-agent-companion-task')"), false, "正文区的对话容器不是侧栏条目");
+    assert.equal(await evaluate("document.getElementById('row1').className"), "rounded-lg", "不改原生 class");
+    assert.notEqual(await evaluate("getComputedStyle(document.getElementById('row1')).boxShadow"), "none", "画出左侧竖条");
+    await evaluate(`document.getElementById('row1').outerHTML = '<div id="row1b" data-cascade-id="${id}">Pi</div>'`);
+    await evaluate("new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))");
+    assert.equal(await evaluate("document.getElementById('row1b').getAttribute('data-agent-companion-task')"), "2", "重绘后补回");
+    await evaluate(`threads.setMarks([{ id: "${other}", color: 0 }])`);
+    assert.equal(await evaluate("document.getElementById('row1b').hasAttribute('data-agent-companion-task')"), false, "整体替换上一次的标记");
+    assert.equal(await evaluate("document.getElementById('row2').getAttribute('data-agent-companion-task')"), "0");
+    await evaluate(`document.getElementById('pane').remove(); document.getElementById('side').innerHTML = '<div id="row3"><a href="/c/${third}"></a>无自动化属性</div><div id="big" style="height:300px"><a href="/c/${other}"></a></div>'`);
+    await evaluate(`threads.setMarks([{ id: "${third}", color: 4 }])`);
+    assert.equal(await evaluate("document.getElementById('row3').getAttribute('data-agent-companion-task')"), "4", "退到链接所在条目");
+    await evaluate(`threads.setMarks([{ id: "${third}", color: 4 }, { id: "${other}", color: 1 }])`);
+    assert.equal(await evaluate("document.getElementById('big').hasAttribute('data-agent-companion-task')"), false, "不像一行条目的不标");
+
     // dispose 清理干净
     await evaluate("adapter.dispose(); threads.dispose(); unsubscribe()");
+    assert.equal(await evaluate("document.querySelectorAll('[data-agent-companion-task]').length + (document.getElementById('agent-companion-thread-marks') ? 1 : 0)"), 0, "撤掉标记与样式");
     assert.equal(await evaluate("!!document.getElementById('agent-companion-rail') || !!document.getElementById('agent-companion-entry') || document.querySelectorAll('[data-agent-companion-entry]').length > 0"), false);
     assert.equal(await evaluate("host.isConnected"), false);
     assert.deepEqual(await evaluate("errors"), []);

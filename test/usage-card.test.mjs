@@ -4,7 +4,7 @@ import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { codexCliCandidates, normalizeCodexRateLimits, readCodexRateLimits, resolveCodexCli } from "../src/codex-usage.mjs";
 import { createService, resolveProxyPort } from "../src/cards/usage/service.mjs";
-import { antigravityGroupLabel, antigravityWindowLabel, remainingTone, resetText, windowLabel } from "../src/cards/usage/renderer.mjs";
+import { antigravityGroupLabel, antigravityWindowLabel, remainingTone, resetText, shortResetText, windowLabel } from "../src/cards/usage/renderer.mjs";
 import { createAntigravityHostApi } from "../src/renderer/adapters/antigravity-host-api.mjs";
 
 // 假的 `codex app-server`：按行读 JSON-RPC 请求，按脚本回包，记录收到的方法。
@@ -230,4 +230,15 @@ test("Antigravity 宿主接口：经 Hub 自己的客户端读额度并整理成
 test("Antigravity 宿主接口：找不到客户端时报 HOST_API_MISSING", async () => {
   const api = createAntigravityHostApi({ document: { getElementById: () => ({}), body: null } });
   await assert.rejects(api.quota(), (error) => error.code === "HOST_API_MISSING");
+});
+
+test("圆环下的重置时间用短写法", () => {
+  const now = new Date(2026, 10, 24, 10, 0).getTime();
+  const at = (minutes) => (now + minutes * 60_000) / 1000;
+  assert.equal(shortResetText(at(0.2), now), "即将重置");
+  assert.equal(shortResetText(at(45), now), "45m 后");
+  assert.equal(shortResetText(at(108), now), "1h48m 后");
+  assert.equal(shortResetText(at(120), now), "2h 后");
+  assert.equal(shortResetText(new Date(2026, 11, 1, 4, 8).getTime() / 1000, now), "12/1 04:08");
+  assert.equal(shortResetText(undefined, now), "");
 });
