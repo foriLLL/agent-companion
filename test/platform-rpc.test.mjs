@@ -78,7 +78,8 @@ test("scoped companion settings.get 返回完整 v2、默认 catalog 和 agent�
   assert.deepEqual(await call("companion.settings.get", {}), {
     config: CONFIG,
     catalog: CARD_MANIFESTS.map(({ id, title, defaultEnabled, defaultOrder }) => ({ id, title, defaultEnabled, defaultOrder })),
-    agent: AGENT
+    agent: AGENT,
+    host: "codex"
   });
   assert.equal(loads, 1);
   assert.equal(requests[0].method, "companion.settings.get");
@@ -329,4 +330,13 @@ test("更新 RPC：status/check/apply/acknowledge 经 bridge 转给平台回调�
   for (const method of ["companion.update.check", "companion.update.apply", "companion.update.acknowledge"]) {
     await assert.rejects(bare.handleRpc(method, {}, { cardId: "companion" }), { code: "AGENT_UNAVAILABLE" });
   }
+});
+
+test("Antigravity 宿主的设置只列这个宿主会出现的卡片", async t => {
+  const service = createService(t, { host: "antigravity", platform: { getAgentStatus: async () => AGENT } });
+  const { call } = await connect(t, service);
+  const settings = await call("companion.settings.get", {});
+  assert.equal(settings.host, "antigravity");
+  assert.ok(!settings.catalog.some(card => card.id === "proxy"), "代理状态只对 Codex 有意义");
+  assert.ok(settings.catalog.some(card => card.id === "tasks"));
 });

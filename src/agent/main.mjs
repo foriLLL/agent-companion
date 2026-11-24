@@ -187,9 +187,10 @@ export async function runAgent(options = {}) {
   const waits = new Map();
   const report = error => logger.warn?.(`[agent-companion] agent：${error.message ?? error}`);
   const platform = {
-    getAgentStatus: () => getAgentStatus({ available: !stopped, pid: processRef.pid, config,
+    getAgentStatus: () => ({ ...getAgentStatus({ available: !stopped, pid: processRef.pid, config,
       snapshot: adapter.snapshotValue, attachment: adapter.attachment, lastEvent: adapter.state.lastEvent,
       nativeHelper: deps.nativeBridge ? "ok" : "missing", hostPlatform: deps.hostPlatform }),
+      ...(antigravity ? { antigravity: { attached: Boolean(antigravity.attachment), port: antigravity.attachment?.port ?? null } } : {}) }),
     requestCodexRestart: params => deps.nativeBridge ? controller.requestUserRestart(params)
       : Promise.resolve({ accepted: false, reason: "native-helper-missing" }),
     getUpdateStatus: () => updater?.status() ?? null,

@@ -21,7 +21,9 @@ export class AgentCompanionService {
     this.host = host;
     this.configStore = configStore;
     this.platform = platform;
-    this.catalog = manifests.map(({ id, title, defaultEnabled, defaultOrder }) => ({ id, title, defaultEnabled, defaultOrder }));
+    // 设置页只列这个宿主里会出现的卡片（manifest 的 hosts）。
+    this.catalog = manifests.filter(({ hosts }) => !hosts || hosts.includes(host))
+      .map(({ id, title, defaultEnabled, defaultOrder }) => ({ id, title, defaultEnabled, defaultOrder }));
     this.embyService = embyService;
     this.hongguoService = hongguoService;
     const loadConfig = () => typeof configStore.loadV2 === "function" ? configStore.loadV2() : configStore.load();
@@ -46,7 +48,7 @@ export class AgentCompanionService {
         const config = await this.loadConfig();
         context.signal?.throwIfAborted();
         const agent = typeof this.platform.getAgentStatus === "function" ? await this.platform.getAgentStatus() : null;
-        return { config, catalog: this.catalog, agent };
+        return { config, catalog: this.catalog, agent, host: this.host };
       }
       case "companion.settings.patch": {
         validateParams(params, ["expectedRevision", "patch"]);

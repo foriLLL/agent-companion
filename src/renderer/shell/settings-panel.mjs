@@ -45,6 +45,9 @@ export function createSettingsPanel({ document: doc, call, connection, onClose =
   let planHintConfirming = false;
   // Linux 由应用菜单入口加载卡片，不能自动重开或重启 Codex。
   let menuReopen = false;
+  // 宿主（codex / antigravity）由后台在 settings.get 里告知；只对 Codex 有意义的设置在别的宿主里隐藏。
+  let host = "codex";
+  const hostName = () => (host === "antigravity" ? "Antigravity" : "Codex");
   let busyFocus = null;
   // 恢复连接时如果还有请求在途，等它结束后再重新读取。
   let reloadPending = false;
@@ -328,8 +331,9 @@ export function createSettingsPanel({ document: doc, call, connection, onClose =
     value => ({ cards: { tasks: { settings: { switcher: value } } } }), switcherHint, tasksOff);
   const switcherKey = choice(tasksSection, "切换键", "⌃Tab 会盖掉 Codex 的切换标签页", "tasks-switcherKey", [["alt", "⌥ Tab"], ["ctrl", "⌃ Tab"]],
     value => ({ cards: { tasks: { settings: { switcherKey: value } } } }), switcherOff);
+  const switcherAllHint = node("small");
   const switcherAll = checkbox(tasksSection, "也列出看板外的会话", "tasks-switcher-all",
-    value => ({ cards: { tasks: { settings: { switcherAll: value } } } }), "切换面板里加上最近在 Codex 里打开过、但没加入看板的会话", switcherOff);
+    value => ({ cards: { tasks: { settings: { switcherAll: value } } } }), switcherAllHint, switcherOff);
   const switcherRows = [switcher.parentNode, switcherKey.row, switcherAll.parentNode];
   for (const row of switcherRows) row.hidden = !mac;
   // 播放提醒：卡片里有视频在播时，任务需要你或完成就弹出提醒；「暂停」先暂停播放再提醒。
@@ -537,10 +541,20 @@ export function createSettingsPanel({ document: doc, call, connection, onClose =
     for (const [value, input] of placements) input.checked = value === config.placement;
     proxyEnabled.checked = config.launch?.proxy?.enabled ?? false;
     tasksSection.parentElement.hidden = !catalog.some(card => card.id === "tasks");
+    // 显示方式、长任务先列计划、启动代理、自动加载都只作用于 Codex。
+    const codexHost = host === "codex";
+    placementSection.parentNode.hidden = !codexHost;
+    planHint.parentNode.hidden = !codexHost;
+    proxySection.parentNode.hidden = !codexHost;
+    autoSection.parentElement.hidden = menuReopen || !codexHost;
+    switcherAllHint.textContent = `切换面板里加上最近在 ${hostName()} 里打开过、但没加入看板的会话`;
+    switcherKey.row.querySelector("small").textContent = codexHost ? "⌃Tab 会盖掉 Codex 的切换标签页" : "⌃Tab 可能和 Antigravity 自己的快捷键冲突";
     planHint.checked = config.cards?.tasks?.settings?.planHint === true;
     planHintHint.textContent = tasksOff() ? "需先启用任务看板" : "会修改 Codex 全局 AGENTS.md 并开启 update_plan 工具，影响所有新会话；仅用于列计划和同步进度。开启前需确认，关闭即删除";
     autoAdd.checked = tasksSettings().autoAdd === true;
-    autoAddHint.textContent = tasksOff() ? "需先启用任务看板" : "打开后在 Codex 里新开的会话自动加入，移出后不再加回；终端里的 Codex 和子代理不算";
+    autoAddHint.textContent = tasksOff() ? "需先启用任务看板" : codexHost
+      ? "打开后在 Codex 里新开的会话自动加入，移出后不再加回；终端里的 Codex 和子代理不算"
+      : "打开后在 Antigravity 里新开的会话自动加入，移出后不再加回；命令行（agy）里的会话不算";
     switcher.checked = tasksSettings().switcher !== false;
     const ctrl = tasksSettings().switcherKey === "ctrl";
     const [held, symbol] = ctrl ? ["Control", "⌃"] : ["Option", "⌥"];
@@ -606,7 +620,7 @@ export function createSettingsPanel({ document: doc, call, connection, onClose =
   function renderStatus(agent) {
     statusDetails.replaceChildren();
     menuReopen = agent?.reopen === "menu";
-    autoSection.parentElement.hidden = menuReopen;
+    autoSection.parentElement.hidden = menuReopen || host !== "codex";
     if (agent?.available !== true) {
       statusText.textContent = "后台服务未运行";
       statusRow.dataset.state = "bad";
@@ -614,6 +628,13 @@ export function createSettingsPanel({ document: doc, call, connection, onClose =
     }
     statusText.textContent = "后台服务运行中";
     statusRow.dataset.state = "ok";
+    if (host === "antigravity") {
+      const antigravity = agent.antigravity ?? {};
+      for (const [label, value] of [["版本", agent.version], ["Antigravity", antigravity.attached ? "已连接" : "未连接"], ["调试端口", antigravity.port]]) {
+        if (value !== null && value !== undefined) statusDetails.append(node("dt", label), node("dd", String(value)));
+      }
+      return;
+    }
     const codex = agent.codex ?? {};
     const details = [
       ["版本", agent.version],
@@ -729,6 +750,7 @@ export function createSettingsPanel({ document: doc, call, connection, onClose =
     if (settings.status === "fulfilled") {
       acceptConfig(settings.value.config);
       catalog = settings.value.catalog;
+      host = settings.value.host === "antigravity" ? "antigravity" : "codex";
       renderConfig();
     } else config = null;
     renderUpdate(update.status === "fulfilled" ? update.value : null);

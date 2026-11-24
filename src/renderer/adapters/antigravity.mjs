@@ -44,9 +44,9 @@ export function createAntigravityAdapter({ host, placement = "standalone-button"
   rail.style.cssText = [
     "position:fixed", "z-index:2147483646", "top:48px", "right:12px", "box-sizing:border-box",
     `width:min(${PANEL_WIDTH}px, calc(100vw - 16px))`, "max-height:calc(100vh - 64px)", "overflow:auto",
-    "overscroll-behavior:contain", "border-radius:var(--hg-panel-radius, 14px)",
-    "background:var(--hg-panel-bg, #fff)", "color:var(--hg-panel-color, #1f1f1f)",
-    "box-shadow:var(--hg-panel-shadow)", "-webkit-app-region:no-drag"
+    // 不画外层框：卡片各自带边框和阴影，直接叠在按钮下方；内边距给卡片阴影留位置（overflow 会裁掉阴影）。
+    "overscroll-behavior:contain", "padding:2px 10px 14px", "background:transparent",
+    "color:var(--hg-panel-color, #1f1f1f)", "-webkit-app-region:no-drag"
   ].join(";");
   rail.append(host);
   document.documentElement.append(rail);
@@ -83,7 +83,8 @@ export function createAntigravityAdapter({ host, placement = "standalone-button"
     setHostVariable("--hg-panel-color", fg);
     setHostVariable("--hg-panel-radius", "14px");
     setHostVariable("--hg-panel-shadow", `0 0 0 1px ${border}, 0 8px 28px rgba(0,0,0,.12), 0 2px 6px rgba(0,0,0,.06)`);
-    setHostVariable("--hg-header-bg", bg);
+    // 卡片区顶部「卡片配置」那一行没有外框托着，背景要透明。
+    setHostVariable("--hg-header-bg", "transparent");
     setHostVariable("--hg-header-color", token("--muted-foreground") || (dark ? "#9aa0a6" : "#80868b"));
     setHostVariable("--hg-divider", border);
     setHostVariable("--hg-font-family", window.getComputedStyle(document.body).fontFamily || "system-ui, -apple-system, sans-serif");

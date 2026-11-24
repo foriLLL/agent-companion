@@ -1082,3 +1082,23 @@ test("卡片首次打开存档时复制改名前 codex-companion.card.* 下的�
   assert.ok(items.has(legacyKey), "旧记录原样保留，回退到老版本仍可用");
   await runtime.dispose();
 });
+
+test("Antigravity 宿主：隐藏只作用于 Codex 的设置，状态显示 Antigravity 连接", async () => {
+  const agent = { available: true, version: "0.4.0", codex: { attached: false }, antigravity: { attached: true, port: 9339 } };
+  const withTasks = [...catalog, { id: "tasks", title: "任务看板", defaultEnabled: true, defaultOrder: 5 }];
+  const f = fixture(method => method === "companion.settings.get" ? { config: initialConfig(), catalog: withTasks, host: "antigravity" } : agent, { platform: "MacIntel" });
+  await f.panel.open();
+  const root = f.panel.element;
+  const fieldset = (title) => descendants(root).find(item => item.tagName === "legend" && item.textContent === title)?.parentNode;
+  assert.equal(fieldset("显示方式").hidden, true);
+  assert.equal(fieldset("启动").hidden, true);
+  assert.equal(fieldset("自动加载").hidden, true);
+  assert.equal(bySetting(root, "tasks-plan-hint").parentNode.hidden, true, "计划提示改的是 Codex 的指令文件");
+  assert.equal(bySetting(root, "tasks-auto-add").parentNode.hidden, false);
+  assert.ok(bySetting(root, "tasks-auto-add").parentNode.textContent.includes("在 Antigravity 里新开的会话"));
+  assert.ok(root.textContent.includes("后台服务运行中"));
+  assert.ok(root.textContent.includes("已连接"));
+  assert.ok(root.textContent.includes("9339"));
+  assert.ok(!root.textContent.includes("原生助手"));
+  f.panel.destroy();
+});
