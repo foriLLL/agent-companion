@@ -6,6 +6,9 @@ Agent Companion — 在 Codex 桌面端（macOS；Linux 预览）中注入红果
 Linux 不自动重开：用户级 `chatgpt.desktop` 覆盖菜单入口（`open-codex` 带调试参数启动），
 systemd 用户服务常驻发现并注入；主进程 cmdline 被 Chromium setproctitle 改写成空格拼接的一行。
 官方插件（MCP Apps）链路已彻底放弃并删除，不要再加回来。
+Antigravity（预览，macOS）是第二个宿主：用户用 `agent-companion antigravity` 带 loopback 调试端口打开，
+agent 里的 `antigravity-host.mjs` 轮询主进程并注入；注入、卡片平台、设置页与 Codex 共用，按 `host` 区分页面适配器、
+会话定位与任务看板的数据源。
 
 ## 技术栈
 - JavaScript ESM (`.mjs`, `"type": "module"`)，Node.js >= 22
@@ -17,7 +20,8 @@ systemd 用户服务常驻发现并注入；主进程 cmdline 被 Chromium setpr
 - `src/agent/` — 无感注入 agent：`controller.mjs` 状态机（纯逻辑）、`adapter.mjs`
   平台动作、`session.mjs` 注入会话、`main.mjs` 常驻运行时与单实例锁、
   `launch-agent.mjs` 安装/卸载/状态/重启命令、`native-bridge.mjs` 原生助手封装、
-  `linux-service.mjs` systemd 用户服务与菜单入口覆盖、`open-codex.mjs` Linux 菜单入口启动器
+  `linux-service.mjs` systemd 用户服务与菜单入口覆盖、`open-codex.mjs` Linux 菜单入口启动器、
+  `antigravity-host.mjs` 发现并接上带调试端口的 Antigravity、`open-antigravity.mjs` 带端口打开 Antigravity
 - `packaging/mac-app/Native/` — 原生助手源码；`scripts/smoke-native.mjs` 只对 dummy app 冒烟
 - `src/platform/` — 平台差异集中处：`paths.mjs` 数据目录/PATH 查找/路径包含判断、
   `processes.mjs` Linux `/proc` 进程发现、
@@ -59,9 +63,10 @@ systemd 用户服务常驻发现并注入；主进程 cmdline 被 Chromium setpr
 - `manifest.json`：`id`、`title`、`version`、`defaultEnabled`（新卡保持 `false`）、`defaultOrder`、
   `layout`（`height`: `content` | `viewport`，`minHeight`，`scroll`: `inner` | `outer`）、
   `lifecycle`（`hidden`: `retain` | `suspend`，`start`: `immediate` | `first-visible`）、
-  `state`（`scope`: `target` | `session` | `global`，`version`）、`capabilities`。
+  `state`（`scope`: `target` | `session` | `global`，`version`）、`capabilities`；可选 `hosts`（`codex` | `antigravity`，
+  缺省为全部宿主，只对某个宿主有意义的卡片才写）。
 - `capabilities` 只声明用到的：`storage`（本地存档）、`rpc`（调用本卡的后台服务）、
-  `threads`（Codex 侧栏会话列表）、`overlay`（卡片区之外的顶层浮层）、`attention`（发提醒，可让平台暂停
+  `threads`（宿主的会话列表：Codex 侧栏；Antigravity 只有当前会话与按 id 打开）、`overlay`（卡片区之外的顶层浮层）、`attention`（发提醒，可让平台暂停
   卡片里正在播放的媒体；`ctx.attention.notify({ key, tone, title, text, detail, color, pause, action })`，
   默认只在有媒体播放时显示；`ctx.attention.act()` 对本卡最新一条带操作的提醒执行「去处理」，供快捷键用）。
   未声明的能力不会出现在 `ctx` 上。播放类卡片不用声明任何能力：平台自动识别卡片 ShadowRoot 里的 `<video>` / `<audio>`。
@@ -94,6 +99,11 @@ Codex 每次升级都可能改掉类名、data 属性、DOM 层级和打包方�
   新增一种宿主结构或后备方式时，在 `scripts/smoke-codex-adapter.mjs` 里加对应夹具（含「钩子全无」的场景）。
 - 与原生 Summary 完全一致（判档阈值、平移量、动画）只在最高一级保证；后备级只保证不压住对话、
   入口不丢、关闭后原样恢复。
+- **按宿主区分**：`src/targets.mjs` 的 `HOST_TARGETS` 决定注入哪些页面，`card-runtime.mjs` 的 `HOST_FACTORIES`
+  决定页面适配器与会话定位（`antigravity.mjs` / `antigravity-threads.mjs`），任务服务按 `host` 依赖选数据源
+  （`CodexSessions` / `AntigravitySessions`，接口相同）和看板文件。只对某个宿主有意义的卡片在 manifest 里写 `hosts`。
+  Antigravity 的锚点只有 `[data-testid="toggle-overview-panel"]` 一级，找不到时退到自有悬浮按钮；
+  会话跳转走 Hub 的 TanStack Router（`pushState` 带 `__TSR_index` 再发 `popstate`）。冒烟在 `scripts/smoke-antigravity-adapter.mjs`。
 
 ## 自动更新（`src/updater.mjs`）
 - 版本只认打了 `vX.Y.Z` tag 的正式 Release（API 403/429 时改读 `releases/latest` 跳转 + tag 上的 CHANGELOG，未登录 API 按出口 IP 限流）；agent 启动 2 分钟后、之后每 6 小时查一次，状态存数据目录 `update-state.json`。
@@ -135,6 +145,11 @@ Codex 每次升级都可能改掉类名、data 属性、DOM 层级和打包方�
   `com.codexcompanion.launcher` 偏好域）只用于识别和迁移，集中在 `src/platform/legacy-names.mjs` 和各模块的 `LEGACY_*` 常量里，
   新代码不要再写入它们。Formula 必须保留 `bin/codex-companion` 兼容入口：老 plist 写死了 `opt/codex-companion/bin/codex-companion`，
   formula 改名迁移后靠它拉起新版本，再由 `handoffLegacyAgent` 交接到新标签。批量替换名字时别把这些旧名字也替换掉
+- **Antigravity 数据**：会话状态读 `~/.gemini/antigravity/conversation_summaries.db` 的 `raw_summary`
+  （`exa.jetski_cortex_pb.CascadeTrajectorySummary`，`src/antigravity-sessions.mjs` 按字段号容错解码），
+  库是 WAL，Hub 运行中实时写入；没有 `-wal/-shm` 时只读打开会 CANTOPEN(14)，退回 `immutable=1`。
+  不连语言服务器的 API（要从它的进程里取 CSRF token，等同于取凭证）。开发与测试不得连接用户正在运行的 Antigravity：
+  agent 只在真实进程入口（`cli.mjs`）开启 Antigravity 宿主，测试一律用假进程快照
 - `src/*.generated.mjs`、`src/cards/*.generated.mjs` 由 `npm run generate:renderer`
   生成（`pretest` 自动执行），不要手改
 - **安全红线**：CDP 调试端口只绑 loopback + 随机端口，禁止改为

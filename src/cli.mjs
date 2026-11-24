@@ -37,6 +37,7 @@ Agent Companion — CDP DOM 注入器
   node src/cli.mjs agent [--log-dir <目录>]
   node src/cli.mjs agent <install|uninstall|status|restart-codex> [--plist-dir <目录>] [--label <label>]
   node src/cli.mjs open-codex [参数...]
+  node src/cli.mjs antigravity [--restart]
 
 命令：
   launch      启动带本机随机 CDP 端口的 Codex，并常驻维护注入（默认）；可选本机 HTTP/HTTPS 代理
@@ -47,6 +48,7 @@ Agent Companion — CDP DOM 注入器
   stop-codex  温和退出 Codex（SIGTERM，绝不强杀），输出单行 JSON 结果
   agent       常驻监听 Codex；install/uninstall 管理后台服务，status 查询，restart-codex 正常重启一次
   open-codex  以本机随机 CDP 端口打开 Codex 后立即返回，参数原样透传（Linux 应用菜单入口）
+  antigravity 以本机随机调试端口打开 Antigravity，后台服务自动加载卡片；已在运行时加 --restart 先正常退出再打开
 `);
 }
 
@@ -86,6 +88,7 @@ export function parseArgs(argv) {
       if (!options.configPath || options.configPath.startsWith("--")) throw new Error("--config-path 必须提供路径");
     }
     else if (arg === "--app") options.executable = args.shift();
+    else if (arg === "--restart" && options.command === "antigravity") options.restart = true;
     else if (arg === "--log-dir") {
       const value = args.shift();
       if (!value || value.startsWith("--")) throw new Error("--log-dir 必须提供路径");
@@ -101,7 +104,7 @@ export function parseArgs(argv) {
     else throw new Error(`未知参数：${arg}`);
   }
 
-  if (!["launch", "attach", "inject", "unmount", "status", "stop-codex", "cards", "config", "agent"].includes(options.command)) {
+  if (!["launch", "attach", "inject", "unmount", "status", "stop-codex", "cards", "config", "agent", "antigravity"].includes(options.command)) {
     throw new Error(`未知命令：${options.command}`);
   }
   if (options.port !== null && (!Number.isInteger(options.port) || options.port < 1 || options.port > 65_535)) {
@@ -146,6 +149,17 @@ export async function runCli(argv = process.argv.slice(2), dependencies = {}) {
     await openCodex({ executable: options.executable, args: options.passthrough,
       configStore: new CompanionConfig({ path: options.configPath }) });
     return;
+  }
+
+  if (options.command === "antigravity") {
+    const { openAntigravity } = await import("./agent/open-antigravity.mjs");
+    const result = await (dependencies.openAntigravityImpl ?? openAntigravity)({ restart: options.restart === true });
+    const messages = {
+      "already-running": `Antigravity 已带调试端口 ${result.port} 运行，后台服务会自动加载卡片。`,
+      "needs-restart": "Antigravity 正在运行但没有调试端口。保存好手头的工作后，用 --restart 让它退出并重新打开。"
+    };
+    console.log(result.launched ? `已打开 Antigravity（调试端口 ${result.port}，只监听本机）；后台服务运行中时卡片会自动加载。` : messages[result.reason]);
+    return result;
   }
 
   if (options.command === "agent") {
@@ -357,7 +371,11 @@ if (import.meta.main ?? (process.argv[1] && import.meta.url === pathToFileURL(pr
       if (result.conflicts?.length) console.error(`[agent-companion] 旧数据目录 ${result.from} 里这些项与新目录不同，已保留未合并：${result.conflicts.join("、")}`);
     },
       (error) => console.error(`[agent-companion] 旧数据目录迁移失败，继续使用新目录：${error.message}`))
-    .then(() => runCli(process.argv.slice(2), { mainThreadWatchdog: process.env.AGENT_COMPANION_WATCHDOG !== "0" })).catch((error) => {
+    .then(() => runCli(process.argv.slice(2), {
+      mainThreadWatchdog: process.env.AGENT_COMPANION_WATCHDOG !== "0",
+      // 后台服务顺带接管带调试端口启动的 Antigravity（目前只有 macOS 版）。
+      antigravity: process.platform === "darwin" && process.env.AGENT_COMPANION_ANTIGRAVITY !== "0"
+    })).catch((error) => {
     console.error(JSON.stringify({ error: { code: error.code ?? "CLI_ERROR", message: error.message, ...(error.revision === undefined ? {} : { revision: error.revision }) } }));
     process.exitCode = 1;
   });

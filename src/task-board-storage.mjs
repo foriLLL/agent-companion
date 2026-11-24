@@ -12,12 +12,15 @@ export const MAX_RECENT = 100;
 export const NAME_LIMIT = 120;
 export const COLOR_COUNT = 8;
 
-export function defaultTaskBoardPath(home = homedir()) {
-  return join(companionDataDir(home), "task-board.json");
+// 每个宿主一份看板：Codex 沿用原来的文件名，其它宿主（如 antigravity）加后缀。
+const hostSuffix = (host) => (host && host !== "codex" ? `-${host}` : "");
+
+export function defaultTaskBoardPath(home = homedir(), host = "codex") {
+  return join(companionDataDir(home), `task-board${hostSuffix(host)}.json`);
 }
 
-export function defaultTaskRecentPath(home = homedir()) {
-  return join(companionDataDir(home), "task-recent.json");
+export function defaultTaskRecentPath(home = homedir(), host = "codex") {
+  return join(companionDataDir(home), `task-recent${hostSuffix(host)}.json`);
 }
 
 // 数据目录下 0600 原子写：先写同目录临时文件再替换，失败时删掉临时文件。

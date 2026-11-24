@@ -4,7 +4,7 @@ import { CARD_MANIFESTS } from "./card-registry.mjs";
 import { attachMediaIntercept } from "./media-intercept.mjs";
 import { normalizeRuntimeConfig } from "./platform/config/runtime-config.mjs";
 import { CdpRpcBridge, DEFAULT_RPC_TIMEOUT_MS } from "./rpc-bridge.mjs";
-import { filterCodexTargets, isCodexAppTarget, listCdpTargets, waitForCodexTargets } from "./targets.mjs";
+import { hostTargets, listCdpTargets, waitForCodexTargets } from "./targets.mjs";
 
 // 会话自愈：WebSocket 仍是 OPEN 不代表 RPC 还通（binding 失效、回包投递失败、连接半开）。
 // 定期从页面发一次 rpc.ping 走完整条链路；连续失败就拆掉会话，下一轮扫描重新连接、注册 binding 并挂载。
@@ -26,6 +26,7 @@ const MEDIA_PLAYING_SOURCE = `(() => {
 
 export class CodexInjector {
   #port;
+  #host;
   #sessions = new Map();
   #scanTimer = null;
   #cleanedAuxiliaryTargets = new Set();
@@ -64,12 +65,14 @@ export class CodexInjector {
     healthTimeoutMs = HEALTH_TIMEOUT_MS,
     probeIntervalMs = PROBE_INTERVAL_MS,
     probeTimeoutMs = PROBE_TIMEOUT_MS,
-    maxSessionFailures = MAX_SESSION_FAILURES
+    maxSessionFailures = MAX_SESSION_FAILURES,
+    host = "codex"
   } = {}) {
     if (rpcHandler !== undefined && embyService !== undefined && rpcHandler !== embyService) {
       throw new TypeError("rpcHandler 和 embyService 不能同时配置");
     }
     this.#port = port;
+    this.#host = hostTargets(host);
     this.#logger = logger;
     this.#rpcHandler = rpcHandler ?? embyService;
     this.#rpcTimeoutMs = rpcTimeoutMs;
@@ -96,6 +99,10 @@ export class CodexInjector {
 
   get placement() {
     return this.#config.placement;
+  }
+
+  get host() {
+    return this.#host.id;
   }
 
   get cardOrder() {
@@ -129,7 +136,7 @@ export class CodexInjector {
   }
 
   #buildMountSource(config = this.#config) {
-    const source = buildInjectionSource("mount", { config });
+    const source = buildInjectionSource("mount", { config, host: this.#host.id });
     return this.#runtimePrelude ? `${this.#runtimePrelude}\n;${source}` : source;
   }
 
@@ -171,7 +178,7 @@ export class CodexInjector {
   }
 
   async injectOnce(action = "mount") {
-    const targets = await waitForCodexTargets(this.#port);
+    const targets = await waitForCodexTargets(this.#port, { host: this.#host.id });
     await this.#cleanupAuxiliaryTargets(await listCdpTargets(this.#port));
     const results = [];
 
@@ -194,7 +201,7 @@ export class CodexInjector {
   async start({ signal } = {}) {
     signal?.throwIfAborted();
     this.#stopped = false;
-    await waitForCodexTargets(this.#port, { signal });
+    await waitForCodexTargets(this.#port, { signal, host: this.#host.id });
     signal?.throwIfAborted();
     if (this.#stopped) return;
     await this.#runScan();
@@ -241,7 +248,7 @@ export class CodexInjector {
   async #scan() {
     const allTargets = await listCdpTargets(this.#port);
     await this.#cleanupAuxiliaryTargets(allTargets);
-    const targets = filterCodexTargets(allTargets);
+    const targets = this.#host.filterTargets(allTargets);
     const liveIds = new Set(targets.map((target) => target.id));
 
     for (const targetId of this.#resets.keys()) {
@@ -347,14 +354,14 @@ export class CodexInjector {
   }
 
   async #cleanupAuxiliaryTargets(allTargets) {
-    const mainIds = new Set(filterCodexTargets(allTargets).map((target) => target.id));
+    const mainIds = new Set(this.#host.filterTargets(allTargets).map((target) => target.id));
     const liveIds = new Set(allTargets.map((target) => target.id));
     for (const targetId of this.#cleanedAuxiliaryTargets) {
       if (!liveIds.has(targetId)) this.#cleanedAuxiliaryTargets.delete(targetId);
     }
 
     const auxiliaryTargets = allTargets.filter((target) => {
-      return isCodexAppTarget(target)
+      return this.#host.isAppTarget(target)
         && !mainIds.has(target.id)
         && !this.#cleanedAuxiliaryTargets.has(target.id);
     });

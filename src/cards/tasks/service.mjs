@@ -5,10 +5,13 @@ import { setTimeout as delay } from "node:timers/promises";
 import { promisify } from "node:util";
 import { createPlanHint } from "../../codex-plan-hint.mjs";
 import { planSummary } from "../../codex-plan.mjs";
+import { AntigravitySessions } from "../../antigravity-sessions.mjs";
 import { CodexSessions, THREAD_ID_PATTERN } from "../../codex-sessions.mjs";
 import { rpcError } from "../../platform/services/errors.mjs";
 import { createSessionWatcher } from "../../task-auto-add.mjs";
-import { COLOR_COUNT, MAX_TASKS, TaskBoardStorage, TaskRecentStorage, normalizeName, normalizeTask, pickColor } from "../../task-board-storage.mjs";
+import {
+  COLOR_COUNT, MAX_TASKS, TaskBoardStorage, TaskRecentStorage, defaultTaskBoardPath, defaultTaskRecentPath, normalizeName, normalizeTask, pickColor
+} from "../../task-board-storage.mjs";
 
 const execFileAsync = promisify(execFile);
 // 长轮询：每 300ms 只比较文件指纹，有变化才重新解析；最多挂起 25 秒后照常返回。
@@ -33,6 +36,17 @@ async function openThreadLink(id, { platform = process.platform } = {}) {
   await execFileAsync("/usr/bin/open", [`codex://threads/${id}`], { timeout: 5000 });
 }
 
+// Antigravity 的会话由页面里的路由直接打开（看板 reveal），没有可用的深链。
+async function unsupportedOpen() {
+  throw rpcError("UNSUPPORTED", "请在 Antigravity 侧栏里打开这个会话");
+}
+
+// 每种宿主的会话数据源与默认打开方式；看板文件也按宿主分开，两边的任务互不相混。
+const HOST_SOURCES = {
+  codex: { createSessions: () => new CodexSessions(), openThread: openThreadLink },
+  antigravity: { createSessions: () => new AntigravitySessions(), openThread: unsupportedOpen }
+};
+
 // 「长任务先列计划」开关：只在配置里明确给出 planHint 时才动 Codex 指令文件，从没碰过开关的配置不读不写。
 // 任务看板或整个 Companion 被停用时也删掉提示。
 function wantPlanHint(config) {
@@ -47,8 +61,11 @@ function wantAutoAdd(config) {
 }
 
 export function createService({
-  taskBoard = new TaskBoardStorage(), recentStorage = new TaskRecentStorage(), codexSessions = new CodexSessions(),
-  openThread = openThreadLink, planHint = null, logger = console, autoAddIntervalMs
+  host = "codex",
+  taskBoard = new TaskBoardStorage({ path: defaultTaskBoardPath(undefined, host) }),
+  recentStorage = new TaskRecentStorage({ path: defaultTaskRecentPath(undefined, host) }),
+  codexSessions = (HOST_SOURCES[host] ?? HOST_SOURCES.codex).createSessions(),
+  openThread = (HOST_SOURCES[host] ?? HOST_SOURCES.codex).openThread, planHint = null, logger = console, autoAddIntervalMs
 } = {}) {
   let hint = planHint;
   let hintApplied = null;
@@ -127,6 +144,8 @@ export function createService({
     async applyConfig(config) {
       if (wantAutoAdd(config)) void watcher.start();
       else watcher.stop();
+      // 计划提示写的是 Codex 的指令文件，只由 Codex 宿主的服务管理。
+      if (host !== "codex") return;
       const want = wantPlanHint(config);
       if (want === null || want === hintApplied) return;
       hint ??= createPlanHint();

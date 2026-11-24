@@ -41,14 +41,46 @@ export function filterCodexTargets(targets) {
   });
 }
 
-export async function waitForCodexTargets(port, { timeoutMs = 30_000, intervalMs = 300, signal, listTargets = listCdpTargets } = {}) {
+// Antigravity 的界面（Hub）是 language_server 在本机随机端口上提供的网页（https），由 Electron 窗口加载；
+// sidecar 面板是 iframe 类型的目标，不在这里。
+export function isAntigravityHubTarget(target) {
+  if (target?.type !== "page" || typeof target.webSocketDebuggerUrl !== "string") return false;
+  if (typeof target.url !== "string") return false;
+  try {
+    const url = new URL(target.url);
+    return (url.protocol === "https:" || url.protocol === "http:")
+      && (url.hostname === "127.0.0.1" || url.hostname === "localhost")
+      && url.port !== "";
+  } catch {
+    return false;
+  }
+}
+
+export function filterAntigravityTargets(targets) {
+  return targets.filter(isAntigravityHubTarget);
+}
+
+// 每种宿主怎么认出要注入的页面。isAppTarget 是宿主自己的全部页面（含辅助窗口），filterTargets 是要挂卡片区的主页面。
+export const HOST_TARGETS = Object.freeze({
+  codex: Object.freeze({ id: "codex", name: "Codex", isAppTarget: isCodexAppTarget, filterTargets: filterCodexTargets }),
+  antigravity: Object.freeze({ id: "antigravity", name: "Antigravity", isAppTarget: isAntigravityHubTarget, filterTargets: filterAntigravityTargets })
+});
+
+export function hostTargets(host = "codex") {
+  const entry = HOST_TARGETS[host];
+  if (!entry) throw new TypeError(`未知宿主：${host}`);
+  return entry;
+}
+
+export async function waitForCodexTargets(port, { timeoutMs = 30_000, intervalMs = 300, signal, listTargets = listCdpTargets, host = "codex" } = {}) {
+  const { filterTargets, name } = hostTargets(host);
   const deadline = Date.now() + timeoutMs;
   let lastError;
 
   while (Date.now() < deadline) {
     signal?.throwIfAborted();
     try {
-      const targets = filterCodexTargets(await listTargets(port, { signal }));
+      const targets = filterTargets(await listTargets(port, { signal }));
       signal?.throwIfAborted();
       if (targets.length > 0) return targets;
     } catch (error) {
@@ -59,5 +91,5 @@ export async function waitForCodexTargets(port, { timeoutMs = 30_000, intervalMs
   }
 
   const suffix = lastError ? `；最后错误：${lastError.message}` : "";
-  throw new Error(`等待 Codex renderer 超时（端口 ${port}）${suffix}`);
+  throw new Error(`等待 ${name} renderer 超时（端口 ${port}）${suffix}`);
 }

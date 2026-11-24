@@ -2,7 +2,8 @@
  * 卡片 manifest 校验。纯数据，不读文件系统，可在浏览器与 Node 中共用。
  *
  * 允许字段且仅允许这些字段：
- * id, title, version, defaultEnabled, defaultOrder, layout, lifecycle, state, capabilities。
+ * id, title, version, defaultEnabled, defaultOrder, layout, lifecycle, state, capabilities，以及可选的 hosts。
+ * hosts：卡片只在这些宿主里出现（codex / antigravity），缺省为全部宿主；例如代理状态只对 Codex 有意义。
  * capabilities 只能是不重复的 storage / rpc / threads / overlay / attention（threads：读取与标记宿主左侧会话列表，仅注入模式提供；
  * overlay：卡片抽屉之外、页面最顶层的浮层，抽屉收起时也能显示，例如快捷键唤出的面板；
  * attention：向用户发提醒，可让平台暂停卡片里正在播放的媒体，例如任务看板在任务需要你时打断视频）。
@@ -32,6 +33,8 @@ export const STATE_FIELDS = Object.freeze(["scope", "version"]);
 export const STATE_SCOPES = Object.freeze(["global", "target", "session"]);
 
 export const CAPABILITIES = Object.freeze(["storage", "rpc", "threads", "overlay", "attention"]);
+export const OPTIONAL_MANIFEST_FIELDS = Object.freeze(["hosts"]);
+export const HOSTS = Object.freeze(["codex", "antigravity"]);
 
 const ID_PATTERN = /^[a-z][a-z0-9-]*$/;
 
@@ -52,9 +55,9 @@ function isPlainObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
-function assertExactFields(value, allowed, fieldPrefix) {
+function assertExactFields(value, allowed, fieldPrefix, optional = []) {
   for (const key of Object.keys(value)) {
-    if (!allowed.includes(key)) {
+    if (!allowed.includes(key) && !optional.includes(key)) {
       const field = fieldPrefix ? `${fieldPrefix}.${key}` : key;
       fail("UNKNOWN_FIELD", field, `未知字段 "${field}"`);
     }
@@ -81,7 +84,7 @@ export function validateManifest(input) {
   if (!isPlainObject(input)) {
     fail("INVALID_TYPE", "", "manifest 必须是对象");
   }
-  assertExactFields(input, MANIFEST_FIELDS, "");
+  assertExactFields(input, MANIFEST_FIELDS, "", OPTIONAL_MANIFEST_FIELDS);
 
   if (typeof input.id !== "string" || !ID_PATTERN.test(input.id)) {
     fail("INVALID_VALUE", "id", `id 必须匹配 ${ID_PATTERN}，实际为 ${JSON.stringify(input.id)}`);
@@ -143,6 +146,14 @@ export function validateManifest(input) {
     seen.add(capability);
   });
 
+  if (Object.hasOwn(input, "hosts")) {
+    if (!Array.isArray(input.hosts) || input.hosts.length === 0) fail("INVALID_TYPE", "hosts", "hosts 必须是非空数组");
+    input.hosts.forEach((host, index) => {
+      if (!HOSTS.includes(host)) fail("INVALID_VALUE", `hosts[${index}]`, `hosts[${index}] 必须是 ${HOSTS.join(" / ")}，实际为 ${JSON.stringify(host)}`);
+      if (input.hosts.indexOf(host) !== index) fail("DUPLICATE_HOST", `hosts[${index}]`, `hosts 含重复值 "${host}"`);
+    });
+  }
+
   return Object.freeze({
     id: input.id,
     title: input.title,
@@ -162,7 +173,8 @@ export function validateManifest(input) {
       scope: input.state.scope,
       version: input.state.version
     }),
-    capabilities: Object.freeze([...input.capabilities])
+    capabilities: Object.freeze([...input.capabilities]),
+    ...(Object.hasOwn(input, "hosts") ? { hosts: Object.freeze([...input.hosts]) } : {})
   });
 }
 

@@ -51,8 +51,10 @@ export function createSessionWatcher({
       }
       seen.add(path);
       const id = typeof meta.id === "string" ? meta.id : null;
-      const created = id ? threadCreatedAt(id) : null;
-      if (!id || !THREAD_ID_PATTERN.test(id) || !isDesktopUserSession(meta) || (created !== null && created < startedAt - GRACE_MS)) {
+      // 数据源可以自己判断来源与创建时间（Antigravity 的会话 id 不带时间戳）；缺省按 Codex 的规则。
+      const created = !id ? null : codexSessions.createdAt ? codexSessions.createdAt(meta) : threadCreatedAt(id);
+      const userSession = codexSessions.isUserSession ? codexSessions.isUserSession(meta) : isDesktopUserSession(meta);
+      if (!id || !THREAD_ID_PATTERN.test(id) || !userSession || (created !== null && created < startedAt - GRACE_MS)) {
         failing.delete(path);
         continue;
       }

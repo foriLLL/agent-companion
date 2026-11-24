@@ -9,8 +9,10 @@ export async function createEmbyRuntime(port, {
   configStore = new CompanionConfig(),
   executable = DEFAULT_CODEX_EXECUTABLE,
   platform,
-  serviceFactory = ({ logger, configStore, platform }) => new AgentCompanionService({
-    logger, configStore, platform,
+  // 宿主：codex 或 antigravity，决定注入哪些页面、卡片区怎么摆、任务看板读哪里的会话。
+  host = "codex",
+  serviceFactory = ({ logger, configStore, platform, host }) => new AgentCompanionService({
+    logger, configStore, platform, host,
     inspectCodexProxy: () => detectCodexProxy({ executable, cdpPort: port })
   }),
   loadConfig = () => configStore.loadV2(),
@@ -18,10 +20,11 @@ export async function createEmbyRuntime(port, {
   onEvent
 } = {}) {
   const [runtimePrelude, config] = await Promise.all([loadRuntimeSource(), loadConfig()]);
-  const service = serviceFactory({ logger, configStore, platform });
+  const service = serviceFactory({ logger, configStore, platform, host });
   const injector = new InjectorClass(port, {
     rpcHandler: service,
     runtimePrelude,
+    ...(host === "codex" ? {} : { host }),
     config,
     cards: config.cards,
     placement: config.placement,

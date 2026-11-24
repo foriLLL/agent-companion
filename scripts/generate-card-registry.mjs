@@ -103,6 +103,7 @@ function catalogCard(card) {
       version: manifest.state.version
     },
     capabilities: [...manifest.capabilities],
+    ...(manifest.hosts ? { hosts: [...manifest.hosts] } : {}),
     entries: {
       renderer: card.entries.renderer,
       service: card.entries.service

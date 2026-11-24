@@ -126,6 +126,7 @@ npm start                                           # 重新生成并重启后�
 |---|---|---|
 | macOS（Apple Silicon / Intel） | 后台服务识别刚打开的 Codex，安全退出后带调试参数重开 | `~/Library/Application Support/agent-companion/` |
 | Linux（预览，x64 / ARM64） | 覆盖应用菜单里的 ChatGPT 入口，打开时直接带上调试参数，不需要重开 | `~/.config/agent-companion/` |
+| Antigravity（预览，macOS） | 用 `agent-companion antigravity` 带本机调试端口打开，后台服务看到就自动加载 | 同 macOS |
 
 Linux 版为预览：已验证安装、启动、连接、注入与 RPC，登录后会话界面里的卡片位置尚未在 Linux 上验证。Windows 暂不支持。
 
@@ -340,6 +341,24 @@ curl -fsSL https://raw.githubusercontent.com/foriLLL/agent-companion/main/script
 
 两处都只增删 Companion 自己写的内容，关闭开关、停用任务看板或卸载 Companion 时删除；已加载规则的会话不会自动撤回。
 
+### Antigravity（预览）
+
+卡片也能装进 Google Antigravity（macOS 2.35 起验证）。入口和 Overview 一样在标题栏右上角（Overview 开关左边的看板图标），
+点开是同款弹层，`⌥⌘J` 开关、`Esc` 关闭；首页、新建会话这类没有 Overview 开关的页面，入口退到右下角的悬浮按钮。
+
+```bash
+agent-companion antigravity            # Antigravity 没在运行：带本机随机调试端口打开
+agent-companion antigravity --restart  # 已在运行但没带调试端口：正常退出（和菜单里点退出一样）后重新打开
+```
+
+- 需要后台服务在运行（`agent-companion agent install` 装过即可）；它每几秒看一眼 Antigravity，带着本机调试端口的就接上，
+  退出后自动断开。调试端口开在非本机地址上的实例不接。设置 `AGENT_COMPANION_ANTIGRAVITY=0` 可关掉这项。
+- 和 Codex 共用设置与卡片开关；「代理状态」只对 Codex 有意义，在 Antigravity 里不显示。
+- **任务看板**读 Antigravity 自己的会话数据（`~/.gemini/antigravity/` 下的会话摘要库与步骤记录），只读：
+  进行中显示任务进度或正在调用的工具，等你授权、回答问题时排在最前并写明在等什么；
+  单会话 Trace 按模型、命令、文件、其它分道。点任务直接在 Antigravity 里打开那个会话。
+  看板与 Codex 的分开保存（`task-board-antigravity.json`），自动加入只收在 Antigravity 里新开的会话，不收 `agy` 命令行会话。
+
 ### 红果短剧
 
 卡片通过 [openhongguo](https://github.com/beilunyang/openhongguo) 这个非官方 SDK 读取
@@ -435,6 +454,9 @@ npm run probe:emby -- --server https://emby.example.com --username alice --searc
 - Linux 为预览：登录后会话界面中的卡片位置尚未验证；Windows 暂不支持。
 - 任务看板的状态由 Codex 本地会话记录推断，依赖其记录格式与侧栏 DOM，Codex 改版后
   可能需要更新。
+- Antigravity 为预览：只支持 macOS；已经在运行的 Antigravity 要用 `--restart` 重开一次才能加载。看板状态来自它的
+  会话摘要库（protobuf 字段按编号解码），Antigravity 升级改了格式时可能显示不全；侧栏里的会话暂时不会标上看板颜色，
+  Trace 里模型段的时长只精确到秒，旧回合最后一段回复的时长按输出量估算。
 - 卡片抽屉推开对话流的方式优先复用 Codex 原生 Summary 的布局；Codex 升级改掉内部结构后会自动换成
   不依赖内部命名的方式（观感接近，但不保证与 Summary 完全一致）。升级后可运行 `npm run check:host`
   查看是否降级。

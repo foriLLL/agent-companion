@@ -9,7 +9,8 @@ export const ARTIFACT_HASH = RENDERER_ARTIFACT_HASH;
 // 注入身份只由构建产物决定。配置更新走 runtime.applyConfig，不重建业务实例。
 export function buildInjectionSource(action = "mount", options = {}) {
   if (!["mount", "unmount"].includes(action)) throw new TypeError(`不支持的注入动作：${action}`);
-  const value = { action, config: options.config ?? options, artifactHash: ARTIFACT_HASH, version: INJECTION_VERSION };
+  const host = options.host ?? "codex";
+  const value = { action, config: options.config ?? options, ...(host === "codex" ? {} : { host }), artifactHash: ARTIFACT_HASH, version: INJECTION_VERSION };
   return `${RENDERER_SOURCE}\n;globalThis.__AGENT_COMPANION_RENDERER__.bootstrap(${JSON.stringify(value)})`;
 }
 

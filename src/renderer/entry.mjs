@@ -17,7 +17,7 @@ function cleanupLegacy() {
   for (const id of ["codex-companion-root", "codex-companion-rail"]) document.getElementById(id)?.remove();
 }
 
-function bootstrap({ action = "mount", config = {}, artifactHash, version } = {}) {
+function bootstrap({ action = "mount", config = {}, host = "codex", artifactHash, version } = {}) {
   const previous = globalThis[BRIDGE_KEY];
   if (action === "unmount") {
     pending?.();
@@ -29,7 +29,7 @@ function bootstrap({ action = "mount", config = {}, artifactHash, version } = {}
   }
   if (!document.body) {
     pending?.();
-    const ready = () => { pending = null; bootstrap({ action, config, artifactHash, version }); };
+    const ready = () => { pending = null; bootstrap({ action, config, host, artifactHash, version }); };
     document.addEventListener("DOMContentLoaded", ready, { once: true });
     pending = () => document.removeEventListener("DOMContentLoaded", ready);
     return { status: "scheduled", version };
@@ -42,9 +42,9 @@ function bootstrap({ action = "mount", config = {}, artifactHash, version } = {}
   try { previous?.unmount?.(); } catch {}
   // 只清理本平台旧宿主，不访问原生 Summary。
   for (const id of ["agent-companion-root", "agent-companion-rail"]) document.getElementById(id)?.remove();
-  const runtime = createCardRuntime({ manifests: CARD_MANIFESTS, renderers: RENDERER_REGISTRY, config, artifactHash });
+  const runtime = createCardRuntime({ manifests: CARD_MANIFESTS, renderers: RENDERER_REGISTRY, config, artifactHash, host });
   const bridge = {
-    version, artifactHash, cardsKey: artifactHash, runtime,
+    version, artifactHash, cardsKey: artifactHash, runtime, host,
     hostId: "agent-companion-root", railId: "agent-companion-rail",
     isMounted: runtime.isMounted, isPlaced: runtime.isPlaced, getPlacement: runtime.getPlacement,
     receiveRpc: runtime.receiveRpc,

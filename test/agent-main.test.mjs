@@ -339,3 +339,29 @@ test("updater 启动失败不影响 agent", async t => {
   assert.equal(f.instance.getUpdateStatus(), null);
   assert.equal(f.instance.getAgentStatus().available, true);
 });
+
+test("Antigravity 宿主只在显式开启时启动：拿到初始配置、跟着配置热更新、agent 停止时一起停", async t => {
+  const created = [];
+  const factory = options => {
+    const host = { options, started: 0, stopped: 0, configs: [], async start() { host.started += 1; }, async stop() { host.stopped += 1; },
+      async applyConfig(next) { host.configs.push(next); }, isMediaPlaying: async () => false };
+    created.push(host);
+    return host;
+  };
+  const off = await fixture(t, { antigravityHostFactory: factory });
+  assert.equal(created.length, 0, "默认不开");
+  await off.instance.stop();
+
+  const f = await fixture(t, { antigravity: { intervalMs: 5000 }, antigravityHostFactory: factory });
+  assert.equal(created.length, 1);
+  const [host] = created;
+  assert.equal(host.started, 1);
+  assert.equal(host.options.intervalMs, 5000);
+  assert.equal(host.options.initialConfig, f.config.value);
+  assert.equal(typeof host.options.platform.getAgentStatus, "function");
+  const next = { ...f.config.value, revision: 7 };
+  await f.update(next);
+  assert.deepEqual(host.configs, [next]);
+  await f.instance.stop();
+  assert.equal(host.stopped, 1);
+});

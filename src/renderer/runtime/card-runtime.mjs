@@ -4,6 +4,8 @@ import { createRpcClient } from "../platform/rpc-client.mjs";
 import { createCardShell } from "../shell/card-shell.mjs";
 import { createCodexAdapter } from "../adapters/codex.mjs";
 import { createCodexThreads } from "../adapters/codex-threads.mjs";
+import { createAntigravityAdapter } from "../adapters/antigravity.mjs";
+import { createAntigravityThreads } from "../adapters/antigravity-threads.mjs";
 import { createOverlayLayer } from "../shell/overlay-layer.mjs";
 import { createAttentionLayer } from "../shell/attention-layer.mjs";
 
@@ -25,13 +27,23 @@ function safeBackend(name, onError) {
   }
 }
 
+// 宿主适配：卡片区挂在哪、会话列表从哪读，按注入时声明的宿主选择。
+export const HOST_FACTORIES = Object.freeze({
+  codex: Object.freeze({ adapterFactory: createCodexAdapter, threadsFactory: createCodexThreads }),
+  antigravity: Object.freeze({ adapterFactory: createAntigravityAdapter, threadsFactory: createAntigravityThreads })
+});
+
 export function createCardRuntime({
-  manifests, renderers, config: initialConfig = {}, artifactHash,
-  shellFactory = createCardShell, adapterFactory = createCodexAdapter, threadsFactory = createCodexThreads,
+  manifests: allManifests, renderers, config: initialConfig = {}, artifactHash, host = "codex",
+  shellFactory = createCardShell,
+  adapterFactory = (HOST_FACTORIES[host] ?? HOST_FACTORIES.codex).adapterFactory,
+  threadsFactory = (HOST_FACTORIES[host] ?? HOST_FACTORIES.codex).threadsFactory,
   attentionFactory = createAttentionLayer,
   localStorage: localBackend, sessionStorage: sessionBackend,
   rpcClient = createRpcClient(), onError = () => {}
 }) {
+  // 只声明了别的宿主的卡片（如只对 Codex 有意义的代理状态）在这个宿主里不出现。
+  const manifests = allManifests.filter((manifest) => !manifest.hosts || manifest.hosts.includes(host));
   const records = new Map();
   const failures = [];
   const shell = shellFactory();

@@ -65,3 +65,15 @@ test("重复注入的 DOMContentLoaded 等待只保留最新配置，卸载可�
   vm.runInContext(buildInjectionSource("unmount"), context);
   assert.equal(listeners.size, 0);
 });
+
+test("非 Codex 宿主把 host 带给页面入口，Codex 保持原样", () => {
+  const run = (options) => {
+    let received;
+    const suffix = buildInjectionSource("mount", options).slice(RENDERER_SOURCE.length);
+    vm.runInNewContext(suffix, { __AGENT_COMPANION_RENDERER__: { bootstrap(value) { received = value; } } });
+    return received;
+  };
+  assert.equal(run({ config: {} }).host, undefined);
+  assert.equal(run({ config: {}, host: "codex" }).host, undefined);
+  assert.equal(run({ config: {}, host: "antigravity" }).host, "antigravity");
+});

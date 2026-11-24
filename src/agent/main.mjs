@@ -12,6 +12,7 @@ import { AgentController } from "./controller.mjs";
 import { isCompanionDebugInstance, parseCodexDebugArgs } from "./codex-args.mjs";
 import { createNativeBridge, resolveNativeHelperPath } from "./native-bridge.mjs";
 import { createAgentAdapter } from "./adapter.mjs";
+import { createAntigravityHost } from "./antigravity-host.mjs";
 import { createAgentFileLogger } from "./logger.mjs";
 import { startMainThreadWatchdog } from "./watchdog.mjs";
 import { companionDataDir } from "../platform/paths.mjs";
@@ -182,6 +183,7 @@ export async function runAgent(options = {}) {
   let polling;
   let watchdog;
   let updater = null;
+  let antigravity = null;
   const waits = new Map();
   const report = error => logger.warn?.(`[agent-companion] agent：${error.message ?? error}`);
   const platform = {
@@ -277,6 +279,7 @@ export async function runAgent(options = {}) {
     stopping = (async () => {
       try {
         await updaterStopped?.catch(report);
+        await antigravity?.stop().catch(report);
         try { await watcher?.close(); }
         finally { await adapter?.close(); }
       } catch (error) {
@@ -327,7 +330,7 @@ export async function runAgent(options = {}) {
     watcher = await (options.watchConfig ?? watchCompanionConfig)({ config: deps.configStore,
       onChange: async next => {
         if (stopped) return;
-        try { await adapter.applyConfig(next); }
+        try { await Promise.all([adapter.applyConfig(next), antigravity?.applyConfig(next)]); }
         finally { if (!stopped) { config = next; updater?.applyConfig(); } }
       }, onError: report });
     if (stopped) { await watcher.close(); await stopping; return { running: false, stop }; }
@@ -338,12 +341,23 @@ export async function runAgent(options = {}) {
         updater = (options.updaterFactory ?? createUpdater)({ currentVersion: AGENT_VERSION, install, env,
           statePath: options.updateStatePath ?? defaultUpdateStatePath(deps.home), getConfig: () => config,
           logger, now, hostPlatform: deps.hostPlatform, setTimer, clearTimer,
-          isMediaPlaying: () => adapter.isMediaPlaying(), restart: restartForUpdate });
+          isMediaPlaying: async () => (await adapter.isMediaPlaying()) || Boolean(await antigravity?.isMediaPlaying()), restart: restartForUpdate });
         await updater.start();
       } catch (error) {
         // 更新出问题不能影响卡片注入。
         report(error);
         updater = null;
+      }
+    }
+    // Antigravity 宿主只由真实进程入口开启（cli.mjs），测试里不去碰本机正在运行的 Antigravity。
+    if (options.antigravity && !stopped) {
+      try {
+        antigravity = (options.antigravityHostFactory ?? createAntigravityHost)({ configStore: deps.configStore, initialConfig: config, logger, platform,
+          ...(typeof options.antigravity === "object" ? options.antigravity : {}) });
+        await antigravity.start();
+      } catch (error) {
+        report(error);
+        antigravity = null;
       }
     }
     startWatch();

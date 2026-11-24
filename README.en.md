@@ -145,6 +145,7 @@ together with the repository; no external code is loaded at runtime.
 |---|---|---|
 | macOS (Apple Silicon / Intel) | The background service detects a freshly opened Codex, quits it gracefully, and reopens it with debugging flags | `~/Library/Application Support/agent-companion/` |
 | Linux (preview, x64 / ARM64) | Overrides the ChatGPT entry in the application menu so it launches with debugging flags; no reopen needed | `~/.config/agent-companion/` |
+| Antigravity (preview, macOS) | Open it with `agent-companion antigravity` to add a local debugging port; the background service loads the cards as soon as it sees it | Same as macOS |
 
 Linux support is a preview: installation, launch, connection, injection, and RPC have been verified, but
 card placement in the signed-in session view has not been verified on Linux. Windows is not supported yet.
@@ -427,6 +428,31 @@ longer appears as code blocks in the conversation. If you already configured `up
 In both files Companion only adds or removes its own content, and removes it when you turn the switch off,
 disable the task board, or uninstall Companion. Sessions that already loaded the rules are not reverted.
 
+### Antigravity (preview)
+
+The cards also load in Google Antigravity (verified on macOS, version 2.35). The entry sits in the title bar like
+Overview (the board icon to the left of the Overview toggle) and opens the same kind of popover; `⌥⌘J` toggles it
+and `Esc` closes it. Pages without an Overview toggle, such as the home page or a new conversation, fall back to a
+floating button in the bottom-right corner.
+
+```bash
+agent-companion antigravity            # Antigravity is not running: open it with a random local debugging port
+agent-companion antigravity --restart  # Already running without one: quit it normally (like Quit in the menu), then reopen
+```
+
+- The background service must be running (installing it with `agent-companion agent install` is enough). Every few
+  seconds it looks for Antigravity, attaches to an instance with a local debugging port, and detaches when it quits.
+  Instances whose debugging port listens on a non-local address are skipped. Set `AGENT_COMPANION_ANTIGRAVITY=0` to
+  turn this off.
+- Settings and card switches are shared with Codex. The proxy status card only applies to Codex and is hidden in
+  Antigravity.
+- The **task board** reads Antigravity's own conversation data (the summary database and step logs under
+  `~/.gemini/antigravity/`), read-only. Running tasks show the task progress or the tool being called; tasks waiting
+  for your permission or answer are listed first with what they are waiting for. The per-conversation Trace splits
+  model, command, file, and other lanes. Clicking a task opens that conversation in Antigravity. The board is stored
+  separately from the Codex one (`task-board-antigravity.json`), and auto-add only picks up conversations started in
+  Antigravity, not `agy` command-line conversations.
+
 ### Hongguo
 
 The card reads Hongguo's public catalog and playback addresses through the unofficial SDK
@@ -547,6 +573,11 @@ server addresses, raw logs, or other private information in public issues.
   supported yet.
 - Task board status is inferred from Codex's local session records and depends on their format and on the
   sidebar DOM, so it may need updating when Codex changes.
+- Antigravity support is a preview and macOS-only. An Antigravity instance that is already running must be reopened
+  once with `--restart`. Board status comes from its conversation summary database (protobuf fields decoded by
+  number), so an Antigravity update that changes the format may leave some details blank. Sidebar entries are not
+  colored with the board colors yet; model segments in the Trace are accurate to the second, and the last reply of
+  an older turn has an estimated duration based on its output size.
 - The card drawer pushes the conversation aside by reusing the layout of Codex's native Summary panel. When
   a Codex update changes its internal structure, the drawer switches to a method that does not depend on
   internal names (close in appearance, but not guaranteed to match Summary exactly). Run
