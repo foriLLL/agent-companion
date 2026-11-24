@@ -67,8 +67,8 @@ test("save 写入 0600 并可 load 回读", async () => {
       version: 1,
       enabled: true,
       placement: "standalone-button",
-      cards: { proxy: true, tasks: true, hongguo: false, emby: true },
-      cardOrder: ["proxy", "tasks", "hongguo", "emby"]
+      cards: { proxy: true, usage: false, tasks: true, hongguo: false, emby: true },
+      cardOrder: ["proxy", "usage", "tasks", "hongguo", "emby"]
     });
   });
 });
@@ -82,7 +82,7 @@ test("load：文件缺失或损坏时回退默认，不抛异常", async () => {
       enabled: true,
       placement: "standalone-button",
       cards: { ...DEFAULT_CARDS },
-      cardOrder: ["proxy", "tasks", "hongguo", "emby"]
+      cardOrder: ["proxy", "usage", "tasks", "hongguo", "emby"]
     });
 
     await writeFile(path, "{ broken", "utf8");
@@ -91,7 +91,7 @@ test("load：文件缺失或损坏时回退默认，不抛异常", async () => {
       enabled: true,
       placement: "standalone-button",
       cards: { ...DEFAULT_CARDS },
-      cardOrder: ["proxy", "tasks", "hongguo", "emby"]
+      cardOrder: ["proxy", "usage", "tasks", "hongguo", "emby"]
     });
   });
 });

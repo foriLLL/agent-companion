@@ -43,7 +43,7 @@ modify `app.asar`, the Codex installation, or the app signature.
   A card only implements its own UI and logic.
 - **Capability-based access.** A card declares the capabilities it needs in its manifest (storage,
   backend RPC, the session list, top-level overlays). Undeclared capabilities are not available to it.
-- **Built-in cards that work out of the box.** Task board, Hongguo, Emby, and proxy status.
+- **Built-in cards that work out of the box.** Task board, Hongguo, Emby, proxy status, and usage.
   Each can be enabled, disabled, and reordered, and follows Codex's light and dark themes.
 - **Codex is left untouched.** The UI is injected through a debugging port bound to the loopback
   address. The background service starts at login and recovers automatically after a crash.
@@ -56,6 +56,7 @@ modify `app.asar`, the Codex installation, or the app signature.
 | **Hongguo** | Browse, search, save, pick episodes, play, and auto-play the next episode (requires FFmpeg) | On |
 | **Emby** | Connects to a self-hosted Emby server: libraries, search, source selection, subtitles, resume, and progress reporting | On |
 | **Proxy status** | Shows the proxy Codex was launched with and whether the local port is reachable | On |
+| **Usage** | Remaining Codex quota per window (5-hour, weekly, …), reset times and credit balance | Off |
 
 ### Task board
 

@@ -53,7 +53,7 @@ test("v1 迁移保留原文件与精确备份，v2 0600，旧窗口写入不再�
   // v1 的未知顶层字段不迁移。
   assert.equal(Object.hasOwn(config, "retiredUrl"), false);
   // 已删除的 games 卡片按未知卡片保留（不显示、排在最后），与未来卡片同样处理。
-  assert.deepEqual(config.order, ["proxy", "tasks", "emby", "hongguo", "games"]);
+  assert.deepEqual(config.order, ["proxy", "usage", "tasks", "emby", "hongguo", "games"]);
   assert.equal(await readFile(oldPath, "utf8"), original);
   assert.equal(await readFile(`${oldPath}.v1.bak`, "utf8"), original);
   assertMode(await stat(path), 0o600);

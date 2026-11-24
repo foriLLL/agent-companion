@@ -1,0 +1,23 @@
+{
+  "id": "usage",
+  "title": "额度",
+  "version": 1,
+  "defaultEnabled": false,
+  "defaultOrder": 2,
+  "layout": {
+    "height": "content",
+    "minHeight": 0,
+    "scroll": "outer"
+  },
+  "lifecycle": {
+    "hidden": "suspend",
+    "start": "first-visible"
+  },
+  "state": {
+    "scope": "global",
+    "version": 1
+  },
+  "capabilities": [
+    "rpc"
+  ]
+}
