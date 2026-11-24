@@ -1,6 +1,6 @@
 import { posixOnlyTest as test } from "./helpers/platform.mjs";
 import assert from "node:assert/strict";
-import { access, lstat, mkdir, readFile, readlink, stat, writeFile } from "node:fs/promises";
+import { access, lstat, mkdir, readdir, readFile, readlink, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { migrateLegacyDataDir, normalizeLegacyEnv } from "../src/platform/legacy-names.mjs";
 import { companionDataDir } from "../src/platform/paths.mjs";
@@ -43,24 +43,38 @@ test("旧数据目录整体改名到新目录，并在旧位置留软链", async
     assert.equal(await readlink(legacy), "agent-companion");
     assert.equal(await readFile(join(legacy, "config-v2.json"), "utf8"), "{\"revision\":7}", "旧路径经软链仍能读到同一份数据");
 
-    // 再次启动：新目录已存在，什么都不做。
-    assert.equal((await migrateLegacyDataDir({ home, platform, env: {} })).reason, "target-exists");
+    // 再次启动：旧位置已是软链，什么都不做。
+    assert.equal((await migrateLegacyDataDir({ home, platform, env: {} })).reason, "already-migrated");
   }
 });
 
-test("新目录已存在或没有旧目录时不迁移，旧目录不是目录时也不动", async t => {
+test("新目录已存在时逐项合并：缺的搬过去、相同的去重、冲突的两边都保留", async t => {
   const home = await temporary(t);
   assert.equal((await migrateLegacyDataDir({ home, platform: "linux", env: {} })).reason, "no-legacy");
 
   const legacy = companionDataDir(home, { platform: "linux", env: {}, name: "codex-companion" });
   const target = companionDataDir(home, { platform: "linux", env: {} });
-  await mkdir(legacy, { recursive: true });
+  await mkdir(join(legacy, "hongguo"), { recursive: true });
   await writeFile(join(legacy, "config-v2.json"), "old");
+  await writeFile(join(legacy, "emby.json"), "same");
+  await writeFile(join(legacy, "hongguo", "a.json"), "{}");
   await mkdir(target, { recursive: true });
   await writeFile(join(target, "config-v2.json"), "new");
-  assert.equal((await migrateLegacyDataDir({ home, platform: "linux", env: {} })).reason, "target-exists");
+  await writeFile(join(target, "emby.json"), "same");
+
+  const first = await migrateLegacyDataDir({ home, platform: "linux", env: {} });
+  assert.deepEqual(first, { migrated: true, merged: true, conflicts: ["config-v2.json"], from: legacy, to: target, reason: "conflicts" });
+  await access(join(target, "hongguo", "a.json"));
   assert.equal(await readFile(join(target, "config-v2.json"), "utf8"), "new");
-  assert.equal(await readFile(join(legacy, "config-v2.json"), "utf8"), "old", "两份都在时不合并、不覆盖");
+  assert.equal(await readFile(join(legacy, "config-v2.json"), "utf8"), "old", "冲突项不覆盖，旧目录保留");
+  assert.deepEqual((await readdir(legacy)).sort(), ["config-v2.json"], "相同内容的旧副本已删除");
+  assert.equal((await lstat(legacy)).isDirectory(), true, "还有冲突时不换成软链");
+
+  // 冲突解决后（用户删掉旧文件）再启动，旧目录搬空并换成软链。
+  await rm(join(legacy, "config-v2.json"));
+  const second = await migrateLegacyDataDir({ home, platform: "linux", env: {} });
+  assert.deepEqual(second, { migrated: true, merged: true, from: legacy, to: target });
+  assert.ok((await lstat(legacy)).isSymbolicLink());
 
   const other = await temporary(t);
   const file = companionDataDir(other, { platform: "darwin", env: {}, name: "codex-companion" });

@@ -352,7 +352,10 @@ if (import.meta.main ?? (process.argv[1] && import.meta.url === pathToFileURL(pr
   // 改名兼容：先把旧环境变量映射过来、把旧数据目录搬到新位置，再读任何配置。
   normalizeLegacyEnv(process.env);
   migrateLegacyDataDir()
-    .then((result) => { if (result.migrated) console.error(`[agent-companion] 数据目录已从 ${result.from} 迁移到 ${result.to}`); },
+    .then((result) => {
+      if (result.migrated) console.error(`[agent-companion] 数据目录已从 ${result.from} 迁移到 ${result.to}`);
+      if (result.conflicts?.length) console.error(`[agent-companion] 旧数据目录 ${result.from} 里这些项与新目录不同，已保留未合并：${result.conflicts.join("、")}`);
+    },
       (error) => console.error(`[agent-companion] 旧数据目录迁移失败，继续使用新目录：${error.message}`))
     .then(() => runCli(process.argv.slice(2), { mainThreadWatchdog: process.env.AGENT_COMPANION_WATCHDOG !== "0" })).catch((error) => {
     console.error(JSON.stringify({ error: { code: error.code ?? "CLI_ERROR", message: error.message, ...(error.revision === undefined ? {} : { revision: error.revision }) } }));
