@@ -3,6 +3,9 @@ import { createMediaUi } from "../../renderer/media/ui.mjs";
 import { createDirectMp4Stream } from "../../renderer/media/direct-mp4.mjs";
 import { mediaStyles } from "../../renderer/media/styles.mjs";
 
+// 「我的片单」超过这个数时折叠，只列最近打开的几部。
+const LIST_COLLAPSED = 3;
+
 export function mount(ctx) {
   const scope = createMediaScope(ctx);
   const { rpc, requestRpc, cancelRpc, listen, unlisten, setTimeout, clearTimeout, requestAnimationFrame, queueMicrotask, createObjectURL, revokeObjectURL, isDisposed } = scope;
@@ -22,6 +25,8 @@ export function mount(ctx) {
     view: "loading",
     loadingLabel: "正在加载短剧内容…",
     featured: [],
+    // 推荐是否成功加载过：在途时被打开选集、搜索等取消后，回到首页要重新加载，不能停在「暂无推荐」。
+    homeLoaded: false,
     homeLoading: false,
     homeError: null,
     feedCursor: null,
@@ -38,6 +43,7 @@ export function mount(ctx) {
     searchMoreLoading: false,
     searchMoreError: null,
     listItems: [],
+    listExpanded: false,
     selectedDrama: null,
     playback: null,
     error: null,
@@ -326,10 +332,23 @@ export function mount(ctx) {
       makeHongguoIdForm()
     );
     // 我的片单：ID 直达打开过的剧留在这里，点一下直接进选集，无需重输
+    // 超过 LIST_COLLAPSED 部时默认只列最近的几部，其余折叠。
     if (hongguoState.listItems.length > 0) {
       scroll.append(makeElement("h3", "hg-section-title", "我的片单"));
-      for (const item of hongguoState.listItems) {
+      const total = hongguoState.listItems.length;
+      const shown = hongguoState.listExpanded ? hongguoState.listItems : hongguoState.listItems.slice(0, LIST_COLLAPSED);
+      for (const item of shown) {
         scroll.append(makeHongguoResult(item, { removable: true }));
+      }
+      if (total > LIST_COLLAPSED) {
+        const toggle = makeElement("button", "hg-list-toggle", hongguoState.listExpanded ? "收起" : `展开全部 ${total} 部`);
+        toggle.type = "button";
+        toggle.setAttribute("aria-expanded", String(hongguoState.listExpanded));
+        listen(toggle, "click", () => {
+          hongguoState.listExpanded = !hongguoState.listExpanded;
+          renderHongguo();
+        });
+        scroll.append(toggle);
       }
     }
     if (hongguoState.homeLoading) {
@@ -756,6 +775,13 @@ export function mount(ctx) {
     else view = renderHongguoLoading();
     hongguoApp.replaceChildren(view);
     restoreHongguoScroll();
+    // 回到首页时推荐从没加载成功过（在途请求被打开选集、搜索等取消）、也没在加载或等重试：重新加载。
+    if (hongguoState.view === "home" && !hongguoState.homeLoaded && !hongguoState.homeLoading && !hongguoState.homeError
+      && !hongguoHomeRequest && hongguoHomeRetryTimer === null) {
+      queueMicrotask(() => {
+        if (hongguoState.view === "home" && !hongguoState.homeLoaded && !hongguoState.homeLoading && !hongguoHomeRequest) void loadHongguoHome({ automatic: true });
+      });
+    }
   };
 
   const loadMoreHongguo = async () => {
@@ -824,6 +850,7 @@ export function mount(ctx) {
       hongguoState.feedTotal = Number(result?.total) || hongguoState.featured.length;
       hongguoState.feedLoading = false;
       hongguoState.feedError = null;
+      hongguoState.homeLoaded = true;
       hongguoState.homeLoading = false;
       hongguoState.homeError = null;
       hongguoState.error = null;

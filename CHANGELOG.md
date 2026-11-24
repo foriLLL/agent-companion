@@ -13,6 +13,9 @@
 - Homebrew 7 的信任记录按 formula 名字保存，老安装要信任一次新名字才能继续自动更新：运行一次 `scripts/upgrade.sh`，
   或执行 `brew trust --formula foriLLL/codex-companion/agent-companion` 后在设置里点「立即更新」。
 
+- 红果卡片：「我的片单」超过 3 部时折叠，点「展开全部」查看其余；推荐还在加载时打开片单里的剧或搜索，
+  回到首页不再停在「暂无推荐内容」，会重新加载推荐。Codex 与 Antigravity 都生效。
+
 - 新卡片「额度」（默认关闭，在设置里启用）：用圆环显示 Codex 账号各时间窗口（5 小时、每周等）的剩余额度、重置时间与积分余额。
   通过 Codex 自带的官方 `codex app-server` 读取，令牌留在 Codex 自己那里；只读额度，不读邮箱等账号信息。
   请求和 Codex 走同一个出口（跟随 Codex 的启动代理，或设置里「通过代理启动」的端口），结果缓存 5 分钟、手动刷新至少隔 1 分钟。

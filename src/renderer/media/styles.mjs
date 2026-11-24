@@ -179,6 +179,11 @@ export const mediaStyles = `
         .hg-list-row .hg-result { flex: 1; min-width: 0; }
         .hg-list-remove { flex: 0 0 auto; opacity: .55; }
         .hg-list-remove:hover, .hg-list-remove:focus-visible { opacity: 1; }
+        .hg-list-toggle {
+          display: block; margin: 2px 0 14px 6px; padding: 2px 0; border: 0; background: none; cursor: pointer;
+          color: var(--hg-header-color, var(--color-token-text-tertiary, rgba(26,28,31,.55))); font: inherit; font-size: 11px; line-height: 16px;
+        }
+        .hg-list-toggle:hover, .hg-list-toggle:focus-visible { color: inherit; text-decoration: underline; }
         .hg-empty, .hg-center { display: grid; place-items: center; text-align: center; color: var(--hg-header-color, rgba(26,28,31,.55)); }
         .hg-empty { min-height: 110px; padding: 18px; border: .5px dashed var(--hg-divider, rgba(26,28,31,.12)); border-radius: 13px; font-size: 11px; }
         .hg-center { min-height: 100%; align-content: center; gap: 10px; padding: 24px; }

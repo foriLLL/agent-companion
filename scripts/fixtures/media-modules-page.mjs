@@ -30,6 +30,7 @@ let failHongguoDetail = false;
 const pendingHongguoDetails = new Map();
 let hongguoHomeMode = "normal";
 let pendingHongguoHome = null;
+let hongguoListOverride = null;
 const base = location.origin;
 async function handle(method, params) {
   if (method === "emby.connection.status") return { connected: true, baseUrl: "https://fixture.invalid", username: "fixture" };
@@ -51,7 +52,7 @@ async function handle(method, params) {
   }
   if (method === "hongguo.search") return new Promise((resolve, reject) => hongguoSearches.set(params.cursor ? `${params.query}:${params.cursor}` : params.query, { resolve, reject }));
   if (method === "hongguo.image.load") return { contentType: "image/png", data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a1ioAAAAASUVORK5CYII=", encoding: "base64" };
-  if (method === "hongguo.list.get") return { items: hongguoHomeMode === "fail" ? [drama] : [] };
+  if (method === "hongguo.list.get") return { items: hongguoListOverride ?? (hongguoHomeMode === "fail" ? [drama] : []) };
   if (method === "hongguo.list.add") return { items: [drama] };
   if (method === "hongguo.detail") {
     if (failHongguoDetail) { failHongguoDetail = false; throw new Error("详情暂时失败"); }
@@ -283,6 +284,24 @@ async function run() {
   await delay(50);
   assert(lateHome.api.getState().view === "playback" && lateHome.api.getState().playing, "迟到推荐失败不会复活首页或销毁播放");
   hongguoHomeMode = "normal";
+  // 推荐在途时被打开选集取消：回到首页重新加载，而不是停在「暂无推荐」
+  const beforeReturnHome = calls.filter(call => call.method === "hongguo.home").length;
+  lateHome.api.clearVideo();
+  for (let step = 0; step < 3 && lateHome.api.getState().view !== "home"; step += 1) lateHomeContext.root.querySelector('[aria-label="返回"]')?.click();
+  await wait(() => lateHome.api.getState().view === "home" && lateHome.api.getState().featuredCount === 1, "回到首页重新加载推荐");
+  assert(calls.filter(call => call.method === "hongguo.home").length === beforeReturnHome + 1 && !lateHomeContext.root.textContent.includes("暂无推荐"), "被取消的推荐只补加载一次");
+
+  // 我的片单超过 3 部时折叠
+  hongguoListOverride = Array.from({ length: 5 }, (value, index) => ({ ...drama, id: String(9001 + index), name: `片单 ${index + 1}` }));
+  const listContext = context("hongguo");
+  const listCard = mountHongguo(listContext);
+  await wait(() => listCard.api.getState().listCount === 5 && listContext.root.querySelector(".hg-list-toggle"), "片单折叠按钮");
+  assert(listContext.root.querySelectorAll(".hg-list-row").length === 3 && listContext.root.querySelector(".hg-list-toggle").textContent === "展开全部 5 部", "片单默认只列 3 部");
+  listContext.root.querySelector(".hg-list-toggle").click();
+  assert(listContext.root.querySelectorAll(".hg-list-row").length === 5 && listContext.root.querySelector(".hg-list-toggle").textContent === "收起", "展开后列出全部");
+  listContext.root.querySelector(".hg-list-toggle").click();
+  assert(listContext.root.querySelectorAll(".hg-list-row").length === 3, "收起后回到 3 部");
+  hongguoListOverride = null;
 
   emby.api.dispatch("back");
   mode = "direct-mp4";
