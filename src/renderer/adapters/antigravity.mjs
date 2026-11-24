@@ -189,19 +189,16 @@ export function createAntigravityAdapter({ host, placement = "standalone-button"
   }
   floatingButton.addEventListener("click", onEntryClick);
 
-  // 点弹层外关闭（和原生 Overview 一致）；点自己的入口、卡片浮层、提醒层不算。
+  // 卡片是叠在对话旁的浮层，点对话、点输入框都不收起；只由入口按钮、⌥⌘J 开关。
+  // Esc 只在焦点落在卡片里时收起：输入框里的 Esc 是 Antigravity 自己的（例如停止生成）。
   const ownsEvent = (event) => event.composedPath().some((node) => node === rail || node === floating
     || node?.hasAttribute?.(ENTRY_MARK) || (typeof node?.id === "string" && node.id.startsWith("agent-companion")));
-  const onPointerDown = (event) => {
-    if (!open || ownsEvent(event)) return;
-    setOpen(false);
-  };
   const onKeyDown = (event) => {
     if (event.code === "KeyJ" && event.metaKey && event.altKey && !event.shiftKey && !event.ctrlKey) {
       event.preventDefault();
       event.stopPropagation();
       setOpen(!open);
-    } else if (event.key === "Escape" && open && !document.fullscreenElement) {
+    } else if (event.key === "Escape" && open && !document.fullscreenElement && ownsEvent(event)) {
       setOpen(false);
     }
   };
@@ -219,7 +216,6 @@ export function createAntigravityAdapter({ host, placement = "standalone-button"
   themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ["class", "style", "data-theme"] });
   const colorScheme = window.matchMedia?.("(prefers-color-scheme: dark)");
   colorScheme?.addEventListener?.("change", onThemeChange);
-  window.addEventListener("pointerdown", onPointerDown, true);
   window.addEventListener("keydown", onKeyDown, true);
   window.addEventListener("resize", schedule);
 
@@ -254,7 +250,6 @@ export function createAntigravityAdapter({ host, placement = "standalone-button"
       observer.disconnect();
       themeObserver.disconnect();
       colorScheme?.removeEventListener?.("change", onThemeChange);
-      window.removeEventListener("pointerdown", onPointerDown, true);
       window.removeEventListener("keydown", onKeyDown, true);
       window.removeEventListener("resize", schedule);
       floatingButton.removeEventListener("click", onEntryClick);

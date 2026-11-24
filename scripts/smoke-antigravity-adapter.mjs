@@ -85,18 +85,24 @@ try {
     assert.equal(await evaluate("host.style.getPropertyValue('--cc-card-border')"), "rgb(200, 200, 200)");
     assert.match(await evaluate("document.querySelector('[data-agent-companion-entry]').className"), /bg-secondary/, "打开时入口显示选中态");
 
-    // 弹层里点不关；点外面关
+    // 浮层不随点击收起：点卡片、点对话、聚焦输入框后都还开着
     await evaluate("host.shadowRoot.getElementById('cards').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, composed: true }))");
-    assert.equal(await evaluate("adapter.isOpen()"), true, "点弹层内部不关闭");
+    assert.equal(await evaluate("adapter.isOpen()"), true, "点卡片不收起");
     await evaluate("document.getElementById('main').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, composed: true }))");
-    assert.equal(await evaluate("adapter.isOpen()"), false, "点弹层外关闭");
-    assert.equal(await evaluate("events.at(-1).visible"), false);
+    assert.equal(await evaluate("adapter.isOpen()"), true, "点对话不收起");
+    await evaluate("document.body.insertAdjacentHTML('beforeend', '<textarea id=\"composer\"></textarea>'); document.getElementById('composer').focus()");
+    await connection.send("Input.dispatchKeyEvent", { type: "rawKeyDown", code: "Escape", key: "Escape", windowsVirtualKeyCode: 27 });
+    assert.equal(await evaluate("adapter.isOpen()"), true, "输入框里的 Esc 留给 Antigravity");
 
-    // ⌥⌘J 开关、Esc 关闭
+    // ⌥⌘J 开关；焦点在卡片里时 Esc 收起
+    await key("rawKeyDown");
+    assert.equal(await evaluate("adapter.isOpen()"), false, "⌥⌘J 收起");
+    assert.equal(await evaluate("events.at(-1).visible"), false);
     await key("rawKeyDown");
     assert.equal(await evaluate("adapter.isOpen()"), true, "⌥⌘J 打开");
+    await evaluate("document.getElementById('composer').remove(); host.shadowRoot.getElementById('cards').tabIndex = 0; host.shadowRoot.getElementById('cards').focus()");
     await connection.send("Input.dispatchKeyEvent", { type: "rawKeyDown", code: "Escape", key: "Escape", windowsVirtualKeyCode: 27 });
-    assert.equal(await evaluate("adapter.isOpen()"), false, "Esc 关闭");
+    assert.equal(await evaluate("adapter.isOpen()"), false, "焦点在卡片里时 Esc 收起");
 
     // Overview 开关消失（首页、新建会话）：入口跟着清掉，换成悬浮按钮，弹层贴右下
     await evaluate("document.getElementById('overview').remove()");
