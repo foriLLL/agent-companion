@@ -146,7 +146,13 @@ export function createAntigravityAdapter({ host, placement = "standalone-button"
     const width = Math.min(PANEL_WIDTH, window.innerWidth - 16);
     if (target) {
       const rect = target.getBoundingClientRect();
-      rail.style.left = `${Math.max(8, Math.min(rect.right - width, window.innerWidth - width - 8))}px`;
+      // 卡片右边贴着对话区的右边框留 16px（rail 自身右内边距 10px，再让 6px），而不是跟着标题栏按钮：
+      // 按钮离对话区右边框还有一段，跟着它右边会空出一大块。对话区取正文的对话容器（带 data-cascade-id、
+      // 不在侧栏条目里）；没有会话页时退到窗口右边。
+      const pane = [...document.querySelectorAll("[data-cascade-id]")].find((node) => !node.closest("[data-sidebar-row-id]"));
+      const paneRight = pane?.getBoundingClientRect().right;
+      const edge = Number.isFinite(paneRight) && paneRight > width ? Math.min(paneRight, window.innerWidth) : Math.max(rect.right, window.innerWidth - 8);
+      rail.style.left = `${Math.max(8, Math.min(edge - 6 - width, window.innerWidth - width - 8))}px`;
       rail.style.right = "auto";
       rail.style.top = `${Math.round(rect.bottom + 6)}px`;
       rail.style.bottom = "auto";

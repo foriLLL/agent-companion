@@ -73,9 +73,14 @@ try {
     await evaluate("document.querySelector('[data-agent-companion-entry]').click()");
     assert.equal(await evaluate("adapter.isOpen()"), true);
     assert.deepEqual(await evaluate("events.at(-1)"), { visible: true, reason: "popover", placement: "standalone-button" });
-    const layout = await evaluate(`(() => { const b = document.querySelector('[data-agent-companion-entry]').getBoundingClientRect(); const r = document.getElementById('agent-companion-rail').getBoundingClientRect(); return { top: r.top, buttonBottom: b.bottom, right: r.right, buttonRight: b.right, host: host.isConnected }; })()`);
+    const layout = await evaluate(`(() => { const b = document.querySelector('[data-agent-companion-entry]').getBoundingClientRect(); const r = document.getElementById('agent-companion-rail').getBoundingClientRect(); return { top: r.top, buttonBottom: b.bottom, right: r.right, width: innerWidth, host: host.isConnected }; })()`);
     assert.ok(Math.abs(layout.top - layout.buttonBottom - 6) <= 1, "弹层在按钮下方 6px");
-    assert.ok(Math.abs(layout.right - layout.buttonRight) <= 1, "弹层与按钮右对齐");
+    assert.ok(Math.abs(layout.right - (layout.width - 14)) <= 1, "没有对话区时贴窗口右边");
+    // 有对话区时卡片右边贴着对话区右边框（rail 右边 = 对话区右边 - 6）
+    await evaluate(`document.body.insertAdjacentHTML('beforeend', '<main id="conversation" data-cascade-id="5f13e99e-f461-4309-9796-ce99e2b141ef" style="position:fixed;left:0;top:0;width:700px;height:10px"></main>'); dispatchEvent(new Event('resize'))`);
+    await evaluate("new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))");
+    assert.ok(Math.abs(await evaluate("document.getElementById('agent-companion-rail').getBoundingClientRect().right") - 694) <= 1, "弹层右边对齐对话区");
+    await evaluate("document.getElementById('conversation').remove(); dispatchEvent(new Event('resize'))");
     assert.equal(await evaluate("host.style.getPropertyValue('--hg-panel-bg')"), "rgb(250, 250, 250)");
     assert.equal(await evaluate("host.style.getPropertyValue('--cc-card-border')"), "rgb(200, 200, 200)");
     assert.match(await evaluate("document.querySelector('[data-agent-companion-entry]').className"), /bg-secondary/, "打开时入口显示选中态");
