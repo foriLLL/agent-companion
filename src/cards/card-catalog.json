@@ -1,5 +1,5 @@
 {
-  "hash": "d9336ff4d7dafbd6849dd6f18c64f2b43b84ba581fd95f9e00fe6eab6cb607a8",
+  "hash": "4d90d9e43b58ef00d2f8d13eeb66c08753b3cebd411335fd34e6d72daf6809c4",
   "cards": [
     {
       "id": "proxy",
@@ -51,7 +51,8 @@
         "version": 1
       },
       "capabilities": [
-        "rpc"
+        "rpc",
+        "host"
       ],
       "entries": {
         "renderer": true,

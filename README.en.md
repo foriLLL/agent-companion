@@ -56,7 +56,7 @@ modify `app.asar`, the Codex installation, or the app signature.
 | **Hongguo** | Browse, search, save, pick episodes, play, and auto-play the next episode (requires FFmpeg) | On |
 | **Emby** | Connects to a self-hosted Emby server: libraries, search, source selection, subtitles, resume, and progress reporting | On |
 | **Proxy status** | Shows the proxy Codex was launched with and whether the local port is reachable | On |
-| **Usage** | Remaining Codex quota per window (5-hour, weekly, …), reset times and credit balance | Off |
+| **Usage** | Remaining Codex quota per window (5-hour, weekly, …), reset times and credit balance; in Antigravity, its own Gemini and Claude / GPT model quota | Off |
 
 ### Task board
 

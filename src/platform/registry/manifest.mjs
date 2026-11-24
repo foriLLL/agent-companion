@@ -4,7 +4,8 @@
  * 允许字段且仅允许这些字段：
  * id, title, version, defaultEnabled, defaultOrder, layout, lifecycle, state, capabilities，以及可选的 hosts。
  * hosts：卡片只在这些宿主里出现（codex / antigravity），缺省为全部宿主；例如代理状态只对 Codex 有意义。
- * capabilities 只能是不重复的 storage / rpc / threads / overlay / attention（threads：读取与标记宿主左侧会话列表，仅注入模式提供；
+ * capabilities 只能是不重复的 storage / rpc / threads / overlay / attention / host（host：宿主页面提供的数据，ctx.host.id 为当前宿主，
+ * Antigravity 另有 ctx.host.quota()；threads：读取与标记宿主左侧会话列表，仅注入模式提供；
  * overlay：卡片抽屉之外、页面最顶层的浮层，抽屉收起时也能显示，例如快捷键唤出的面板；
  * attention：向用户发提醒，可让平台暂停卡片里正在播放的媒体，例如任务看板在任务需要你时打断视频）。
  */
@@ -32,7 +33,7 @@ export const LIFECYCLE_STARTS = Object.freeze(["immediate", "first-visible"]);
 export const STATE_FIELDS = Object.freeze(["scope", "version"]);
 export const STATE_SCOPES = Object.freeze(["global", "target", "session"]);
 
-export const CAPABILITIES = Object.freeze(["storage", "rpc", "threads", "overlay", "attention"]);
+export const CAPABILITIES = Object.freeze(["storage", "rpc", "threads", "overlay", "attention", "host"]);
 export const OPTIONAL_MANIFEST_FIELDS = Object.freeze(["hosts"]);
 export const HOSTS = Object.freeze(["codex", "antigravity"]);
 

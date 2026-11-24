@@ -192,7 +192,7 @@ test("仓库内置卡片可被发现且能力符合冻结枚举", async () => {
   assert.deepEqual(discovered.cards.map((card) => card.manifest.id), ["proxy", "usage", "tasks", "hongguo", "emby"]);
   assert.deepEqual(discovered.cards.map((card) => card.manifest.defaultOrder), [0, 2, 5, 20, 40]);
   assert.deepEqual(discovered.cards.find((card) => card.manifest.id === "proxy").manifest.capabilities, ["rpc"]);
-  assert.deepEqual(discovered.cards.find((card) => card.manifest.id === "usage").manifest.capabilities, ["rpc"]);
+  assert.deepEqual(discovered.cards.find((card) => card.manifest.id === "usage").manifest.capabilities, ["rpc", "host"]);
   assert.deepEqual(discovered.cards.find((card) => card.manifest.id === "tasks").manifest.capabilities, ["rpc", "threads", "overlay", "attention"]);
   assert.deepEqual(discovered.cards.find((card) => card.manifest.id === "emby").manifest.capabilities, ["rpc", "storage"]);
   assert.deepEqual(discovered.cards.find((card) => card.manifest.id === "hongguo").manifest.capabilities, ["rpc", "storage"]);

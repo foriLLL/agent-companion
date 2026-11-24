@@ -6,6 +6,7 @@ import { createCodexAdapter } from "../adapters/codex.mjs";
 import { createCodexThreads } from "../adapters/codex-threads.mjs";
 import { createAntigravityAdapter } from "../adapters/antigravity.mjs";
 import { createAntigravityThreads } from "../adapters/antigravity-threads.mjs";
+import { createAntigravityHostApi } from "../adapters/antigravity-host-api.mjs";
 import { createOverlayLayer } from "../shell/overlay-layer.mjs";
 import { createAttentionLayer } from "../shell/attention-layer.mjs";
 
@@ -27,10 +28,10 @@ function safeBackend(name, onError) {
   }
 }
 
-// 宿主适配：卡片区挂在哪、会话列表从哪读，按注入时声明的宿主选择。
+// 宿主适配：卡片区挂在哪、会话列表从哪读、宿主页面能提供什么数据（ctx.host），按注入时声明的宿主选择。
 export const HOST_FACTORIES = Object.freeze({
-  codex: Object.freeze({ adapterFactory: createCodexAdapter, threadsFactory: createCodexThreads }),
-  antigravity: Object.freeze({ adapterFactory: createAntigravityAdapter, threadsFactory: createAntigravityThreads })
+  codex: Object.freeze({ adapterFactory: createCodexAdapter, threadsFactory: createCodexThreads, hostApiFactory: () => Object.freeze({ id: "codex" }) }),
+  antigravity: Object.freeze({ adapterFactory: createAntigravityAdapter, threadsFactory: createAntigravityThreads, hostApiFactory: createAntigravityHostApi })
 });
 
 export function createCardRuntime({
@@ -38,6 +39,7 @@ export function createCardRuntime({
   shellFactory = createCardShell,
   adapterFactory = (HOST_FACTORIES[host] ?? HOST_FACTORIES.codex).adapterFactory,
   threadsFactory = (HOST_FACTORIES[host] ?? HOST_FACTORIES.codex).threadsFactory,
+  hostApiFactory = (HOST_FACTORIES[host] ?? HOST_FACTORIES.codex).hostApiFactory,
   attentionFactory = createAttentionLayer,
   localStorage: localBackend, sessionStorage: sessionBackend,
   rpcClient = createRpcClient(), onError = () => {}
@@ -60,6 +62,7 @@ export function createCardRuntime({
   let config = normalizeRuntimeConfig(initialConfig, manifests);
   // 会话列表属于宿主原生界面，只由平台创建；没有声明 threads 能力的卡片拿不到它。
   let threads = null;
+  let hostApi = null;
   // 提醒层由所有卡片共享：平台监听每张卡片里的媒体播放，声明 attention 能力的卡片可以发提醒。
   let attention = null;
 
@@ -152,6 +155,8 @@ export function createCardRuntime({
           reportError: (error) => report(error, { cardId: manifest.id, phase: "card" }),
           isVisible: () => visibility.visible,
           ...(manifest.capabilities.includes("threads") ? { threads } : {}),
+          // 宿主页面提供的数据（如 Antigravity 的额度）；id 标明当前宿主。
+          ...(manifest.capabilities.includes("host") && hostApi ? { host: hostApi } : {}),
           // 顶层浮层与本实例同生命周期：卸载、关闭或重试时随 effects 一起移除。
           ...(manifest.capabilities.includes("overlay")
             ? { overlay: createOverlayLayer({ document: shell.host.ownerDocument, cardId: manifest.id, effects }) } : {}),
@@ -191,6 +196,10 @@ export function createCardRuntime({
 
   try { attention = attentionFactory({ document: shell.host.ownerDocument, onError: (error) => report(error, { phase: "attention" }) }); }
   catch (error) { report(error, { phase: "attention" }); }
+  if (hostApiFactory && manifests.some((manifest) => manifest.capabilities.includes("host"))) {
+    try { hostApi = hostApiFactory({ document: shell.host.ownerDocument }); }
+    catch (error) { report(error, { phase: "host" }); }
+  }
   if (threadsFactory && manifests.some((manifest) => manifest.capabilities.includes("threads"))) {
     try { threads = threadsFactory({ document: shell.host.ownerDocument, onError: (error) => report(error, { phase: "threads" }) }); }
     catch (error) { report(error, { phase: "threads" }); }

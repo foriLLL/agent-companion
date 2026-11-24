@@ -4,7 +4,8 @@ import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { codexCliCandidates, normalizeCodexRateLimits, readCodexRateLimits, resolveCodexCli } from "../src/codex-usage.mjs";
 import { createService, resolveProxyPort } from "../src/cards/usage/service.mjs";
-import { remainingTone, resetText, windowLabel } from "../src/cards/usage/renderer.mjs";
+import { antigravityGroupLabel, antigravityWindowLabel, remainingTone, resetText, windowLabel } from "../src/cards/usage/renderer.mjs";
+import { createAntigravityHostApi } from "../src/renderer/adapters/antigravity-host-api.mjs";
 
 // 假的 `codex app-server`：按行读 JSON-RPC 请求，按脚本回包，记录收到的方法。
 function fakeAppServer({ result, error, exitEarly = false } = {}) {
@@ -182,4 +183,51 @@ test("界面文案：窗口名称、重置时间与剩余额度配色", () => {
   assert.equal(resetText(null, now), "");
 
   assert.deepEqual([80, 51, 50, 21, 20, 0, null].map(remainingTone), ["ok", "ok", "warn", "warn", "bad", "bad", "off"]);
+});
+
+test("Antigravity 额度：窗口与分组名称", () => {
+  assert.equal(antigravityWindowLabel("5h"), "5 小时");
+  assert.equal(antigravityWindowLabel("weekly"), "每周");
+  assert.equal(antigravityWindowLabel("daily"), "每天");
+  assert.equal(antigravityWindowLabel("30m"), "30 分钟");
+  assert.equal(antigravityWindowLabel("monthly", "每月额度"), "每月额度");
+  assert.equal(antigravityGroupLabel({ name: "Gemini Models", buckets: [{ id: "gemini-weekly" }] }), "Gemini 模型");
+  assert.equal(antigravityGroupLabel({ name: "Claude and GPT models", buckets: [{ id: "3p-5h" }] }), "Claude / GPT 模型");
+  assert.equal(antigravityGroupLabel({ name: "Other", buckets: [{ id: "x" }] }), "Other");
+});
+
+function fakeHubDocument(service) {
+  // React 根节点 → 子 fiber 的 props 里带着 Hub 的客户端
+  const fiber = { memoizedProps: {}, child: { memoizedProps: { children: null }, sibling: { memoizedProps: { agentService: service } } } };
+  const root = { __reactContainer$abc: fiber };
+  return { getElementById: (id) => (id === "root" ? root : null), body: null };
+}
+
+test("Antigravity 宿主接口：经 Hub 自己的客户端读额度并整理成普通 JSON", async () => {
+  const calls = [];
+  const service = {
+    async retrieveUserQuotaSummary(force) {
+      calls.push(force);
+      return { response: { description: "", groups: [{ displayName: "Gemini Models", buckets: [
+        { bucketId: "gemini-5h", window: "5h", displayName: "5 hour", remaining: { case: "remainingFraction", value: 0.95 }, resetTime: { seconds: 1_800_000_000n, nanos: 0 }, disabled: false },
+        { bucketId: "gemini-weekly", window: "weekly", remaining: { case: undefined }, resetTime: undefined }
+      ] }] } };
+    }
+  };
+  const api = createAntigravityHostApi({ document: fakeHubDocument(service) });
+  assert.equal(api.id, "antigravity");
+  const quota = await api.quota({ force: true });
+  assert.deepEqual(calls, [true]);
+  assert.deepEqual(quota.groups[0].buckets, [
+    { id: "gemini-5h", window: "5h", name: "5 hour", remaining: 0.95, resetsAt: 1_800_000_000, description: "", disabled: false },
+    { id: "gemini-weekly", window: "weekly", name: "", remaining: null, resetsAt: null, description: "", disabled: false }
+  ]);
+  JSON.stringify(quota);
+  await api.quota();
+  assert.deepEqual(calls, [true, false]);
+});
+
+test("Antigravity 宿主接口：找不到客户端时报 HOST_API_MISSING", async () => {
+  const api = createAntigravityHostApi({ document: { getElementById: () => ({}), body: null } });
+  await assert.rejects(api.quota(), (error) => error.code === "HOST_API_MISSING");
 });

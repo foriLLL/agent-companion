@@ -1,4 +1,6 @@
-// 额度卡片：Codex 账号各时间窗口（5 小时 / 每周 …）的剩余额度与重置时间。
+// 额度卡片：各时间窗口（5 小时 / 每周 …）的剩余额度与重置时间。
+// 在 Codex 里显示 Codex 账号的额度（后台经官方 app-server 读）；在 Antigravity 里显示 Antigravity 自己的
+// 模型额度（ctx.host.quota()，即 Hub「模型额度」面板的数据，按 Gemini / Claude·GPT 分组）。
 const POLL_MS = 60_000;
 const TICK_MS = 30_000;
 // 取消、实例替换和卡片关闭都不是需要提示用户的失败。
@@ -36,12 +38,31 @@ export function remainingTone(remaining) {
   return "bad";
 }
 
+// Antigravity 的窗口写法：5h / weekly / daily，或 <数字><s|m|h|d>。
+export function antigravityWindowLabel(window, fallback = "额度") {
+  const value = String(window ?? "").trim().toLowerCase();
+  if (value === "weekly") return "每周";
+  if (value === "daily") return "每天";
+  const match = /^(\d+)([smhd])$/.exec(value);
+  if (match) return `${match[1]} ${{ s: "秒", m: "分钟", h: "小时", d: "天" }[match[2]]}`;
+  return fallback || "额度";
+}
+
+// 分组名：按桶 id 前缀认出 Gemini 与第三方模型，其余用 Antigravity 给的名字。
+export function antigravityGroupLabel(group) {
+  const id = group?.buckets?.[0]?.id ?? "";
+  if (id.startsWith("gemini")) return "Gemini 模型";
+  if (id.startsWith("3p")) return "Claude / GPT 模型";
+  return group?.name || "模型";
+}
+
 function agoText(fetchedAt, now = Date.now()) {
   const minutes = Math.floor((now - fetchedAt) / 60_000);
   return minutes < 1 ? "刚刚更新" : minutes < 60 ? `${minutes} 分钟前更新` : `${Math.floor(minutes / 60)} 小时前更新`;
 }
 
-export function mount({ root, rpc, effects, signal }) {
+export function mount({ root, rpc, effects, signal, host }) {
+  const antigravity = host?.id === "antigravity" && typeof host.quota === "function";
   root.innerHTML = `<style>
     :host{display:block;--text:color-mix(in srgb,currentColor 64%,transparent);--line:color-mix(in srgb,currentColor 10%,transparent);
       font-family:"Inter",ui-sans-serif,system-ui,-apple-system,"PingFang SC",sans-serif;letter-spacing:-.006em;-webkit-font-smoothing:antialiased}
@@ -68,8 +89,10 @@ export function mount({ root, rpc, effects, signal }) {
     .note{font-size:12px;color:var(--text);overflow-wrap:anywhere}
     .note[data-tone=warn]{color:#d9661b}.note[data-tone=bad]{color:#d93025}
     .note:empty{display:none}
+    .group{font-size:12px;font-weight:600;color:var(--text);margin-top:2px}
+    .group:first-child{margin-top:0}
   </style><div class="wrap">
-    <div class="head"><strong>Codex</strong><span class="plan"></span><span class="ago" role="status">正在读取额度…</span>
+    <div class="head"><strong>${antigravity ? "Antigravity" : "Codex"}</strong><span class="plan"></span><span class="ago" role="status">正在读取额度…</span>
       <button type="button" aria-label="刷新额度">刷新</button></div>
     <div class="limits"></div>
     <div class="note"></div>
@@ -94,6 +117,27 @@ export function mount({ root, rpc, effects, signal }) {
     plan.textContent = data.plan ?? "";
     ago.textContent = data.fetchedAt && (data.ok || data.stale) ? agoText(data.fetchedAt, now) : "";
     list.replaceChildren();
+    const row = (label, scope, remaining, resetsAt, disabled = false) => {
+      const item = el("div", "limit");
+      item.dataset.tone = disabled ? "off" : remainingTone(remaining);
+      const line = el("div", "line");
+      line.append(el("span", "name", label));
+      if (scope) line.append(el("span", "scope", scope));
+      line.append(el("span", "left", disabled ? "不可用" : remaining === null ? "—" : `剩余 ${remaining}%`));
+      const bar = el("div", "bar");
+      const fill = el("div", "fill");
+      fill.style.width = `${disabled ? 0 : remaining ?? 0}%`;
+      bar.append(fill);
+      item.append(line, bar, el("div", "reset", remaining === 100 ? "未使用" : resetText(resetsAt, now)));
+      return item;
+    };
+    for (const group of data.groups ?? []) {
+      if (!group.buckets?.length) continue;
+      list.append(el("div", "group", antigravityGroupLabel(group)));
+      for (const bucket of group.buckets) {
+        list.append(row(antigravityWindowLabel(bucket.window, bucket.name), "", bucket.remaining === null ? null : Math.round(bucket.remaining * 100), bucket.resetsAt, bucket.disabled));
+      }
+    }
     for (const limit of data.limits ?? []) {
       const remaining = limit.usedPercent === null ? null : Math.round(100 - limit.usedPercent);
       const row = el("div", "limit");
@@ -114,7 +158,7 @@ export function mount({ root, rpc, effects, signal }) {
     if (data.limitReached) { notes.push("已用完额度，重置前无法继续使用"); tone = "bad"; }
     if (data.credits !== null && data.credits !== undefined) notes.push(`积分余额 ${Math.floor(data.credits).toLocaleString()}`);
     if (!data.ok || data.stale) { notes.push(data.stale ? `刷新失败，显示的是上次结果：${data.error}` : data.error); tone ||= "warn"; }
-    if (data.ok && !data.limits?.length && !notes.length) notes.push("这个账号没有返回额度窗口");
+    if (data.ok && !data.limits?.length && !data.groups?.some((group) => group.buckets?.length) && !notes.length) notes.push("这个账号没有返回额度窗口");
     note.textContent = notes.join(" · ");
     note.dataset.tone = tone;
   }
@@ -124,7 +168,9 @@ export function mount({ root, rpc, effects, signal }) {
     button.disabled = true;
     pending = (async () => {
       try {
-        const next = await rpc("status", force ? { force: true } : {});
+        const next = antigravity
+          ? { ok: true, fetchedAt: Date.now(), plan: null, limits: [], credits: null, ...(await host.quota({ force })) }
+          : await rpc("status", force ? { force: true } : {});
         if (signal.aborted) return;
         data = next;
         render();
@@ -141,7 +187,7 @@ export function mount({ root, rpc, effects, signal }) {
   }
 
   effects.listen(button, "click", () => { void refresh(true); });
-  // 后台有 5 分钟缓存，这里每分钟问一次只是取缓存；倒计时文字每 30 秒重算。
+  // Codex：后台有 5 分钟缓存；Antigravity：不带 force 时取它自己的缓存。每分钟问一次，倒计时文字每 30 秒重算。
   effects.interval(() => { void refresh(); }, POLL_MS);
   effects.interval(render, TICK_MS);
   void refresh();

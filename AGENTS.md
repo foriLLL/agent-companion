@@ -68,7 +68,9 @@ agent 里的 `antigravity-host.mjs` 轮询主进程并注入；注入、卡片�
 - `capabilities` 只声明用到的：`storage`（本地存档）、`rpc`（调用本卡的后台服务）、
   `threads`（宿主的会话列表：Codex 侧栏；Antigravity 只有当前会话与按 id 打开）、`overlay`（卡片区之外的顶层浮层）、`attention`（发提醒，可让平台暂停
   卡片里正在播放的媒体；`ctx.attention.notify({ key, tone, title, text, detail, color, pause, action })`，
-  默认只在有媒体播放时显示；`ctx.attention.act()` 对本卡最新一条带操作的提醒执行「去处理」，供快捷键用）。
+  默认只在有媒体播放时显示；`ctx.attention.act()` 对本卡最新一条带操作的提醒执行「去处理」，供快捷键用）、
+  `host`（宿主自身的数据：`ctx.host.id` 为 `codex` | `antigravity`；Antigravity 另有 `ctx.host.quota({ force })`，
+  调用 Hub 自己的客户端读模型额度，不读也不传任何 token）。
   未声明的能力不会出现在 `ctx` 上。播放类卡片不用声明任何能力：平台自动识别卡片 ShadowRoot 里的 `<video>` / `<audio>`。
 - `renderer.mjs` 导出 `mount(ctx)`：只在 `ctx.root`（本卡的 ShadowRoot）里渲染，不碰宿主 DOM。
   `ctx` 提供 `manifest`、`settings`、`signal`、`storage`、`rpc`、`effects`、`reportError`、`isVisible()`、

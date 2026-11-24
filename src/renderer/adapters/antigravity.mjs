@@ -45,7 +45,7 @@ export function createAntigravityAdapter({ host, placement = "standalone-button"
     "position:fixed", "z-index:2147483646", "top:48px", "right:12px", "box-sizing:border-box",
     `width:min(${PANEL_WIDTH}px, calc(100vw - 16px))`, "max-height:calc(100vh - 64px)", "overflow:auto",
     // 不画外层框：卡片各自带边框和阴影，直接叠在按钮下方；内边距给卡片阴影留位置（overflow 会裁掉阴影）。
-    "overscroll-behavior:contain", "padding:2px 10px 14px", "background:transparent",
+    "overscroll-behavior:contain", "scrollbar-width:none", "padding:2px 10px 14px", "background:transparent",
     "color:var(--hg-panel-color, #1f1f1f)", "-webkit-app-region:no-drag"
   ].join(";");
   rail.append(host);
