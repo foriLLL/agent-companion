@@ -36,8 +36,12 @@ modify `app.asar`, the Codex installation, or the app signature.
 
 ## Features
 
-- **Cards defined by AI.** A card is a directory under `src/cards/<id>/` (a manifest, a renderer entry,
-  and an optional backend service). `AGENTS.md` documents the card contract, so Codex can add a card on its own.
+- **Cards are plugins.** A card is a directory (a manifest, a UI bundle, and an optional backend service), and
+  the built-in cards use the same package format as the cards you install yourself. Install cards other people
+  wrote with `agent-companion cards install owner/repo`, and find them by searching GitHub for the topic
+  `agent-companion-card`. There is no official marketplace and no rebuild is needed.
+- **Cards defined by AI.** `AGENTS.md` and [cards/README.md](cards/README.md) (Chinese) document the
+  card contract, so Codex can write a card on its own.
 - **The platform handles the common parts.** Frame and layout, Shadow DOM style isolation, enabling and
   ordering, lifecycle, local persistence, RPC between the page and the backend, and resource cleanup.
   A card only implements its own UI and logic.
@@ -110,20 +114,23 @@ and reset, and remember how many pomodoros I finished today. Follow the card con
 Codex follows the conventions and performs these steps. You can also run them yourself:
 
 ```sh
-npm run card:create -- pomodoro --title Pomodoro   # scaffold the card; add --service for a backend service
-# edit the files under src/cards/pomodoro/
-npm start                                          # regenerate and restart the background service
+agent-companion cards create pomodoro --title Pomodoro  # scaffold a standalone plugin repo; add --service for a backend
+cd pomodoro                                             # edit renderer.mjs (and service.mjs)
+agent-companion cards build                             # bundle the UI into renderer.js
+agent-companion cards link .                            # link it into the cards directory; later builds apply in seconds
 ```
 
-New cards are disabled by default. Enable the card in the card area settings (the gear icon) to see it.
+New cards are disabled by default. Enable the card in the card area settings (the gear icon) to see it. To share
+it, commit `renderer.js` too, push to GitHub, and add the topic `agent-companion-card` to the repository. To change
+a built-in card, edit it under `cards/<id>/` in this repository, or add one with `npm run card:create`.
 
 A card consists of these files:
 
 | File | Role |
 |---|---|
 | `manifest.json` | Card manifest: `id`, title, default state and order, layout, lifecycle, storage scope, required capabilities |
-| `renderer.mjs` | Page entry. Exports `mount(ctx)` and renders the UI inside the ShadowRoot provided by the platform |
-| `service.mjs` | Optional backend service. Exports `createService()`; methods are exposed to this card as `<card id>.<method>` |
+| `renderer.mjs` | Page entry. Exports `mount(ctx)` and renders the UI inside the ShadowRoot provided by the platform; `cards build` bundles it into `renderer.js` |
+| `service.mjs` | Optional backend service. Exports `createService(api)`; methods are exposed to this card as `<card id>.<method>` |
 
 Capabilities a manifest can declare:
 
@@ -134,8 +141,8 @@ Capabilities a manifest can declare:
 | `threads` | Read the session list in the Codex sidebar, and locate and open sessions |
 | `overlay` | Show a top-level overlay outside the card area |
 
-The full contract is in the "新增卡片" (Adding a card) section of [AGENTS.md](AGENTS.md). Cards are built
-together with the repository; no external code is loaded at runtime.
+The full contract is in the "新增卡片" (Adding a card) section of [AGENTS.md](AGENTS.md) and in
+[cards/README.md](cards/README.md).
 
 ## Installation
 
@@ -283,6 +290,8 @@ launch proxy you also need to reopen it from the menu yourself.
 ## Usage
 
 - Enable, disable, and reorder cards in the settings. Disabling a card keeps its saved data.
+- Install cards other people wrote with `agent-companion cards install owner/repo[@tag]`; `cards list` shows them,
+  `cards update` updates them, and `cards remove <id>` uninstalls one. Newly installed cards start disabled.
 - After saving the "Codex 启动代理" (Codex launch proxy) preference, click "保存并重启" (Save and restart) to apply it.
 - Collapsing a card keeps its page state. Closing the page, cancelling a request, or stopping the backend
   releases media sessions, Blob URLs, segment caches, and transcoding processes.
@@ -536,6 +545,9 @@ Injection depends on Codex's DOM structure and may need updating when Codex chan
   exposed to the local network or the internet.
 - **Card isolation.** Cards, request generations, and media chunks are bound to each other. Once a card is
   closed or disabled, old chunks can no longer be read.
+- **Card plugins.** Cards you install yourself run with your user permissions, without a sandbox, and Agent
+  Companion does not review or sign them. Only install sources you trust, and pin a tag if you want. Disabled
+  cards run no code: the UI is injected only when enabled, and the backend service is loaded only after enabling.
 - **Emby credentials.** The token is only sent to the configured Emby origin and never enters the DOM, media
   URLs, the FFmpeg command line, or logs.
 - **Media addresses.** Cross-origin media CDNs must use HTTPS and pass address, DNS, and public IP checks.

@@ -7,11 +7,10 @@ import { CodexSessions, THREAD_ID_PATTERN } from "../../codex-sessions.mjs";
 import { buildCodexLaunchEnvironment, detectCodexProxy } from "../../launcher.mjs";
 import { registerMediaInterceptPort, toMediaInterceptUrl } from "../media/media-intercept.mjs";
 import { companionDataDir } from "../paths.mjs";
+import { CARD_API_VERSION } from "../registry/manifest.mjs";
 import { rpcError } from "./errors.mjs";
 
-// 卡片后台运行时接口的版本。卡片 manifest 的 apiVersion 必须与它一致才会被加载；
-// 只增加字段时不升版本，删除或改变已有字段的语义时才升。
-export const CARD_API_VERSION = 1;
+export { CARD_API_VERSION };
 
 const execFileAsync = promisify(execFile);
 

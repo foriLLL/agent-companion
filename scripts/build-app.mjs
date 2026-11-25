@@ -5,6 +5,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { buildNative } from "./build-native.mjs";
+import { packageBuiltinCards } from "./package-cards.mjs";
 
 const execFileAsync = promisify(execFile);
 const require = createRequire(import.meta.url);
@@ -116,7 +117,6 @@ async function main() {
   await mkdir(resources, { recursive: true });
   await mkdir(helpers, { recursive: true });
   await mkdir(launchAgents, { recursive: true });
-  await cp(join(repoRoot, "src", "cards", "card-catalog.json"), join(resources, "card-catalog.json"));
   await cp(join(repoRoot, "packaging", "mac-app", "LaunchAgents", "com.agentcompanion.agent.plist"),
     join(launchAgents, "com.agentcompanion.agent.plist"));
 
@@ -138,6 +138,11 @@ async function main() {
     "--outfile", binaryOut
   ]);
   await chmod(binaryOut, 0o755);
+
+  // 内置卡片与用户安装的卡片是同一种包，放在后端同级的 Resources/cards，运行时由卡片目录发现；
+  // 后台服务各自打成自包含的 service.mjs。
+  console.log("[build-app] 打包内置卡片…");
+  await packageBuiltinCards({ outDir: join(resources, "cards"), bunExecutable: bunBin });
 
   // 2. 随应用附带项目及所有直接打包依赖的许可说明。
   // FFmpeg 不再进入分发物；需要本机转码时只解析用户自行安装的 ffmpeg。

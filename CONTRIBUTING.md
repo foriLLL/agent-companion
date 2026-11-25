@@ -17,8 +17,8 @@ npm run smoke
 测试必须使用 `node --test`（即 `npm test`），不要使用 `bun test`。注入源码包含基于
 `Function.prototype.toString()` 的断言，Bun 转译会改变函数文本。Bun 只用于编译和打包。
 
-主入口为无感注入后台服务，代码位于 `src/agent/`；卡片渲染器与服务位于 `src/cards/`
-与 `src/renderer/`。修改公共运行时还应验证 `smoke:platform`。开发与测试禁止对真实
+主入口为无感注入后台服务，代码位于 `src/agent/`；卡片平台位于 `src/renderer/` 与 `src/platform/`，
+内置卡片位于 `cards/`（与用户插件同一种包，见 `cards/README.md`）。修改公共运行时还应验证 `smoke:platform`。开发与测试禁止对真实
 Codex 执行退出、启动或激活，原生能力只对 dummy app 验证。
 
 ### 跨平台约定

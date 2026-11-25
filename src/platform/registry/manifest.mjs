@@ -8,7 +8,13 @@
  * Antigravity 另有 ctx.host.quota()；threads：读取与标记宿主左侧会话列表，仅注入模式提供；
  * overlay：卡片抽屉之外、页面最顶层的浮层，抽屉收起时也能显示，例如快捷键唤出的面板；
  * attention：向用户发提醒，可让平台暂停卡片里正在播放的媒体，例如任务看板在任务需要你时打断视频）。
+ * 可选的插件字段：apiVersion（卡片面向的平台接口版本，缺省 1，见 CARD_API_VERSION）、
+ * description（一句话介绍）、homepage（项目主页，https 地址）。
  */
+
+// 平台对卡片提供的接口版本：页面里的 ctx 与后台的 createService(api)。卡片 manifest 的 apiVersion
+// 高于它时不加载（需要更新 Agent Companion）；只增加字段时不升版本，删除或改变已有字段的语义时才升。
+export const CARD_API_VERSION = 1;
 
 export const MANIFEST_FIELDS = Object.freeze([
   "id",
@@ -34,7 +40,7 @@ export const STATE_FIELDS = Object.freeze(["scope", "version"]);
 export const STATE_SCOPES = Object.freeze(["global", "target", "session"]);
 
 export const CAPABILITIES = Object.freeze(["storage", "rpc", "threads", "overlay", "attention", "host"]);
-export const OPTIONAL_MANIFEST_FIELDS = Object.freeze(["hosts"]);
+export const OPTIONAL_MANIFEST_FIELDS = Object.freeze(["hosts", "apiVersion", "description", "homepage"]);
 export const HOSTS = Object.freeze(["codex", "antigravity"]);
 
 const ID_PATTERN = /^[a-z][a-z0-9-]*$/;
@@ -155,6 +161,16 @@ export function validateManifest(input) {
     });
   }
 
+  if (Object.hasOwn(input, "apiVersion") && (!Number.isInteger(input.apiVersion) || input.apiVersion < 1)) {
+    fail("INVALID_VALUE", "apiVersion", `apiVersion 必须是正整数，实际为 ${JSON.stringify(input.apiVersion)}`);
+  }
+  if (Object.hasOwn(input, "description") && (typeof input.description !== "string" || input.description.length > 200)) {
+    fail("INVALID_VALUE", "description", "description 必须是不超过 200 字符的字符串");
+  }
+  if (Object.hasOwn(input, "homepage") && (typeof input.homepage !== "string" || !/^https:\/\/[^\s]+$/.test(input.homepage))) {
+    fail("INVALID_VALUE", "homepage", "homepage 必须是 https 地址");
+  }
+
   return Object.freeze({
     id: input.id,
     title: input.title,
@@ -175,7 +191,10 @@ export function validateManifest(input) {
       version: input.state.version
     }),
     capabilities: Object.freeze([...input.capabilities]),
-    ...(Object.hasOwn(input, "hosts") ? { hosts: Object.freeze([...input.hosts]) } : {})
+    ...(Object.hasOwn(input, "hosts") ? { hosts: Object.freeze([...input.hosts]) } : {}),
+    ...(Object.hasOwn(input, "apiVersion") ? { apiVersion: input.apiVersion } : {}),
+    ...(Object.hasOwn(input, "description") ? { description: input.description } : {}),
+    ...(Object.hasOwn(input, "homepage") ? { homepage: input.homepage } : {})
   });
 }
 

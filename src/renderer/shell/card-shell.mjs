@@ -162,6 +162,8 @@ export function createCardShell({ document: doc = document, hostId = "agent-comp
       root.insertBefore(settings.element, stack);
       platformBar.hidden = false;
     },
+    // 后送来的卡片带着自己的设置时，在设置面板里补上它那一节。
+    addCardSettings(entry) { settings?.addCard(entry); },
     setEmptyState({ enabled, count }) {
       empty.hidden = count > 0;
       empty.textContent = enabled ? "暂无启用的卡片" : "卡片已关闭";

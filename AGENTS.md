@@ -27,14 +27,17 @@ Antigravity（预览，macOS）是第二个宿主：后台 agent 里的 `antigra
 - `src/platform/` — 平台差异集中处：`paths.mjs` 数据目录/PATH 查找/路径包含判断、
   `processes.mjs` Linux `/proc` 进程发现、
   `secret-store.mjs` 凭证存储（钥匙串 / DPAPI / Secret Service）
-- `src/` — 共用核心逻辑。旧入口 `cli.mjs`；`injection.mjs` 为旧注入的卡片
-  UI/CSS/渲染器；`emby-*.mjs` Emby 相关；`hls-proxy.mjs` Emby HLS 的
-  127.0.0.1 本地代理（替代 RPC + base64 分片通道）；`hongguo-sdk-client.mjs`
-  封装 openhongguo（wasm，运行时从 `Resources/openhongguo` 动态 import）、
-  `hongguo-service.mjs` 是红果卡片的后端；
+- `src/platform/cards/` — 卡片插件：`catalog.mjs` 运行时从磁盘发现卡片（内置目录 + 用户目录）、
+  `build.mjs` 把 `renderer.mjs` 打成 `renderer.js`、`manage.mjs` 安装/更新/卸载/链接、`scaffold.mjs` 骨架；
+  `src/cards-command.mjs` 是 `agent-companion cards` 命令
+- `cards/` — 内置卡片，与用户安装的插件同一种包（规范见 `cards/README.md`）：emby、hongguo
+  （`hongguo-sdk-client.mjs` 封装 openhongguo，wasm 运行时从卡片目录 / `Resources/openhongguo` / 仓库依赖动态 import）、
+  proxy、tasks、usage；`sdk/` 是卡片可引入的公共库（媒体管线等），随卡片一起打包
+- `src/` — 共用核心逻辑。入口 `cli.mjs`；`injection.mjs` 组装注入产物（平台 bundle + 启用卡片的 `renderer.js`）；
+  `src/platform/media/` 媒体层（`hls-proxy.mjs` 是 Emby HLS 的 127.0.0.1 本地代理）；
   `daemon.mjs` 看门狗；`cdp-connection.mjs`、`rpc-bridge.mjs` 通信层
 - `test/` — `*.test.mjs`，Node 内置 test runner
-- `scripts/` — 构建 (`build-app.mjs`、`build-linux.mjs`、`build-native.mjs`、`prepare-installer.mjs`)、生成 (`generate-renderer.mjs`)、
+- `scripts/` — 构建 (`build-app.mjs`、`build-linux.mjs`、`build-native.mjs`、`package-cards.mjs`、`prepare-installer.mjs`)、生成 (`generate-renderer.mjs`)、
   探测 (`probe-emby.mjs`)、冒烟 (`smoke-*.mjs`)
 - `packaging/` — `install.sh`（macOS 与 Linux）与 macOS 启动器 (`mac-app/`)
 
@@ -43,6 +46,8 @@ Antigravity（预览，macOS）是第二个宿主：后台 agent 里的 `antigra
   `scripts/prepare-source-install.mjs` 在 macOS 编译原生助手并检查 / 用 Homebrew 补装 FFmpeg）
 - 无感注入 agent：`node src/cli.mjs agent [--log-dir <dir>]`（常驻）、
   `agent install|uninstall|status|restart-codex`；原生助手 `node scripts/build-native.mjs`
+- 卡片插件：`node src/cli.mjs cards list|install|update|remove|link|build|create`（测试里用临时 HOME /
+  `AGENT_COMPANION_CARDS_DIR`，不要动真实数据目录里的卡片）
 - 原生冒烟：`node scripts/smoke-native.mjs`（默认档不抢焦点；`--interactive` 会激活窗口）
 - 旧一次性 CDP 启动与注入：`npm run start:legacy`
 - 测试：`npm test`（即 `node --test`）
@@ -57,15 +62,16 @@ Antigravity（预览，macOS）是第二个宿主：后台 agent 里的 `antigra
   以及哪些 Codex 内部命名已缺失；有降级时退出码为 2）。Codex 升级后先跑它
 
 ## 新增卡片
-卡片是 `src/cards/<id>/` 下的一个目录，随仓库一起构建；平台负责外框、Shadow DOM 隔离、开关与排序、
+卡片是一个目录：内置卡片在 `cards/<id>/`，用户安装的插件在数据目录 `cards/<id>/`，格式相同，平台运行时从磁盘发现
+（安装、发布与包格式见 `cards/README.md`）。平台负责外框、Shadow DOM 隔离、开关与排序、
 生命周期、存档与 RPC，卡片只写自己的界面和逻辑。
-- 生成骨架：`npm run card:create -- <id> --title <标题>`，需要后台服务时加 `--service`。
-  `id` 为小写字母开头的字母、数字或连字符，不能是 `companion`。
+- 生成骨架：内置卡片 `npm run card:create -- <id> --title <标题>`；独立插件仓库 `agent-companion cards create <id>`。
+  需要后台服务时加 `--service`。`id` 为小写字母开头的字母、数字或连字符，不能是 `companion`。
 - `manifest.json`：`id`、`title`、`version`、`defaultEnabled`（新卡保持 `false`）、`defaultOrder`、
   `layout`（`height`: `content` | `viewport`，`minHeight`，`scroll`: `inner` | `outer`）、
   `lifecycle`（`hidden`: `retain` | `suspend`，`start`: `immediate` | `first-visible`）、
   `state`（`scope`: `target` | `session` | `global`，`version`）、`capabilities`；可选 `hosts`（`codex` | `antigravity`，
-  缺省为全部宿主，只对某个宿主有意义的卡片才写）。
+  缺省为全部宿主，只对某个宿主有意义的卡片才写）、`apiVersion`（需要的平台接口版本，当前 1）、`description`、`homepage`（https）。
 - `capabilities` 只声明用到的：`storage`（本地存档）、`rpc`（调用本卡的后台服务）、
   `threads`（宿主的会话列表：Codex 侧栏；Antigravity 只有当前会话与按 id 打开）、`overlay`（卡片区之外的顶层浮层）、`attention`（发提醒，可让平台暂停
   卡片里正在播放的媒体；`ctx.attention.notify({ key, tone, title, text, detail, color, pause, action })`，
@@ -78,14 +84,24 @@ Antigravity（预览，macOS）是第二个宿主：后台 agent 里的 `antigra
   `requestOpen()`。事件、定时器、观察器和 Object URL 一律经 `ctx.effects`（`listen` / `timeout` / `interval` /
   `observe` / `objectUrl` / `add`）登记，卸载时由平台统一回收。返回值可含 `updateSettings`、
   `visibilityChanged`、`dispose`、`api`。动态内容用 `textContent`，不要拼进 `innerHTML`。
-- `service.mjs` 导出 `createService(dependencies)`，返回 `{ methods, cleanupMethods?, disposeTarget?, dispose?, applyConfig? }`。
-  方法 `foo` 对外是 `<id>.foo`，页面里用 `ctx.rpc("foo", params)` 调用。每个方法都要校验参数、尊重 `context.signal`，
-  按 `context.targetId` 归属资源并在 `disposeTarget` 里清理；`scope: "global"` 的状态只能由后台服务写。
-- 写完运行 `npm test`（`pretest` 会重新生成卡片目录与渲染器），界面改动再跑 `npm run smoke`；
-  `npm start` 重启后台服务后在卡片区设置里启用新卡。
+  需要设置项时导出 `settings(kit)`，在 Companion 设置里加本卡的一节（范例 `cards/tasks/settings.mjs`），
+  不要往平台的 `settings-panel.mjs` 里写某张卡片的设置。
+- 页面里运行的是打包好的 `renderer.js`（`npm run generate:renderer` / `agent-companion cards build` 生成）；
+  内置卡片的 `renderer.js` 不进仓库，插件要提交。只有启用的卡片才把界面代码送进页面。
+- `service.mjs` 导出 `createService(api)`，返回 `{ methods, cleanupMethods?, disposeTarget?, dispose?, applyConfig? }`。
+  `api` 是平台注入的运行时接口（`card.dir` / `card.dataDir`、`sessions`、`codex`、`media.interceptor`、`config.load()` 等，
+  见 `src/platform/services/card-api.mjs`）。方法 `foo` 对外是 `<id>.foo`，页面里用 `ctx.rpc("foo", params)` 调用。
+  每个方法都要校验参数、尊重 `context.signal`，按 `context.targetId` 归属资源并在 `disposeTarget` 里清理；
+  `scope: "global"` 的状态只能由后台服务写。内置卡片的服务一直加载；用户插件的服务只在启用后才 import。
+- 卡片只引入自己目录里的文件、`sdk/`、`node:` 内置模块和 `dependencies` 里的包，不直接引入 `src/`
+  （`test/card-registry.test.mjs` 检查）。平台需要知道某张卡片的地方一律走 manifest / 卡片目录，
+  `src/` 里不要出现具体卡片的 id 或 import。
+- 写完运行 `npm test`（`pretest` 会重新生成内置卡片清单与 `renderer.js`），界面改动再跑 `npm run smoke`；
+  后台服务运行中时几秒内自动载入新卡，在卡片区设置里启用即可。只在本机自用的卡片不必进仓库：
+  `agent-companion cards create` 建独立目录后 `cards build && cards link .`。
 - 要把卡片提交进仓库时，同步更新写死内置卡片清单的断言（`test/card-registry.test.mjs`、
   `test/companion-config.test.mjs`、`test/config-v2.test.mjs`、`test/injector-rpc.test.mjs`、
-  `test/service-registry.test.mjs`），并给卡片补测试；只在本机自用的卡片可以不改这些测试。
+  `test/service-registry.test.mjs`、`test/helpers/builtin-cards.mjs`），并给卡片补测试。
 
 ## 宿主适配（`src/renderer/adapters/`）
 Codex 每次升级都可能改掉类名、data 属性、DOM 层级和打包方式。凡是依赖 Codex 页面结构的能力都按下面的规则写，
@@ -155,8 +171,12 @@ Codex 每次升级都可能改掉类名、data 属性、DOM 层级和打包方�
   库是 WAL，Hub 运行中实时写入；没有 `-wal/-shm` 时只读打开会 CANTOPEN(14)，退回 `immutable=1`。
   不连语言服务器的 API（要从它的进程里取 CSRF token，等同于取凭证）。开发与测试不得连接用户正在运行的 Antigravity：
   agent 只在真实进程入口（`cli.mjs`）开启 Antigravity 宿主，测试一律用假进程快照
-- `src/*.generated.mjs`、`src/cards/*.generated.mjs` 由 `npm run generate:renderer`
+- `src/*.generated.mjs`、`src/card-registry.mjs`、`cards/*/renderer.js` 由 `npm run generate:renderer`
   生成（`pretest` 自动执行），不要手改
+- **卡片插件**：插件以用户权限运行、没有沙箱，平台不做签名或审核（vim / zsh 插件式，GitHub topic `agent-companion-card`）。
+  关闭的插件不能运行任何代码：界面只在启用时注入，服务只在启用后 import。`.app` / Linux 版里内置卡片放在后端同级的
+  `cards/`（`scripts/package-cards.mjs`，服务打成自包含的单文件），Linux install.sh 的归属检查按 `PACKAGED_CARD_FILES`；
+  编译后的 Bun 会忽略 import 的查询串，服务代码更新要重启后台服务才生效
 - **安全红线**：CDP 调试端口只绑 loopback + 随机端口，禁止改为
   0.0.0.0；Emby AccessToken 只存系统凭证库（`src/platform/secret-store.mjs`），
   明文不得出现在命令行参数（macOS `security` 除外）；连接信息存数据目录下 `emby.json` (0600)。

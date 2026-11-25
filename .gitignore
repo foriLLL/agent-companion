@@ -23,3 +23,6 @@ HANDOFF*.md
 
 # 本机 agent 工具的配置（含本机绝对路径）
 .claude/
+
+# 卡片界面打包产物（npm run generate:renderer 生成；插件仓库里则需要提交）
+/cards/*/renderer.js

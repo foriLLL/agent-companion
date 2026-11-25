@@ -3,6 +3,7 @@ import { createInterface } from "node:readline";
 import { createEmbyRuntime } from "__SOURCE_ROOT__/src/cli.mjs";
 import { CompanionConfig } from "__SOURCE_ROOT__/src/companion-config.mjs";
 import { watchCompanionConfig } from "__SOURCE_ROOT__/src/platform/config/watcher.mjs";
+import { CardCatalog } from "__SOURCE_ROOT__/src/platform/cards/catalog.mjs";
 
 const [portValue, configPath] = process.argv.slice(2);
 if (!configPath || !portValue) throw new Error("需要 fixture CDP 端口与临时配置路径");
@@ -37,14 +38,19 @@ globalThis.WebSocket = class TrackedWebSocket extends NativeWebSocket {
 const output = (value) => process.stdout.write(`${JSON.stringify(value)}\n`);
 const logger = { info() {}, debug() {}, warn(message) { errors.push(String(message)); } };
 const store = new CompanionConfig({ path: configPath });
-const { injector, service } = await createEmbyRuntime(Number(portValue), { configStore: store, logger });
+// 与常驻 agent 相同的卡片目录：缺省位置（编译后为可执行文件同级的 cards/）+ 用户卡片目录。
+const cards = new CardCatalog({ logger });
+await cards.load();
+const { injector, service } = await createEmbyRuntime(Number(portValue), { configStore: store, logger, cards });
 await injector.start();
+const services = () => cards.list().map(({ id }) => id).filter((id) => service.registry.has(id)).sort();
 const watcher = await watchCompanionConfig({
   config: store,
   onChange(next) { counters.watchUpdates += 1; injector.setConfig({ config: next }); },
   onError(error) { errors.push(`watch: ${error.message}`); },
 });
-output({ event: "ready", counters, config: injector.config, compiled: typeof Bun !== "undefined", serviceScopes: service.registry.scopes.size });
+output({ event: "ready", counters, config: injector.config, compiled: typeof Bun !== "undefined", serviceScopes: service.registry.scopes.size,
+  cardsRoot: cards.roots[0].dir, cards: cards.list().map(({ id, source }) => ({ id, source })), cardProblems: cards.problems, services: services() });
 const input = createInterface({ input: process.stdin });
 let stopped = false;
 async function shutdown() {

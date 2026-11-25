@@ -31,8 +31,11 @@ Companion 以后台服务的形式运行，安装一次后日常只需打开 Cod
 
 ## 特性
 
-- **卡片由 AI 定义**：卡片是 `src/cards/<id>/` 下的一个目录（清单、渲染入口、可选的后台服务）。
-  仓库的 `AGENTS.md` 写明了卡片约定，Codex 读完就能独立新增一张卡片。
+- **卡片即插件**：卡片是一个目录（清单、界面、可选的后台服务），内置卡片和你自己装的卡片是同一种包。
+  用 `agent-companion cards install owner/repo` 从 GitHub 安装别人写的卡片，在 GitHub 搜 topic
+  `agent-companion-card` 就能找到；不需要官方市场，也不用重新构建。
+- **卡片由 AI 定义**：仓库的 `AGENTS.md` 与 [cards/README.md](cards/README.md) 写明了卡片约定，
+  Codex 读完就能独立写出一张卡片。
 - **平台负责通用部分**：外框与布局、Shadow DOM 样式隔离、开关与排序、生命周期、本地存档、
   页面与后台之间的 RPC、资源回收，卡片只写自己的界面和逻辑。
 - **按能力授权**：卡片在清单里声明需要的能力（存档、后台 RPC、会话列表、顶层浮层），未声明的能力拿不到。
@@ -92,20 +95,23 @@ Companion 以后台服务的形式运行，安装一次后日常只需打开 Cod
 Codex 会按约定完成这些步骤，你也可以手动执行：
 
 ```sh
-npm run card:create -- pomodoro --title 番茄钟      # 生成卡片骨架；需要后台服务时加 --service
-# 编辑 src/cards/pomodoro/ 下的文件
-npm start                                           # 重新生成并重启后台服务
+agent-companion cards create pomodoro --title 番茄钟  # 生成独立的插件仓库骨架；需要后台服务时加 --service
+cd pomodoro                                          # 编辑 renderer.mjs（以及 service.mjs）
+agent-companion cards build                          # 打包界面为 renderer.js
+agent-companion cards link .                         # 链接进卡片目录，之后每次 build 几秒内生效
 ```
 
-新卡片默认关闭，在卡片区的设置（齿轮）里启用后即可看到。
+新卡片默认关闭，在卡片区的设置（齿轮）里启用后即可看到。想分享给别人：把 `renderer.js` 一起提交、推到 GitHub，
+给仓库加 topic `agent-companion-card`。要改进内置卡片，在本仓库 `cards/<id>/` 下修改，或用
+`npm run card:create` 新增内置卡片。
 
 一张卡片由这些文件组成：
 
 | 文件 | 作用 |
 |---|---|
 | `manifest.json` | 卡片清单：`id`、标题、默认开关与顺序、布局、生命周期、存档范围、所需能力 |
-| `renderer.mjs` | 页面入口，导出 `mount(ctx)`，在平台给的 ShadowRoot 里渲染界面 |
-| `service.mjs` | 可选的后台服务，导出 `createService()`，方法以 `<卡片 id>.<方法名>` 暴露给本卡片 |
+| `renderer.mjs` | 页面入口，导出 `mount(ctx)`，在平台给的 ShadowRoot 里渲染界面；`cards build` 打包成 `renderer.js` |
+| `service.mjs` | 可选的后台服务，导出 `createService(api)`，方法以 `<卡片 id>.<方法名>` 暴露给本卡片 |
 
 清单里可以声明的能力：
 
@@ -116,7 +122,7 @@ npm start                                           # 重新生成并重启后�
 | `threads` | 读取 Codex 侧栏的会话列表并定位、打开会话 |
 | `overlay` | 在卡片区之外显示顶层浮层 |
 
-完整约定见 [AGENTS.md](AGENTS.md) 的「新增卡片」一节。卡片随仓库一起构建，不会在运行时加载外部代码。
+完整约定见 [AGENTS.md](AGENTS.md) 的「新增卡片」一节与 [cards/README.md](cards/README.md)。
 
 ## 安装
 
@@ -239,6 +245,8 @@ ChatGPT 若已开着，需要退出后从菜单重开一次。FFmpeg 需自行�
 ## 使用说明
 
 - 在设置中调整卡片开关与顺序；关闭卡片保留存档。
+- 安装别人写的卡片：`agent-companion cards install owner/repo[@tag]`；`cards list` 查看、`cards update` 更新、
+  `cards remove <id>` 卸载。新装的卡片缺省关闭，在设置里启用。详见 [cards/README.md](cards/README.md)。
 - 「Codex 启动代理」保存启动偏好后，点击「保存并重启」应用。
 - 收起卡片保留页面状态；关闭页面、取消请求或后台退出时回收媒体会话、Blob URL、分片缓存与转码进程。
 
@@ -425,6 +433,8 @@ npm run probe:emby -- --server https://emby.example.com --username alice --searc
 
 - **调试端口**：CDP 调试端口强制绑定 loopback 和随机端口，禁止暴露到局域网或公网。
 - **卡片隔离**：卡片、请求代次和媒体分片相互绑定，关闭或禁用卡片后不能继续读取旧分片。
+- **卡片插件**：你自己安装的卡片以你的用户权限运行，没有沙箱，Agent Companion 也不审核或签名它们；
+  只安装信任的来源，可以固定到 tag。关闭的卡片不运行任何代码：界面只在启用时注入，后台服务只在启用后加载。
 - **Emby 凭证**：Token 只发往配置的 Emby origin，不进入 DOM、媒体 URL、FFmpeg 命令行或日志。
 - **媒体地址**：跨源媒体 CDN 必须使用 HTTPS，并经过地址、DNS 和公网 IP 校验。
 - **依赖**：版本由 `package-lock.json` 固定，运行时不加载 CDN 脚本。

@@ -246,6 +246,9 @@ LINUX_FILES=(agent-companion LICENSE THIRD_PARTY_NOTICES.md hls.js.LICENSE mp4bo
 # 红果 SDK 运行时（wasm 无法编进单文件后端）放在同级目录；文件清单与 scripts/build-linux.mjs 一致。
 LINUX_RUNTIME_DIR="openhongguo"
 LINUX_RUNTIME_FILES=(index.js package.json LICENSE GO_LICENSE dist/openhongguo.wasm dist/wasm_exec.js)
+# 内置卡片：cards/<id>/ 下只有这几个文件；与 scripts/package-cards.mjs 的 PACKAGED_CARD_FILES 一致。
+LINUX_CARDS_DIR="cards"
+LINUX_CARD_FILES=(manifest.json renderer.js service.mjs)
 
 linux_install_dir() {
   if [ -n "${AGENT_COMPANION_INSTALL_DIR:-}" ]; then
@@ -273,6 +276,26 @@ linux_runtime_is_ours() {
   done < <(find "$directory" -mindepth 1)
 }
 
+# 卡片目录只能含 cards/<id>/ 下清单内的普通文件，不接受符号链接。
+linux_cards_are_ours() {
+  local directory="$1" card entry name file known
+  if [ ! -d "$directory" ] || [ -L "$directory" ]; then return 1; fi
+  for card in "$directory"/* "$directory"/.[!.]*; do
+    [ -e "$card" ] || [ -L "$card" ] || continue
+    if [ -L "$card" ] || [ ! -d "$card" ]; then return 1; fi
+    [[ "${card##*/}" =~ ^[a-z][a-z0-9-]*$ ]] || return 1
+    for entry in "$card"/* "$card"/.[!.]*; do
+      [ -e "$entry" ] || [ -L "$entry" ] || continue
+      name="${entry##*/}"
+      known=0
+      for file in "${LINUX_CARD_FILES[@]}"; do
+        if [ "$name" = "$file" ] && [ -f "$entry" ] && [ ! -L "$entry" ]; then known=1; fi
+      done
+      [ "$known" = 1 ] || return 1
+    done
+  done
+}
+
 # 安装目录只能不存在，或是只含 Companion 自己文件的真实目录：
 # 避免 AGENT_COMPANION_INSTALL_DIR 指向已有目录时把别人的文件一起替换或删除。
 linux_dir_is_ours() {
@@ -284,6 +307,10 @@ linux_dir_is_ours() {
     name="${entry##*/}"
     if [ "$name" = "$LINUX_RUNTIME_DIR" ]; then
       linux_runtime_is_ours "$entry" || return 1
+      continue
+    fi
+    if [ "$name" = "$LINUX_CARDS_DIR" ]; then
+      linux_cards_are_ours "$entry" || return 1
       continue
     fi
     known=0
@@ -299,8 +326,16 @@ uninstall_linux() {
   linux_dir_is_ours "$INSTALL_DIR" || die "未找到可卸载的 Companion：$INSTALL_DIR"
   # 后台服务未成功停用时保留程序，避免留下指向已删除程序的服务与菜单入口。
   "$INSTALL_DIR/agent-companion" agent uninstall >/dev/null || die "停用后台服务失败；程序已保留，请重试。"
-  local file
+  local file card
   for file in "${LINUX_FILES[@]}"; do rm -f "${INSTALL_DIR:?}/$file"; done
+  if [ -d "$INSTALL_DIR/$LINUX_CARDS_DIR" ]; then
+    for card in "${INSTALL_DIR:?}/$LINUX_CARDS_DIR"/*/; do
+      [ -d "$card" ] || continue
+      for file in "${LINUX_CARD_FILES[@]}"; do rm -f "$card$file"; done
+      rmdir "$card"
+    done
+    rmdir "$INSTALL_DIR/$LINUX_CARDS_DIR"
+  fi
   if [ -d "$INSTALL_DIR/$LINUX_RUNTIME_DIR" ]; then
     for file in "${LINUX_RUNTIME_FILES[@]}"; do rm -f "${INSTALL_DIR:?}/$LINUX_RUNTIME_DIR/$file"; done
     rmdir "$INSTALL_DIR/$LINUX_RUNTIME_DIR/dist" 2>/dev/null || true

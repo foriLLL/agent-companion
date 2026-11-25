@@ -11,7 +11,8 @@ import {
 } from "./launcher.mjs";
 import { listCdpTargets } from "./targets.mjs";
 import { RuntimeState, pidIsAlive } from "./runtime-state.mjs";
-import { CARD_MANIFESTS } from "./card-registry.mjs";
+import { CardCatalog } from "./platform/cards/catalog.mjs";
+import { CARDS_HELP, runCardsCommand } from "./cards-command.mjs";
 import { watchCompanionConfig } from "./platform/config/watcher.mjs";
 import { CompanionConfig } from "./companion-config.mjs";
 import { startCodexWatchdog } from "./daemon.mjs";
@@ -31,7 +32,7 @@ Agent Companion — CDP DOM 注入器
   node src/cli.mjs unmount --port <端口>
   node src/cli.mjs status
   node src/cli.mjs stop-codex
-  node src/cli.mjs cards list
+  node src/cli.mjs cards <list|install|update|remove|link|build|create> …（见 cards --help）
   node src/cli.mjs config get [--config-path <路径>]
   node src/cli.mjs config patch [--config-path <路径>]  # stdin: {expectedRevision,patch}
   node src/cli.mjs agent [--log-dir <目录>]
@@ -49,7 +50,8 @@ Agent Companion — CDP DOM 注入器
   agent       常驻监听 Codex；install/uninstall 管理后台服务，status 查询，restart-codex 正常重启一次
   open-codex  以本机随机 CDP 端口打开 Codex 后立即返回，参数原样透传（Linux 应用菜单入口）
   antigravity 以本机随机调试端口打开 Antigravity，后台服务自动加载卡片；已在运行时加 --restart 先正常退出再打开
-`);
+  cards       管理卡片插件：列出、安装、更新、卸载、开发链接、打包、新建
+${CARDS_HELP}`);
 }
 
 export function parseArgs(argv) {
@@ -69,9 +71,11 @@ export function parseArgs(argv) {
   const args = [...argv];
   if (args[0] && !args[0].startsWith("-")) options.command = args.shift();
 
-  if (["cards", "config", "agent"].includes(options.command) && args[0] && !args[0].startsWith("-")) options.subcommand = args.shift();
+  if (["config", "agent"].includes(options.command) && args[0] && !args[0].startsWith("-")) options.subcommand = args.shift();
   // 菜单入口的参数属于 Codex（如 codex:// 链接或 Chromium 标志），不在这里解析。
   if (options.command === "open-codex") return { ...options, passthrough: args };
+  // cards 的子命令与参数由 cards-command.mjs 解析。
+  if (options.command === "cards") return { ...options, passthrough: args };
 
   while (args.length > 0) {
     const arg = args.shift();
@@ -119,7 +123,6 @@ export function parseArgs(argv) {
   if (["inject", "unmount"].includes(options.command) && options.port === null) {
     throw new Error(`${options.command} 命令必须提供 --port`);
   }
-  if (options.command === "cards" && options.subcommand !== "list") throw new Error("cards 仅支持 list");
   if (options.command === "config" && !["get", "patch"].includes(options.subcommand)) throw new Error("config 仅支持 get / patch");
   if (options.command === "agent" && ![null, "install", "uninstall", "status", "restart-codex"].includes(options.subcommand)) throw new Error("agent 子命令无效");
   if (options.command === "agent" && (options.once || options.port !== null || argv.includes("--app"))) {
@@ -169,9 +172,15 @@ export async function runCli(argv = process.argv.slice(2), dependencies = {}) {
 
   const companionConfig = new CompanionConfig({ path: options.configPath });
   if (options.command === "cards") {
-    console.log(JSON.stringify(CARD_MANIFESTS));
+    await runCardsCommand(options.passthrough, { configStore: companionConfig, ...dependencies.cards });
     return;
   }
+  // 一次性注入与旧的常驻命令同样从卡片目录加载卡片（内置 + 用户安装）。
+  const loadCards = async () => {
+    const cards = dependencies.cardCatalog ?? new CardCatalog();
+    await cards.load();
+    return cards;
+  };
   if (options.command === "config") {
     if (options.subcommand === "get") console.log(JSON.stringify(await companionConfig.loadV2({ strict: true })));
     else {
@@ -286,7 +295,7 @@ export async function runCli(argv = process.argv.slice(2), dependencies = {}) {
   }
 
   if (options.command === "inject" || options.once) {
-    const { injector, embyService } = await createEmbyRuntime(port, { configStore: companionConfig, executable: options.executable });
+    const { injector, embyService } = await createEmbyRuntime(port, { configStore: companionConfig, executable: options.executable, cards: await loadCards() });
     try {
       const results = await injector.injectOnce("mount");
       console.log(`[agent-companion] 已向 ${results.length} 个 renderer 注入卡片`);
@@ -296,7 +305,7 @@ export async function runCli(argv = process.argv.slice(2), dependencies = {}) {
     return;
   }
 
-  const session = createCodexSession({ port, configStore: companionConfig, executable: options.executable });
+  const session = createCodexSession({ port, configStore: companionConfig, executable: options.executable, cards: await loadCards() });
   const shutdown = signal => session.stop(signal);
   try {
     await session.start();

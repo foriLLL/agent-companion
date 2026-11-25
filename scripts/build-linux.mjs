@@ -3,6 +3,7 @@ import { chmod, cp, mkdir, rm } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+import { packageBuiltinCards } from "./package-cards.mjs";
 
 const execFileAsync = promisify(execFile);
 const here = dirname(fileURLToPath(import.meta.url));
@@ -17,6 +18,7 @@ export const TARGETS = {
 // 红果 SDK 运行时只带这些文件；install.sh 的 LINUX_RUNTIME_FILES 必须与此一致，
 // 升级与卸载据此确认安装目录里只有 Companion 自己的文件。
 export const HONGGUO_RUNTIME_DIR = "openhongguo";
+export const PACKAGED_CARDS_DIR = "cards";
 export const HONGGUO_RUNTIME_FILES = Object.freeze([
   "index.js", "package.json", "LICENSE", "GO_LICENSE", "dist/openhongguo.wasm", "dist/wasm_exec.js"
 ]);
@@ -63,6 +65,10 @@ async function main() {
     "--outfile", binaryOut
   ]);
   await chmod(binaryOut, 0o755);
+
+  // 内置卡片放在二进制同级的 cards/，与 macOS 的 Resources/cards 一致；install.sh 的归属检查按 PACKAGED_CARD_FILES。
+  console.log("[build-linux] 打包内置卡片…");
+  await packageBuiltinCards({ outDir: join(root, PACKAGED_CARDS_DIR), bunExecutable: bunBin });
 
   // 与 macOS 包一致：附带项目及打包依赖的许可说明；FFmpeg 不进入分发物。
   // 红果 SDK 是 wasm 包，放在二进制同级的 openhongguo 目录，运行时动态 import；

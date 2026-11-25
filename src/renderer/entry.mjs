@@ -1,9 +1,30 @@
-import { CARD_MANIFESTS } from "../card-registry.mjs";
-import { RENDERER_REGISTRY } from "../cards/renderer-registry.generated.mjs";
 import { createCardRuntime } from "./runtime/card-runtime.mjs";
 
 const BRIDGE_KEY = "__AGENT_COMPANION__";
 let pending = null;
+// 送到这个页面的卡片界面：id → { hash, module }。平台代码里不含任何卡片，
+// 每张卡片的 renderer.js 由注入器包上 register / defineCard 调用后单独送来。
+const cards = new Map();
+
+function validCard(id, hash, module) {
+  return typeof id === "string" && /^[a-z][a-z0-9-]*$/.test(id) && (hash === null || typeof hash === "string")
+    && typeof module?.mount === "function";
+}
+
+// 随整页注入一起送来的卡片：只登记，由随后的 bootstrap 一并交给新建的运行时。
+function register(id, hash, module) {
+  if (!validCard(id, hash, module)) return { status: "invalid", id };
+  cards.set(id, { hash, module });
+  return { status: "registered", id };
+}
+
+// 页面已挂载后补送的卡片（例如刚在设置里启用）：登记并交给正在运行的运行时挂载。
+function defineCard(id, hash, module) {
+  if (!validCard(id, hash, module)) return { status: "invalid", id };
+  cards.set(id, { hash, module });
+  const accepted = globalThis[BRIDGE_KEY]?.runtime?.defineCard?.(id, module, hash) ?? false;
+  return { status: accepted ? "defined" : "registered", id };
+}
 
 function cleanupLegacy() {
   try { globalThis.__CODEX_HG__?.unmount?.(); } catch {}
@@ -17,7 +38,7 @@ function cleanupLegacy() {
   for (const id of ["codex-companion-root", "codex-companion-rail"]) document.getElementById(id)?.remove();
 }
 
-function bootstrap({ action = "mount", config = {}, host = "codex", artifactHash, version } = {}) {
+function bootstrap({ action = "mount", config = {}, host = "codex", artifactHash, version, manifests = [] } = {}) {
   const previous = globalThis[BRIDGE_KEY];
   if (action === "unmount") {
     pending?.();
@@ -29,7 +50,7 @@ function bootstrap({ action = "mount", config = {}, host = "codex", artifactHash
   }
   if (!document.body) {
     pending?.();
-    const ready = () => { pending = null; bootstrap({ action, config, host, artifactHash, version }); };
+    const ready = () => { pending = null; bootstrap({ action, config, host, artifactHash, version, manifests }); };
     document.addEventListener("DOMContentLoaded", ready, { once: true });
     pending = () => document.removeEventListener("DOMContentLoaded", ready);
     return { status: "scheduled", version };
@@ -42,7 +63,9 @@ function bootstrap({ action = "mount", config = {}, host = "codex", artifactHash
   try { previous?.unmount?.(); } catch {}
   // 只清理本平台旧宿主，不访问原生 Summary。
   for (const id of ["agent-companion-root", "agent-companion-rail", "agent-companion-rail-backdrop"]) document.getElementById(id)?.remove();
-  const runtime = createCardRuntime({ manifests: CARD_MANIFESTS, renderers: RENDERER_REGISTRY, config, artifactHash, host });
+  const renderers = Object.fromEntries([...cards].map(([id, { module }]) => [id, module]));
+  const rendererHashes = Object.fromEntries([...cards].map(([id, { hash }]) => [id, hash]));
+  const runtime = createCardRuntime({ manifests, renderers, rendererHashes, config, artifactHash, host });
   const bridge = {
     version, artifactHash, cardsKey: artifactHash, runtime, host,
     hostId: "agent-companion-root", railId: "agent-companion-rail",
@@ -53,12 +76,8 @@ function bootstrap({ action = "mount", config = {}, host = "codex", artifactHash
       if (globalThis[BRIDGE_KEY] === bridge) delete globalThis[BRIDGE_KEY];
       return runtime.dispose();
     },
-    // 旧调试脚本的窄兼容入口；RPC 投递与运行时不再依赖具体业务卡。
-    get emby() { return { receiveRpc: runtime.receiveRpc, ...runtime.getCardApi("emby") }; },
-    get hongguo() { return runtime.getCardApi("hongguo"); },
-    setVideoSource: (...args) => runtime.getCardApi("hongguo")?.setVideoSource?.(...args),
-    setVideoFile: (...args) => runtime.getCardApi("hongguo")?.setVideoFile?.(...args),
-    clearVideo: (...args) => runtime.getCardApi("hongguo")?.clearVideo?.(...args)
+    // 调试入口：卡片 mount 返回的 api（例如冒烟脚本驱动 Emby 卡片）。平台不认识具体卡片。
+    card: (id) => runtime.getCardApi(id)
   };
   globalThis[BRIDGE_KEY] = bridge;
   return { status: config.enabled === false || runtime.getDiagnostics().shell.count === 0 ? "cards-disabled" : "mounted", placement: runtime.getPlacement(), version };
@@ -67,5 +86,7 @@ function bootstrap({ action = "mount", config = {}, host = "codex", artifactHash
 globalThis.__AGENT_COMPANION_RENDERER__?.cancelPending?.();
 globalThis.__AGENT_COMPANION_RENDERER__ = {
   bootstrap,
+  register,
+  defineCard,
   cancelPending() { pending?.(); pending = null; }
 };

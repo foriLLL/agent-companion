@@ -1,5 +1,5 @@
 // 由 scripts/generate-card-registry.mjs 生成。请勿手改。
-// 静态元数据，供 Node 与 bundle 直接 import；运行时不读文件系统。
+// 内置卡片的 manifest 快照：运行时从卡片目录发现卡片，这里只作缺省值（一次性命令、测试）。
 import { validateCatalog } from "./platform/registry/manifest.mjs";
 
 export const CARD_REGISTRY_HASH = "4d90d9e43b58ef00d2f8d13eeb66c08753b3cebd411335fd34e6d72daf6809c4";

@@ -1,5 +1,5 @@
 import { CARD_MANIFESTS } from "../../src/card-registry.mjs";
-import { SERVICE_REGISTRY } from "../../src/cards/service-registry.generated.mjs";
+import { BUILTIN_SERVICES } from "./builtin-cards.mjs";
 import { AgentCompanionService } from "../../src/agent-companion-service.mjs";
 
 // 平台隔离测试用的第二张媒体卡：只把 RPC 与清理转发给注入的 clipsService，不含业务逻辑。
@@ -37,5 +37,5 @@ export function createServiceWithClips({ clipsService = {}, embyService, hongguo
     })
   };
   const engines = { ...(embyService ? { embyService } : {}), ...(hongguoService ? { hongguoService } : {}) };
-  return new AgentCompanionService({ ...options, manifests, modules: { ...SERVICE_REGISTRY, clips }, dependencies: { ...engines, ...dependencies } });
+  return new AgentCompanionService({ ...options, manifests, modules: { ...BUILTIN_SERVICES, clips }, dependencies: { ...engines, ...dependencies } });
 }

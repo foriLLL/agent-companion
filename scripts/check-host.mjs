@@ -1,7 +1,9 @@
 import { execFile } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+import { cardsArtifact } from "../src/agent/session.mjs";
 import { CdpConnection } from "../src/cdp-connection.mjs";
+import { CardCatalog, defaultCardRoots } from "../src/platform/cards/catalog.mjs";
 import { filterCodexTargets, listCdpTargets } from "../src/targets.mjs";
 
 // Codex 宿主适配自检：Codex 升级后运行 `npm run check:host`，看 Companion 的每项适配落在哪一级。
@@ -89,11 +91,22 @@ async function resolvePort(argv) {
   return status.codex.port;
 }
 
+// 本地的注入产物身份：平台代码 + 当前卡片目录（内置 + 用户安装），与后台服务算法一致。
+async function localArtifactHash() {
+  try {
+    const catalog = new CardCatalog({ roots: defaultCardRoots(), logger: { warn() {} } });
+    await catalog.load();
+    return cardsArtifact(catalog, "codex").hash;
+  } catch {
+    return null;
+  }
+}
+
 async function main(argv) {
   const port = await resolvePort(argv);
   const targets = filterCodexTargets(await listCdpTargets(port));
   if (!targets.length) throw new Error(`端口 ${port} 上没有 Codex 页面。`);
-  const { RENDERER_ARTIFACT_HASH } = await import("../src/renderer-embedded.generated.mjs").catch(() => ({}));
+  const expectedHash = await localArtifactHash();
   let degradedTotal = 0;
   for (const target of targets) {
     const connection = new CdpConnection(target.webSocketDebuggerUrl);
@@ -103,7 +116,7 @@ async function main(argv) {
         expression: `(${probe.toString()})(${JSON.stringify(HOST_HOOKS)})`, returnByValue: true
       });
       if (response.exceptionDetails) throw new Error(response.exceptionDetails.exception?.description ?? response.exceptionDetails.text);
-      const { lines, degraded } = summarize(response.result.value, { expectedHash: RENDERER_ARTIFACT_HASH });
+      const { lines, degraded } = summarize(response.result.value, { expectedHash });
       console.log(`\n[${(target.title || target.url).slice(0, 60)}]`);
       for (const line of lines) console.log(line);
       console.log(degraded.length ? `\n结论：${degraded.length} 项降级\n${degraded.map((item) => `  - ${item}`).join("\n")}` : "\n结论：全部命中，没有降级。");

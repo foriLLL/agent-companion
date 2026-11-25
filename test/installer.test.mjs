@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
-import { HONGGUO_RUNTIME_DIR, HONGGUO_RUNTIME_FILES } from "../scripts/build-linux.mjs";
+import { HONGGUO_RUNTIME_DIR, HONGGUO_RUNTIME_FILES, PACKAGED_CARDS_DIR } from "../scripts/build-linux.mjs";
+import { PACKAGED_CARD_FILES } from "../scripts/package-cards.mjs";
 import { renderInstaller } from "../scripts/prepare-installer.mjs";
 
 const installerPath = fileURLToPath(new URL("../packaging/install.sh", import.meta.url));
@@ -85,6 +86,26 @@ test("Linux 卸载只删除 Companion 自己的文件，服务停用失败时保
   assert.match(section("linux_dir_is_ours"), /\[ -L "\$directory" \]; then return 1/);
 });
 
+test("Linux 卸载删掉发布包的全部文件（含内置卡片）后移除安装目录", posixOnly, () => {
+  const temporary = mkdtempSync(join(tmpdir(), "companion-installer-"));
+  const directory = join(temporary, "agent-companion");
+  try {
+    const files = [...bashArray("LINUX_FILES"), ...HONGGUO_RUNTIME_FILES.map((file) => `${HONGGUO_RUNTIME_DIR}/${file}`),
+      ...["emby", "proxy"].flatMap((id) => PACKAGED_CARD_FILES.map((file) => `${PACKAGED_CARDS_DIR}/${id}/${file}`))];
+    for (const file of files) {
+      mkdirSync(dirname(join(directory, file)), { recursive: true });
+      writeFileSync(join(directory, file), "");
+    }
+    // 桩：agent uninstall 直接成功，不碰真实的 systemd 服务。
+    writeFileSync(join(directory, "agent-companion"), "#!/bin/sh\nexit 0\n");
+    chmodSync(join(directory, "agent-companion"), 0o755);
+    const result = spawnSync("/bin/bash", ["-c", 'source "$1"; uninstall_linux', "_", installerPath],
+      { encoding: "utf8", env: { PATH: process.env.PATH, HOME: temporary, AGENT_COMPANION_INSTALL_DIR: directory } });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(existsSync(directory), false);
+  } finally { rmSync(temporary, { recursive: true, force: true }); }
+});
+
 test("Release 安装脚本必须写入 Team ID、tag 与两个 Linux 校验和，缺一即失败", () => {
   const values = { teamId: "ABCDE12345", tag: "v1.2.3", linuxX64Sha256: "a".repeat(64), linuxArm64Sha256: "b".repeat(64) };
   const rendered = renderInstaller(installer, values);
@@ -133,10 +154,13 @@ test("Linux 安装目录归属检查接受发布包的全部文件，拒绝多�
   assert.deepEqual(bashArray("LINUX_RUNTIME_FILES"), [...HONGGUO_RUNTIME_FILES]);
   assert.match(installer, new RegExp(`^LINUX_RUNTIME_DIR="${HONGGUO_RUNTIME_DIR}"$`, "m"));
   assert.ok(bashArray("LINUX_FILES").includes("openhongguo.LICENSE"));
+  assert.deepEqual(bashArray("LINUX_CARD_FILES"), [...PACKAGED_CARD_FILES]);
+  assert.match(installer, new RegExp(`^LINUX_CARDS_DIR="${PACKAGED_CARDS_DIR}"$`, "m"));
+  const cardFiles = ["emby", "tasks"].flatMap((id) => PACKAGED_CARD_FILES.map((file) => `${PACKAGED_CARDS_DIR}/${id}/${file}`));
   const temporary = mkdtempSync(join(tmpdir(), "companion-installer-"));
   const bundle = (name, extra = []) => {
     const directory = join(temporary, name);
-    const files = [...bashArray("LINUX_FILES"), ...HONGGUO_RUNTIME_FILES.map((file) => `${HONGGUO_RUNTIME_DIR}/${file}`), ...extra];
+    const files = [...bashArray("LINUX_FILES"), ...HONGGUO_RUNTIME_FILES.map((file) => `${HONGGUO_RUNTIME_DIR}/${file}`), ...cardFiles, ...extra];
     for (const file of files) {
       mkdirSync(dirname(join(directory, file)), { recursive: true });
       writeFileSync(join(directory, file), "");
@@ -149,6 +173,12 @@ test("Linux 安装目录归属检查接受发布包的全部文件，拒绝多�
     assert.equal(owned(bundle("release")), true);
     assert.equal(owned(bundle("foreign-top", ["notes.txt"])), false);
     assert.equal(owned(bundle("foreign-runtime", [`${HONGGUO_RUNTIME_DIR}/dist/extra.bin`])), false);
+    assert.equal(owned(bundle("foreign-card-file", [`${PACKAGED_CARDS_DIR}/emby/notes.txt`])), false);
+    assert.equal(owned(bundle("foreign-card-dir", [`${PACKAGED_CARDS_DIR}/Bad_Name/manifest.json`])), false);
+    const linkedCard = bundle("linked-card");
+    rmSync(join(linkedCard, PACKAGED_CARDS_DIR, "tasks", "renderer.js"));
+    symlinkSync("/etc/hosts", join(linkedCard, PACKAGED_CARDS_DIR, "tasks", "renderer.js"));
+    assert.equal(owned(linkedCard), false);
     const linked = bundle("linked-runtime");
     rmSync(join(linked, HONGGUO_RUNTIME_DIR, "index.js"));
     symlinkSync("/etc/hosts", join(linked, HONGGUO_RUNTIME_DIR, "index.js"));

@@ -3,6 +3,7 @@ import { createCardShell } from "/src/renderer/shell/card-shell.mjs";
 import { createSettingsPanel } from "/src/renderer/shell/settings-panel.mjs";
 import { createRpcClient } from "/src/renderer/platform/rpc-client.mjs";
 import { CARD_MANIFESTS } from "/src/card-registry.mjs";
+import { settings as tasksSettings } from "/cards/tasks/settings.mjs";
 
 const assert = (condition, message) => { if (!condition) throw new Error(message); };
 const equal = (actual, expected, message) => assert(JSON.stringify(actual) === JSON.stringify(expected), `${message}: ${JSON.stringify(actual)} != ${JSON.stringify(expected)}`);
@@ -550,7 +551,7 @@ export async function settingsLayout() {
     const tasks = { ...config.cards.tasks, ...tasksPatch, settings: { ...config.cards.tasks.settings, ...tasksPatch.settings } };
     config = { ...config, ...params.patch, revision: config.revision + 1, cards: { ...config.cards, ...params.patch.cards, tasks } };
     return { config };
-  } });
+  }, cardSettings: [{ id: "tasks", title: "任务看板", settings: tasksSettings }] });
   shadow.append(panel.element);
   try {
     await panel.open();
@@ -582,7 +583,7 @@ export async function settingsLayout() {
       assert(update.scrollWidth <= update.clientWidth && panel.element.scrollWidth <= panel.element.clientWidth, `${scheme} 更新说明导致横向滚动`);
       // 切换主题会触发按钮背景色过渡，等过渡结束再取色。
       for (const animation of apply.getAnimations()) animation.finish();
-      assert(buttonContrast(apply) >= 4.5, `${scheme} 立即更新按钮文字对比度不足`);
+      assert(buttonContrast(apply) >= 4.5, `${scheme} 立即更新按钮文字对比度不足：${getComputedStyle(apply).color} / ${getComputedStyle(apply).backgroundColor}`);
       update.querySelector("details summary").click();
       planHint.click();
       assert(!confirmation.hidden && !planHint.checked, "确认前开关不能显示已开启");
@@ -663,4 +664,48 @@ export async function settingsBundle() {
   }
 }
 
-export const scenarios = { matrix, incremental, failures, lateMount, rpcIsolation, discoveredCard, nativeIntegration, storageContracts, suspendPolicy, viewportScroll, settingsEntrypoints, settingsWithoutSummary, settingsLayout, settingsBundle };
+// 注入器实际送进页面的代码：平台 bundle 不含卡片，只有启用的 proxy 随整页 register；
+// 之后在设置里启用 usage，由 defineCard 补送并挂载，不重建运行时。
+export async function cardBundles() {
+  const injection = await (await fetch("/fixture-injection.json")).json();
+  const sent = [];
+  const previousBinding = globalThis.__AGENT_COMPANION_RPC__;
+  globalThis.__AGENT_COMPANION_RPC__ = raw => {
+    const request = JSON.parse(raw);
+    sent.push(request);
+    if (request.method === "companion.update.status") return Promise.resolve(structuredClone(UPDATE_STATUS));
+    if (request.method === "proxy.status") return Promise.resolve({ enabled: false, port: 7890, reachable: false });
+    return Promise.reject(Object.assign(Error(`fixture: ${request.method}`), { code: "FIXTURE" }));
+  };
+  try {
+    const result = (0, eval)(injection.mount);
+    equal(result.status, "mounted", "整页注入状态");
+    const bridge = globalThis.__AGENT_COMPANION__;
+    const runtime = bridge.runtime;
+    equal(Object.keys(runtime.getDefinedCards()), ["proxy"], "只送启用卡片的界面");
+    equal(bridge.artifactHash, injection.hash, "页面记录的产物身份");
+    bridge.setOpen(true);
+    await until(() => runtime.getDiagnostics().cards.proxy?.active === true, "proxy 卡片挂载");
+    await until(() => sent.some(item => item.method === "proxy.status" && item.cardId === "proxy"), "proxy 卡片经平台 RPC 调自己的后台");
+    assert(!runtime.getDiagnostics().cards.usage, "未送达的卡片不该占位");
+    runtime.applyConfig({ ...injection.config, revision: 2, cards: { ...injection.config.cards, usage: { enabled: true, settings: {} } } });
+    const defined = (0, eval)(injection.define);
+    equal(defined.status, "defined", "补送卡片交给运行中的运行时");
+    await until(() => runtime.getDiagnostics().cards.usage?.active === true, "usage 卡片补送后挂载");
+    assert(globalThis.__AGENT_COMPANION__.runtime === runtime, "补送卡片重建了运行时");
+    equal(runtime.getDefinedCards().usage, injection.usageHash, "补送卡片的界面版本");
+    const generation = runtime.getDiagnostics().cards.usage.generation;
+    equal((0, eval)(injection.define).status, "registered", "重复补送同一版本只登记");
+    equal(runtime.getDiagnostics().cards.usage.generation, generation, "重复补送同一版本重建了卡片");
+    equal(Object.keys(runtime.getDiagnostics().errors ?? {}).length, 0, "挂载出错");
+    return { artifact: injection.hash.slice(0, 16), available: injection.cards.length, registered: 1, definedLater: "usage" };
+  } finally {
+    globalThis.__AGENT_COMPANION_RENDERER__?.bootstrap({ action: "unmount" });
+    delete globalThis.__AGENT_COMPANION_RENDERER__;
+    if (previousBinding === undefined) delete globalThis.__AGENT_COMPANION_RPC__;
+    else globalThis.__AGENT_COMPANION_RPC__ = previousBinding;
+    assert(!document.getElementById("agent-companion-root-shell"), "卸载残留平台外框");
+  }
+}
+
+export const scenarios = { matrix, incremental, failures, lateMount, rpcIsolation, discoveredCard, nativeIntegration, storageContracts, suspendPolicy, viewportScroll, settingsEntrypoints, settingsWithoutSummary, settingsLayout, settingsBundle, cardBundles };

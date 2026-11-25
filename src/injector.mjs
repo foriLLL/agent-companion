@@ -1,6 +1,5 @@
 import { CdpConnection } from "./cdp-connection.mjs";
-import { buildInjectionSource, buildConfigUpdateSource, ARTIFACT_HASH, BRIDGE_KEY } from "./injection.mjs";
-import { CARD_MANIFESTS } from "./card-registry.mjs";
+import { buildInjectionSource, buildConfigUpdateSource, cardDefineSource, enabledRenderers, BRIDGE_KEY, PLATFORM_ARTIFACT } from "./injection.mjs";
 import { attachMediaIntercept } from "./platform/media/media-intercept.mjs";
 import { normalizeRuntimeConfig } from "./platform/config/runtime-config.mjs";
 import { CdpRpcBridge, DEFAULT_RPC_TIMEOUT_MS } from "./rpc-bridge.mjs";
@@ -38,6 +37,7 @@ export class CodexInjector {
   #scanning = null;
   #stopped = false;
   #config;
+  #artifact;
   #now;
   #onEvent;
   #healthTimeoutMs;
@@ -66,7 +66,9 @@ export class CodexInjector {
     probeIntervalMs = PROBE_INTERVAL_MS,
     probeTimeoutMs = PROBE_TIMEOUT_MS,
     maxSessionFailures = MAX_SESSION_FAILURES,
-    host = "codex"
+    host = "codex",
+    // 注入产物（平台 + 卡片目录），见 injection.mjs 的 createInjectionArtifact；卡片目录变化时经 setArtifact 换新。
+    artifact = PLATFORM_ARTIFACT
   } = {}) {
     if (rpcHandler !== undefined && embyService !== undefined && rpcHandler !== embyService) {
       throw new TypeError("rpcHandler 和 embyService 不能同时配置");
@@ -86,7 +88,18 @@ export class CodexInjector {
     this.#probeIntervalMs = probeIntervalMs;
     this.#probeTimeoutMs = probeTimeoutMs;
     this.#maxFailures = maxSessionFailures;
-    this.#config = normalizeRuntimeConfig(config ?? { cards, placement, cardOrder, order, revision, enabled }, CARD_MANIFESTS);
+    this.#artifact = artifact;
+    this.#config = normalizeRuntimeConfig(config ?? { cards, placement, cardOrder, order, revision, enabled }, artifact.manifests);
+  }
+
+  get artifact() {
+    return this.#artifact;
+  }
+
+  // 卡片目录变化（安装、卸载、更新）后换上新产物；下一轮扫描发现页面里的身份不同，整体重新注入。
+  setArtifact(artifact) {
+    this.#artifact = artifact;
+    this.#config = normalizeRuntimeConfig(this.#config, artifact.manifests);
   }
 
   get enabled() {
@@ -110,7 +123,7 @@ export class CodexInjector {
   }
 
   get config() {
-    return normalizeRuntimeConfig(this.#config, CARD_MANIFESTS);
+    return normalizeRuntimeConfig(this.#config, this.#artifact.manifests);
   }
 
   // 配置身份与构建身份独立：下一次扫描仅对当前 runtime 调用 applyConfig。
@@ -129,19 +142,20 @@ export class CodexInjector {
       order: order ?? cardOrder ?? this.#config.order,
       revision: revision ?? this.#config.revision,
       enabled: enabled ?? this.#config.enabled,
-    }, CARD_MANIFESTS);
+    }, this.#artifact.manifests);
     if (next.revision !== null && this.#config.revision !== null && next.revision < this.#config.revision) return false;
     this.#config = next;
     return true;
   }
 
   #buildMountSource(config = this.#config) {
-    const source = buildInjectionSource("mount", { config, host: this.#host.id });
+    const source = buildInjectionSource("mount", { config, host: this.#host.id, artifact: this.#artifact });
     return this.#runtimePrelude ? `${this.#runtimePrelude}\n;${source}` : source;
   }
 
   async #registerNewDocument(connection, target, config, force = false) {
-    const configKey = JSON.stringify(config);
+    // 导航脚本里带着平台、启用卡片的界面代码和配置，任何一项变化都要重新登记。
+    const configKey = JSON.stringify([this.#artifact.hash, config]);
     const previous = this.#newDocumentScripts.get(target.id);
     if (!force && previous?.configKey === configKey) return;
     if (previous?.identifier) {
@@ -268,13 +282,17 @@ export class CodexInjector {
           const bridge = globalThis[${JSON.stringify(BRIDGE_KEY)}];
           return { artifactHash: bridge?.artifactHash ?? null,
             mounted: bridge?.runtime?.isMounted?.() === true,
-            config: bridge?.runtime?.getConfig?.() ?? null };
+            config: bridge?.runtime?.getConfig?.() ?? null,
+            cards: bridge?.runtime?.getDefinedCards?.() ?? null };
         })()`, { timeoutMs: this.#healthTimeoutMs });
         if (this.#stopped) return;
         await this.#registerNewDocument(session.connection, session.target, config);
         if (this.#stopped) return;
         const health = check.result?.value;
-        if (health?.artifactHash === ARTIFACT_HASH && health?.mounted === true) {
+        if (health?.artifactHash === this.#artifact.hash && health?.mounted === true) {
+          // 新启用的卡片界面还没送到页面：先补送，再推配置，运行时收到后按配置挂载。
+          await this.#defineMissingCards(session.connection, config, health.cards);
+          if (this.#stopped) return;
           // 页面可能刚执行了旧导航脚本；不能仅相信 Node 侧上次推送的配置。
           if (JSON.stringify(health.config) !== JSON.stringify(config)) {
             await this.#evaluate(session.connection, buildConfigUpdateSource(config));
@@ -326,6 +344,17 @@ export class CodexInjector {
         connection.close();
         this.#logger.warn(`[agent-companion] 注入 target ${target.id} 失败：${error.message}`);
       }
+    }
+  }
+
+  async #defineMissingCards(connection, config, defined) {
+    if (!defined || typeof defined !== "object") return;
+    for (const renderer of enabledRenderers(this.#artifact, config)) {
+      if (defined[renderer.id] === renderer.hash) continue;
+      const evaluation = await this.#evaluate(connection, cardDefineSource(renderer));
+      const status = evaluation.result?.value?.status;
+      if (status !== "defined") this.#logger.warn(`[agent-companion] 卡片 ${renderer.id} 界面送达失败：${status ?? "无结果"}`);
+      else this.#logger.info(`[agent-companion] 已加载卡片界面：${renderer.id}`);
     }
   }
 

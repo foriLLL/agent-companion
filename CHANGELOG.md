@@ -4,6 +4,14 @@
 
 ## Unreleased
 
+- 卡片改为插件：内置卡片与用户自己安装的卡片是同一种包（`manifest.json` + 打包好的 `renderer.js` + 可选的
+  `service.mjs`），平台在运行时从内置目录和数据目录下的 `cards/` 发现它们，平台代码里不再写死任何卡片。
+  只有启用的卡片才把界面代码送进页面，关闭的插件也不加载后台服务。
+- 新增 `agent-companion cards` 命令：`install owner/repo[@ref]` / git 地址 / 本地目录，`update`、`remove [--purge]`、
+  `list`，以及写插件用的 `create`、`build`、`link`。后台服务运行中时，安装、卸载、更新几秒内生效。
+  没有官方市场：在 GitHub 搜 topic `agent-companion-card` 找插件，规范见 `cards/README.md`。
+- 卡片可以往 Companion 设置里加自己的一节（`renderer.mjs` 导出 `settings(kit)`）；任务看板的设置改由卡片自己提供。
+
 ## 0.4.0 - 2026-11-25
 
 - 项目改名为 Agent Companion（原 Codex Companion），为接入 Codex 以外的宿主（Antigravity）做准备：仓库改为

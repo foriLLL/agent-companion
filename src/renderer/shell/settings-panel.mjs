@@ -173,6 +173,7 @@ export function createSettingsPanel({ document: doc, call, connection, onClose =
     const group = section(title);
     const fieldset = group.parentNode;
     fieldset.dataset.cardSettings = id;
+    const firstControl = controls.length;
     const failure = node("p", null, "cc-settings-note cc-settings-error");
     failure.hidden = true;
     const fail = (error) => {
@@ -201,13 +202,29 @@ export function createSettingsPanel({ document: doc, call, connection, onClose =
     });
     let contribution = null;
     try { contribution = contribute(kit) ?? null; } catch (error) { fail(error); }
+    const owned = controls.slice(firstControl);
     return {
+      fieldset,
       render() {
-        fieldset.hidden = !catalog.some(card => card.id === id);
+        fieldset.hidden = !config || !catalog.some(card => card.id === id);
         if (fieldset.hidden || !contribution?.render) return;
         try { contribution.render(); } catch (error) { fail(error); }
+      },
+      remove() {
+        fieldset.remove();
+        for (const item of owned) controls.splice(controls.indexOf(item), 1);
       }
     };
+  }
+  function addCard(entry) {
+    if (destroyed || typeof entry?.settings !== "function") return;
+    if (activeConfirmation && cardSections.get(entry.id)?.fieldset.contains(activeConfirmation.element)) activeConfirmation.cancel(false);
+    cardSections.get(entry.id)?.remove();
+    const item = cardSection(entry);
+    element.insertBefore(item.fieldset, proxySection.parentNode);
+    cardSections.set(entry.id, item);
+    item.render();
+    for (const owned of controls) owned.value.disabled = busy || !config || owned.disabled();
   }
 
   const style = node("style");
@@ -370,7 +387,9 @@ export function createSettingsPanel({ document: doc, call, connection, onClose =
     placements.set(value, input);
     listen(input, "change", () => { if (input.checked) void save({ placement: value }); });
   }
-  const cardSections = cardSettings.map(cardSection);
+  // id → 卡片设置节；之后送到页面的卡片经 addCard 补进来，位置固定在「启动」之前。
+  const cardSections = new Map();
+  for (const entry of cardSettings) cardSections.set(entry.id, cardSection(entry));
   const proxySection = section("启动");
   const proxyEnabled = checkbox(proxySection, "通过代理启动", "proxy-enabled", value => ({ launch: { proxy: { enabled: value } } }));
   const portForm = node("form", null, "cc-settings-row");
@@ -574,7 +593,7 @@ export function createSettingsPanel({ document: doc, call, connection, onClose =
     proxySection.parentNode.hidden = !codexHost;
     autoSection.parentElement.hidden = menuReopen;
     autoRelaunchHint.textContent = `刚打开的 ${hostName()} 会自动重开一次以加载卡片`;
-    for (const item of cardSections) item.render();
+    for (const item of cardSections.values()) item.render();
     autoRelaunch.checked = config.agent?.autoRelaunch ?? true;
     autoUpdate.checked = config.updates?.auto !== false;
     if (resetPort) {
@@ -910,6 +929,7 @@ export function createSettingsPanel({ document: doc, call, connection, onClose =
       return load();
     },
     close,
+    addCard,
     destroy() {
       if (destroyed) return;
       destroyed = true;

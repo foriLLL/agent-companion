@@ -6,22 +6,17 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { discoverCards } from "../src/platform/registry/discovery.mjs";
 
 /**
- * 从卡片目录生成静态注册表。
+ * 生成内置卡片的 manifest 快照 card-registry.mjs（CARD_MANIFESTS）。
  *
  *   node scripts/generate-card-registry.mjs
  *     [--cards-dir <dir>] [--out-dir <dir>] [--require-entries]
  *
  * --cards-dir  默认 <repo>/cards
- * --out-dir    默认 <repo>/src，其下写出：
- *              card-registry.mjs
- *              cards/renderer-registry.generated.mjs
- *              cards/service-registry.generated.mjs
- *              cards/card-catalog.json
- * --require-entries  每张卡必须已有 renderer.mjs。默认关闭（metadata-only），
- *              允许内置卡尚未提供入口；已存在的 renderer.mjs / service.mjs 仍会写入导入注册表。
- *              service.mjs 在两种模式下都可选。
+ * --out-dir    默认 <repo>/src，其下写出 card-registry.mjs
+ * --require-entries  每张卡必须已有 renderer.mjs。默认关闭（metadata-only）。
  *
- * 导入路径只指向固定文件名 renderer.mjs / service.mjs，不接受 manifest 里的路径。
+ * 运行时不靠这份快照加载卡片：平台从卡片目录发现内置与用户安装的卡片（src/platform/cards/catalog.mjs），
+ * 界面代码与后台服务都从卡片自己的目录读取。快照只作为没有卡片目录时的缺省值（一次性命令、测试）。
  * 产物不含时间戳与绝对路径。
  */
 
@@ -50,37 +45,6 @@ function realpathExisting(path) {
   }
 }
 
-function toImportSpecifier(fromFile, targetFile) {
-  const target = realpathExisting(targetFile);
-  const raw = relative(dirname(realpathExisting(fromFile)), target);
-  if (!raw) throw new Error(`入口导入无效，无法从 ${fromFile} 指向 ${targetFile}`);
-  // Windows 跨盘符时不存在相对路径（例如输出放在另一盘的临时目录），退回 file: URL。
-  // 仓库内的生成产物与源码同盘，始终是可移植的相对导入。
-  if (isAbsolute(raw)) return pathToFileURL(target).href;
-  const specifier = raw.split(sep).join("/");
-  return specifier.startsWith(".") ? specifier : `./${specifier}`;
-}
-
-function assertFixedEntry(specifier, fileName) {
-  // 跨盘符时 toImportSpecifier 返回由 pathToFileURL 生成的规范化 file: URL。
-  if (specifier.startsWith("file:///")) {
-    if (decodeURIComponent(new URL(specifier).pathname.split("/").at(-1)) !== fileName) {
-      throw new Error(`拒绝非固定入口 ${specifier}`);
-    }
-    return;
-  }
-  if (!specifier.startsWith("./") && !specifier.startsWith("../")) {
-    throw new Error(`拒绝非相对入口 ${specifier}`);
-  }
-  if (specifier.includes("\\") || specifier.includes("//")) {
-    throw new Error(`拒绝非相对入口 ${specifier}`);
-  }
-  const segments = specifier.split("/");
-  if (segments.some((segment) => segment.length === 0) || segments.at(-1) !== fileName) {
-    throw new Error(`拒绝非固定入口 ${specifier}`);
-  }
-}
-
 function catalogCard(card) {
   const manifest = card.manifest;
   return {
@@ -104,6 +68,9 @@ function catalogCard(card) {
     },
     capabilities: [...manifest.capabilities],
     ...(manifest.hosts ? { hosts: [...manifest.hosts] } : {}),
+    ...(manifest.apiVersion ? { apiVersion: manifest.apiVersion } : {}),
+    ...(manifest.description ? { description: manifest.description } : {}),
+    ...(manifest.homepage ? { homepage: manifest.homepage } : {}),
     entries: {
       renderer: card.entries.renderer,
       service: card.entries.service
@@ -117,41 +84,13 @@ function manifestRecord(card) {
   return record;
 }
 
-function renderEntryRegistry({ kind, cards, fromFile, requireEntries }) {
-  const fileName = kind === "renderer" ? "renderer.mjs" : "service.mjs";
-  const exportName = kind === "renderer" ? "RENDERER_REGISTRY" : "SERVICE_REGISTRY";
-  const binding = kind === "renderer" ? "renderer" : "service";
-  const present = cards.filter((card) => card.entries[kind]);
-  const missing = cards.filter((card) => !card.entries[kind]).map((card) => card.manifest.id);
-  const lines = [
-    "// 由 scripts/generate-card-registry.mjs 生成。请勿手改。",
-    `// mode: ${requireEntries ? "require-entries" : "metadata-only"}`
-  ];
-  if (missing.length > 0) {
-    lines.push(`// 无 ${fileName}，未注册：${missing.join(", ")}`);
-  }
-  lines.push("");
-  present.forEach((card, index) => {
-    const specifier = toImportSpecifier(fromFile, join(card.directory, fileName));
-    assertFixedEntry(specifier, fileName);
-    lines.push(`import * as ${binding}${index} from ${JSON.stringify(specifier)};`);
-  });
-  if (present.length > 0) lines.push("");
-  lines.push(`export const ${exportName} = Object.freeze({`);
-  present.forEach((card, index) => {
-    lines.push(`  ${JSON.stringify(card.manifest.id)}: ${binding}${index},`);
-  });
-  lines.push("});", "");
-  return lines.join("\n");
-}
-
 function renderCardRegistry({ cards, hash, fromFile }) {
-  const specifier = toImportSpecifier(fromFile, VALIDATOR_PATH);
-  assertFixedEntry(specifier, "manifest.mjs");
+  const raw = relative(dirname(realpathExisting(fromFile)), realpathExisting(VALIDATOR_PATH));
+  const specifier = isAbsolute(raw) ? pathToFileURL(VALIDATOR_PATH).href : raw.split(sep).join("/").replace(/^(?!\.)/, "./");
   const manifests = cards.map((card) => manifestRecord(card));
   return [
     "// 由 scripts/generate-card-registry.mjs 生成。请勿手改。",
-    "// 静态元数据，供 Node 与 bundle 直接 import；运行时不读文件系统。",
+    "// 内置卡片的 manifest 快照：运行时从卡片目录发现卡片，这里只作缺省值（一次性命令、测试）。",
     `import { validateCatalog } from ${JSON.stringify(specifier)};`,
     "",
     `export const CARD_REGISTRY_HASH = ${JSON.stringify(hash)};`,
@@ -184,39 +123,13 @@ export async function generateCardRegistry({ cardsDir, outDir, requireEntries = 
   const catalogCards = cards.map((card) => card.catalog);
   const hash = hashCatalog(catalogCards);
   const registryPath = join(resolvedOutDir, "card-registry.mjs");
-  const cardsOutDir = join(resolvedOutDir, "cards");
-  const rendererPath = join(cardsOutDir, "renderer-registry.generated.mjs");
-  const servicePath = join(cardsOutDir, "service-registry.generated.mjs");
-  const catalogPath = join(cardsOutDir, "card-catalog.json");
-  await mkdir(cardsOutDir, { recursive: true });
-  const catalog = { hash, cards: catalogCards };
+  await mkdir(resolvedOutDir, { recursive: true });
   await writeFile(registryPath, renderCardRegistry({
     cards: discovered.cards,
     hash,
     fromFile: registryPath
   }));
-  await writeFile(rendererPath, renderEntryRegistry({
-    kind: "renderer",
-    cards: discovered.cards,
-    fromFile: rendererPath,
-    requireEntries
-  }));
-  await writeFile(servicePath, renderEntryRegistry({
-    kind: "service",
-    cards: discovered.cards,
-    fromFile: servicePath,
-    requireEntries
-  }));
-  await writeFile(catalogPath, `${JSON.stringify(catalog, null, 2)}\n`);
-  return {
-    hash,
-    files: {
-      registry: registryPath,
-      rendererRegistry: rendererPath,
-      serviceRegistry: servicePath,
-      catalog: catalogPath
-    }
-  };
+  return { hash, cards: discovered.cards, files: { registry: registryPath } };
 }
 
 function parseArgs(argv) {
@@ -241,8 +154,7 @@ function readValue(argv, index, flag) {
 const HELP = `用法: node scripts/generate-card-registry.mjs [--cards-dir <dir>] [--out-dir <dir>] [--require-entries]
 
 默认 --cards-dir cards，--out-dir src。
-metadata-only（默认）允许缺少 renderer.mjs；--require-entries 缺少前端入口时失败。
-service.mjs 始终可选。`;
+metadata-only（默认）允许缺少 renderer.mjs；--require-entries 缺少前端入口时失败。`;
 
 async function main() {
   const options = parseArgs(process.argv.slice(2));

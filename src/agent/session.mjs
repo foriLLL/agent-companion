@@ -1,8 +1,17 @@
 import { AgentCompanionService } from "../agent-companion-service.mjs";
 import { CodexInjector } from "../injector.mjs";
+import { createInjectionArtifact } from "../injection.mjs";
 import { CompanionConfig } from "../companion-config.mjs";
 import { DEFAULT_CODEX_EXECUTABLE, detectCodexProxy } from "../launcher.mjs";
 
+// 卡片目录 → 这个宿主的注入产物：平台 + 宿主里全部卡片的 manifest 与界面代码。
+export function cardsArtifact(cards, host = "codex") {
+  const manifests = cards.manifests(host);
+  return createInjectionArtifact({ manifests, renderers: manifests.map(({ id }) => cards.renderer(id)).filter(Boolean) });
+}
+
+// cards：卡片目录（platform/cards/catalog.mjs 的 CardCatalog），常驻 agent 与一次性命令都传入；
+// 不传时只有平台、没有卡片（测试）。
 export async function createEmbyRuntime(port, {
   InjectorClass = CodexInjector,
   loadRuntimeSource = async () => "",
@@ -11,8 +20,9 @@ export async function createEmbyRuntime(port, {
   platform,
   // 宿主：codex 或 antigravity，决定注入哪些页面、卡片区怎么摆、任务看板读哪里的会话。
   host = "codex",
-  serviceFactory = ({ logger, configStore, platform, host }) => new AgentCompanionService({
-    logger, configStore, platform, host,
+  cards = null,
+  serviceFactory = ({ logger, configStore, platform, host, cards }) => new AgentCompanionService({
+    logger, configStore, platform, host, ...(cards ? { cards } : { modules: {} }),
     inspectCodexProxy: () => detectCodexProxy({ executable, cdpPort: port })
   }),
   loadConfig = () => configStore.loadV2(),
@@ -20,11 +30,13 @@ export async function createEmbyRuntime(port, {
   onEvent
 } = {}) {
   const [runtimePrelude, config] = await Promise.all([loadRuntimeSource(), loadConfig()]);
-  const service = serviceFactory({ logger, configStore, platform, host });
+  const service = serviceFactory({ logger, configStore, platform, host, cards });
+  await service.syncCards?.(config);
   const injector = new InjectorClass(port, {
     rpcHandler: service,
     runtimePrelude,
     ...(host === "codex" ? {} : { host }),
+    ...(cards ? { artifact: cardsArtifact(cards, host) } : {}),
     config,
     cards: config.cards,
     placement: config.placement,
@@ -33,7 +45,13 @@ export async function createEmbyRuntime(port, {
     logger,
     ...(onEvent ? { onEvent } : {})
   });
-  return { injector, service, embyService: service, runtimePrelude, config };
+  // 卡片目录变化（安装、卸载、更新）：先按新目录同步后台服务，再换注入产物，页面随后整体重新注入。
+  const unsubscribeCards = cards?.subscribe?.(async () => {
+    try { await service.syncCards?.(await loadConfig()); }
+    catch (error) { logger.warn?.(`[agent-companion] 同步卡片服务失败：${error.message ?? error}`); }
+    injector.setArtifact?.(cardsArtifact(cards, host));
+  }) ?? (() => {});
+  return { injector, service, embyService: service, runtimePrelude, config, unsubscribeCards };
 }
 
 export function createRuntimeShutdown({
@@ -87,9 +105,9 @@ export function createCodexSession({
   let stopped = false;
   let started = false;
   let applying = Promise.resolve();
-  const shutdown = () => runtime && (runtime.shutdown ??= createRuntimeShutdown({
+  const shutdown = () => runtime && (runtime.shutdown ??= (runtime.unsubscribeCards?.(), createRuntimeShutdown({
     injector: runtime.injector, embyService: runtime.embyService ?? runtime.service, logger, processRef
-  }));
+  })));
 
   function applyConfig(next) {
     latestConfig = next;

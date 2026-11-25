@@ -34,8 +34,10 @@ export const HOST_FACTORIES = Object.freeze({
   antigravity: Object.freeze({ adapterFactory: createAntigravityAdapter, threadsFactory: createAntigravityThreads, hostApiFactory: createAntigravityHostApi })
 });
 
+// renderers：已送到页面的卡片界面模块（id → 模块），rendererHashes 是它们的内容哈希。启用一张还没送来的卡片时，
+// 注入器之后再经 defineCard 送来，到了就挂载；没送到的卡片不占位。
 export function createCardRuntime({
-  manifests: allManifests, renderers, config: initialConfig = {}, artifactHash, host = "codex",
+  manifests: allManifests, renderers = {}, rendererHashes = {}, config: initialConfig = {}, artifactHash, host = "codex",
   shellFactory = createCardShell,
   adapterFactory = (HOST_FACTORIES[host] ?? HOST_FACTORIES.codex).adapterFactory,
   threadsFactory = (HOST_FACTORIES[host] ?? HOST_FACTORIES.codex).threadsFactory,
@@ -46,6 +48,11 @@ export function createCardRuntime({
 }) {
   // 只声明了别的宿主的卡片（如只对 Codex 有意义的代理状态）在这个宿主里不出现。
   const manifests = allManifests.filter((manifest) => !manifest.hosts || manifest.hosts.includes(host));
+  const modules = new Map(Object.entries(renderers).map(([id, module]) => [id, { module, hash: rendererHashes[id] ?? null }]));
+  const settingsEntry = (manifest) => {
+    const settings = modules.get(manifest.id)?.module?.settings;
+    return typeof settings === "function" ? { id: manifest.id, title: manifest.title, settings } : null;
+  };
   const records = new Map();
   const failures = [];
   const shell = shellFactory();
@@ -55,8 +62,7 @@ export function createCardRuntime({
   if (hasSettings) {
     const call = rpcClient.scoped("companion", allocateGeneration(), platformController.signal);
     // 卡片 renderer 导出 settings(kit) 时，设置面板为它单独开一节。
-    const cardSettings = manifests.filter((manifest) => typeof renderers[manifest.id]?.settings === "function")
-      .map((manifest) => ({ id: manifest.id, title: manifest.title, settings: renderers[manifest.id].settings }));
+    const cardSettings = manifests.map(settingsEntry).filter(Boolean);
     shell.configureSettings({ call: (method, params) => call(method, params, { timeoutMs: 15_000 }), connection: rpcClient.connection, cardSettings });
   }
   let disposed = false;
@@ -170,7 +176,7 @@ export function createCardRuntime({
         };
       },
       async mount(ctx) {
-        const module = renderers[manifest.id];
+        const module = modules.get(manifest.id)?.module;
         if (typeof module?.mount !== "function") throw new Error(`卡片 ${manifest.id} 缺少 mount 入口`);
         // Lifecycle 内部的局部代次用于清理；对业务暴露与 RPC 一致的 document 代次。
         const handle = await module.mount({ ...ctx, generation: record.generation });
@@ -241,7 +247,7 @@ export function createCardRuntime({
     for (const manifest of manifests) {
       if (!config.enabled || !config.cards[manifest.id].enabled) continue;
       const record = records.get(manifest.id);
-      if (!record) createRecord(manifest);
+      if (!record) { if (modules.has(manifest.id)) createRecord(manifest); }
       else if (JSON.stringify(record.settings) !== JSON.stringify(config.cards[manifest.id].settings)) {
         record.settings = config.cards[manifest.id].settings;
         record.lifecycle.update(record.settings).catch((error) => report(error, { cardId: manifest.id }));
@@ -253,6 +259,22 @@ export function createCardRuntime({
     adapter.setHasCards(records.size > 0);
     if (keepSettingsOpen) adapter.setOpen(true);
     await Promise.allSettled(cleanups);
+    return true;
+  }
+
+  // 后送来的卡片界面：记下模块，按当前配置挂载；同一张卡片换了代码（哈希不同）时重建它的实例。
+  function defineCard(id, module, hash = null) {
+    if (disposed || typeof module?.mount !== "function") return false;
+    const manifest = manifests.find((item) => item.id === id);
+    if (!manifest) return false;
+    const previous = modules.get(id);
+    if (previous && previous.hash !== null && previous.hash === hash) return false;
+    modules.set(id, { module, hash });
+    const entry = settingsEntry(manifest);
+    if (entry) shell.addCardSettings?.(entry);
+    const record = records.get(id);
+    if (record) void remove(record, "updated");
+    void applyConfig(config);
     return true;
   }
 
@@ -279,7 +301,8 @@ export function createCardRuntime({
 
   void applyConfig(initialConfig);
   return {
-    artifactHash, applyConfig, receiveRpc: rpcClient.receiveRpc, retry, dispose,
+    artifactHash, applyConfig, receiveRpc: rpcClient.receiveRpc, retry, dispose, defineCard,
+    getDefinedCards: () => Object.fromEntries([...modules].map(([id, { hash }]) => [id, hash])),
     probeRpc: (timeoutMs) => rpcClient.ping(timeoutMs),
     getCardApi: (id) => records.get(id)?.handle?.api,
     isMounted: () => !disposed,

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { ServiceRegistry } from "../src/platform/services/registry.mjs";
 import { EMBY_OPERATIONS } from "../cards/emby/service.mjs";
-import { SERVICE_REGISTRY } from "../src/cards/service-registry.generated.mjs";
+import { BUILTIN_SERVICES } from "./helpers/builtin-cards.mjs";
 import { createServiceWithClips } from "./helpers/clips-card.mjs";
 
 const ctx = (cardId, generation = 1, targetId = "target-a", executionContextId = 7) => ({ cardId, generation, targetId, executionContextId });
@@ -28,7 +28,7 @@ function fixture() {
 }
 
 test("生成服务目录用于真实路由；Emby 仅接受有限全名和旧别名", async () => {
-  assert.deepEqual(Object.keys(SERVICE_REGISTRY), ["proxy", "usage", "tasks", "hongguo", "emby"]);
+  assert.deepEqual(Object.keys(BUILTIN_SERVICES), ["proxy", "usage", "tasks", "hongguo", "emby"]);
   const { service, calls } = fixture();
   for (const method of EMBY_OPERATIONS.filter(value => !value.startsWith("playback."))) {
     await service.handleRpc(method, {}, { targetId: "legacy" });

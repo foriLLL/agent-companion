@@ -7,6 +7,7 @@ import { ConfigError } from "../src/companion-config.mjs";
 import { AgentCompanionService } from "../src/agent-companion-service.mjs";
 import { validateCatalog, validateManifest } from "../src/platform/registry/manifest.mjs";
 import { ServiceRegistry } from "../src/platform/services/registry.mjs";
+import { BUILTIN_SERVICES } from "./helpers/builtin-cards.mjs";
 import { createRpcClient } from "../src/renderer/platform/rpc-client.mjs";
 import { CdpRpcBridge, RPC_BINDING_NAME, sanitizeRpcError } from "../src/rpc-bridge.mjs";
 
@@ -265,7 +266,7 @@ test("平台 generation 升级取消旧请求并拒绝旧写入，原有卡片 R
   let statusCalls = 0;
   let patchCalls = 0;
   const service = createService(t, {
-    modules: undefined,
+    modules: BUILTIN_SERVICES,
     configStore: { loadV2: async () => ({ ...CONFIG, enabled: true }), patch: () => { patchCalls += 1; } },
     platform: { getAgentStatus: () => ++statusCalls === 1 ? new Promise(resolve => { resolveStatus = resolve; }) : AGENT },
     embyService: { handleRpc(method, params, context) {

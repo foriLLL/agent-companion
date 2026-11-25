@@ -68,7 +68,7 @@ export function createAntigravitySnapshot({ executable = DEFAULT_ANTIGRAVITY_EXE
 
 export function createAntigravityHost({
   snapshot, sessionFactory = createCodexSession, waitForTargets = waitForCodexTargets,
-  configStore, initialConfig, logger = console, platform,
+  configStore, initialConfig, logger = console, platform, cards = null,
   hostPlatform = process.platform, env = process.env,
   appPath = resolveAntigravityAppPath({ env, platform: hostPlatform }),
   helperPath = null, nativeBridge,
@@ -113,7 +113,8 @@ export function createAntigravityHost({
       try {
         await waitForTargets(entry.port, { timeoutMs: 5000, signal, host: "antigravity" });
         signal.throwIfAborted();
-        entry.session = sessionFactory({ port: entry.port, host: "antigravity", configStore, logger, platform, initialConfig: config, processRef: {} });
+        entry.session = sessionFactory({ port: entry.port, host: "antigravity", configStore, logger, platform, initialConfig: config, processRef: {},
+          ...(cards ? { cards } : {}) });
         await entry.session.start();
         signal.throwIfAborted();
         entry.ready = true;

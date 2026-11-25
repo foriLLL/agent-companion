@@ -18,6 +18,7 @@ import { startMainThreadWatchdog } from "./watchdog.mjs";
 import { companionDataDir } from "../platform/paths.mjs";
 import { findLinuxCodexProcesses } from "../platform/processes.mjs";
 import { createUpdater, defaultUpdateStatePath, detectInstall, RESTART_EXIT_CODE } from "../updater.mjs";
+import { CardCatalog, defaultCardRoots } from "../platform/cards/catalog.mjs";
 
 const execFileAsync = promisify(execFile);
 export const AGENT_VERSION = packageInfo.version;
@@ -114,8 +115,12 @@ export function createAgentDependencies(options = {}) {
   const nativeBridge = options.nativeBridge ?? (helperPath ? createNativeBridge({
     helperPath, appPath, execFileImpl: options.execFileImpl, spawnImpl: options.spawnImpl
   }) : null);
+  // 卡片目录：内置卡片 + 数据目录下用户安装的卡片。cards: false 表示不加载任何卡片（测试）。
+  const cards = options.cards === false ? null : options.cards ?? new CardCatalog({
+    roots: defaultCardRoots({ env, dataDir: companionDataDir(home, { platform, env }) }), logger: options.logger ?? console
+  });
   return {
-    home, hostPlatform: platform, executable, helperPath, nativeBridge,
+    home, hostPlatform: platform, executable, helperPath, nativeBridge, cards,
     lockPath: options.lockPath ?? defaultAgentLockPath(home),
     configStore: options.configStore ?? new CompanionConfig({
       path: options.configPath ?? env.AGENT_COMPANION_CONFIG_PATH ?? defaultCompanionConfigPath(home), execFileImpl: options.execFileImpl
@@ -177,6 +182,7 @@ export async function runAgent(options = {}) {
   let watchHealthy = false;
   let watchGeneration = 0;
   let pollTimer;
+  let cardsTimer;
   let pendingTimer;
   let retryTimer;
   let retryMs = 1000;
@@ -230,6 +236,18 @@ export async function runAgent(options = {}) {
     }, 2000);
   }
 
+  // 定期检查卡片目录：安装、卸载、更新卡片（或开发中重新打包）后几秒内生效，不用重启后台服务。
+  function scheduleCardsRefresh() {
+    if (stopped || !deps.cards) return;
+    cardsTimer = setTimer(async () => {
+      cardsTimer = null;
+      try {
+        if (await deps.cards.refresh()) logger.info?.(`[agent-companion] 卡片目录已更新：${deps.cards.list().map(({ id }) => id).join(", ")}`);
+      } catch (error) { report(error); }
+      scheduleCardsRefresh();
+    }, options.cardsRefreshMs ?? 3000);
+  }
+
   function startWatch() {
     if (stopped || !deps.nativeBridge) return;
     const generation = ++watchGeneration;
@@ -273,7 +291,7 @@ export async function runAgent(options = {}) {
     for (const signal of ["SIGTERM", "SIGINT"]) processRef.removeListener(signal, onSignal);
     nativeWatch?.close();
     nativeWatch = null;
-    for (const timer of [pollTimer, pendingTimer, retryTimer]) clearTimer(timer);
+    for (const timer of [pollTimer, pendingTimer, retryTimer, cardsTimer]) clearTimer(timer);
     for (const [timer, resolvePause] of waits) { clearTimer(timer); resolvePause(); }
     waits.clear();
     const updaterStopped = updater?.stop();
@@ -319,6 +337,7 @@ export async function runAgent(options = {}) {
       } catch (error) { logger.warn?.(`[agent-companion] agent 主线程看门狗启动失败：${error.message ?? error}`); }
     }
     config = await deps.configStore.loadV2({ strict: true });
+    await deps.cards?.load();
     const initialState = await deps.runtimeState.load();
     adapter = createAgentAdapter({ ...options, ...deps, initialConfig: config, initialState,
       platform, logger, now, pid: processRef.pid });
@@ -354,7 +373,7 @@ export async function runAgent(options = {}) {
     if (options.antigravity && !stopped) {
       try {
         antigravity = (options.antigravityHostFactory ?? createAntigravityHost)({
-          configStore: deps.configStore, initialConfig: config, logger, platform,
+          configStore: deps.configStore, initialConfig: config, logger, platform, cards: deps.cards,
           hostPlatform: deps.hostPlatform, helperPath: deps.helperPath, env: options.env,
           execFileImpl: options.execFileImpl, spawnImpl: options.spawnImpl,
           ...(options.notifyImpl ? { notifyImpl: options.notifyImpl } : {}),
@@ -368,6 +387,7 @@ export async function runAgent(options = {}) {
       }
     }
     startWatch();
+    scheduleCardsRefresh();
     if (!watchHealthy) { await poll(); schedulePoll(); }
     return { running: true, stop, controller, adapter, ...platform };
   } catch (error) {

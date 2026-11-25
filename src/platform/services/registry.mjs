@@ -1,14 +1,12 @@
-import { CARD_MANIFESTS } from "../../card-registry.mjs";
-import { SERVICE_REGISTRY } from "../../cards/service-registry.generated.mjs";
-
 import { rpcError } from "./errors.mjs";
 
 // 方法只能由已加载卡片的 service entry 声明，不能由配置或 RPC 提供模块路径。
 // cardApi(manifest) 为每张卡片构造 createService 的参数（见 card-api.mjs 的 createCardApi）；
 // 缺省时把 dependencies 原样交给每张卡片（测试用）。
+// 构造时登记 modules 里给出的卡片；卡片目录里的卡片由上层按需 register / unregister（安装、启用、更新、卸载）。
 export class ServiceRegistry {
   constructor({
-    modules = SERVICE_REGISTRY, manifests = CARD_MANIFESTS, dependencies = {}, loadConfig, logger = console,
+    modules = {}, manifests = [], dependencies = {}, loadConfig, logger = console,
     cardApi = (manifest) => ({ ...dependencies, card: { id: manifest.id } })
   } = {}) {
     this.services = new Map();
@@ -16,38 +14,64 @@ export class ServiceRegistry {
     this.scopes = new Map();
     this.loadConfig = loadConfig;
     this.logger = logger;
+    this.cardApi = cardApi;
     this.closed = false;
-    for (const manifest of manifests) {
-      if (manifest.id === "companion") throw new TypeError("companion 为平台保留 id，不能注册为卡片");
-      const module = modules[manifest.id];
-      if (module && typeof module.createService !== "function") throw new TypeError(`卡片 ${manifest.id} 缺少 createService`);
-      let service = {};
-      let initializationError;
-      try { service = module?.createService(cardApi(manifest)) ?? {}; }
-      catch (error) {
-        initializationError = error;
-        Promise.resolve().then(() => logger.warn?.(`[agent-companion] 卡片 ${manifest.id} 服务初始化失败`)).catch(() => {});
-      }
-      const entry = { id: manifest.id, service, initializationError, defaultEnabled: manifest.defaultEnabled };
-      this.services.set(entry.id, entry);
-      for (const [operation, handler] of Object.entries(service.methods ?? {})) {
-        if (typeof handler !== "function" || !/^[a-z][a-zA-Z0-9]*(?:\.[a-z][a-zA-Z0-9]*)*$/.test(operation) || operation === "lifecycle.dispose") {
-          throw new TypeError(`卡片 ${entry.id} 方法声明无效：${operation}`);
-        }
-        this.addRoute(`${entry.id}.${operation}`, { entry, operation, handler, cleanup: service.cleanupMethods?.includes(operation) === true });
-      }
-      for (const [alias, operation] of Object.entries(service.aliases ?? {})) {
-        const route = this.routes.get(`${entry.id}.${operation}`);
-        if (!route) throw new TypeError(`卡片 ${entry.id} 别名目标不存在：${operation}`);
-        this.addRoute(alias, route);
-      }
-      this.addRoute(`${entry.id}.lifecycle.dispose`, { entry, operation: "lifecycle.dispose", cleanup: true });
-    }
+    for (const manifest of manifests) this.register(manifest, modules[manifest.id] ?? null);
   }
 
-  addRoute(method, route) {
-    if (this.routes.has(method)) throw new TypeError(`重复 RPC 方法：${method}`);
-    this.routes.set(method, route);
+  has(id) {
+    return this.services.has(id);
+  }
+
+  // 登记一张卡片的后台服务。module 为 null 表示这张卡片没有后台服务，只保留生命周期路由。
+  // 服务初始化失败不影响其它卡片：这张卡片的方法调用一律返回 CARD_SERVICE_UNAVAILABLE。
+  register(manifest, module = null) {
+    if (manifest.id === "companion") throw new TypeError("companion 为平台保留 id，不能注册为卡片");
+    if (this.services.has(manifest.id)) throw new TypeError(`卡片 ${manifest.id} 已登记`);
+    if (module && typeof module.createService !== "function") throw new TypeError(`卡片 ${manifest.id} 缺少 createService`);
+    let service = {};
+    let initializationError;
+    try { service = module?.createService(this.cardApi(manifest)) ?? {}; }
+    catch (error) {
+      initializationError = error;
+      Promise.resolve().then(() => this.logger.warn?.(`[agent-companion] 卡片 ${manifest.id} 服务初始化失败`)).catch(() => {});
+    }
+    const entry = { id: manifest.id, service, initializationError, defaultEnabled: manifest.defaultEnabled };
+    const routes = [];
+    const add = (method, route) => {
+      if (this.routes.has(method)) throw new TypeError(`重复 RPC 方法：${method}`);
+      routes.push([method, route]);
+    };
+    for (const [operation, handler] of Object.entries(service.methods ?? {})) {
+      if (typeof handler !== "function" || !/^[a-z][a-zA-Z0-9]*(?:\.[a-z][a-zA-Z0-9]*)*$/.test(operation) || operation === "lifecycle.dispose") {
+        throw new TypeError(`卡片 ${entry.id} 方法声明无效：${operation}`);
+      }
+      add(`${entry.id}.${operation}`, { entry, operation, handler, cleanup: service.cleanupMethods?.includes(operation) === true });
+    }
+    for (const [alias, operation] of Object.entries(service.aliases ?? {})) {
+      const route = routes.find(([method]) => method === `${entry.id}.${operation}`)?.[1];
+      if (!route) throw new TypeError(`卡片 ${entry.id} 别名目标不存在：${operation}`);
+      add(alias, route);
+    }
+    add(`${entry.id}.lifecycle.dispose`, { entry, operation: "lifecycle.dispose", cleanup: true });
+    this.services.set(entry.id, entry);
+    for (const [method, route] of routes) this.routes.set(method, route);
+    entry.methods = routes.map(([method]) => method);
+    return entry;
+  }
+
+  // 撤下一张卡片的后台服务（卸载、更新或换代码前）：中止并清理它的全部会话，再调用 dispose。
+  async unregister(id) {
+    const entry = this.services.get(id);
+    if (!entry) return;
+    for (const method of entry.methods ?? []) if (this.routes.get(method)?.entry === entry) this.routes.delete(method);
+    this.services.delete(id);
+    const scopes = [...this.scopes.values()].filter(scope => scope.entry === entry);
+    try { await this.cleanScopes(scopes); }
+    finally {
+      for (const scope of scopes) if (this.scopes.get(scope.key) === scope) this.scopes.delete(scope.key);
+      await Promise.resolve().then(() => entry.service.dispose?.());
+    }
   }
 
   report(error) {

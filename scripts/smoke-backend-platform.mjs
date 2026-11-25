@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { execFile, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createServer } from "node:http";
-import { cp, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readdir, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createInterface } from "node:readline";
@@ -14,7 +14,9 @@ const scriptRoot = path.dirname(fileURLToPath(import.meta.url));
 const rootArgument = process.argv.indexOf("--repo-root");
 const repoRoot = rootArgument >= 0 ? path.resolve(process.argv[rootArgument + 1]) : path.dirname(scriptRoot);
 const { CompanionConfig } = await import(pathToFileURL(path.join(repoRoot, "src/companion-config.mjs")));
-const { generateCardRegistry } = await import(pathToFileURL(path.join(repoRoot, "scripts/generate-card-registry.mjs")));
+const { packageBuiltinCards } = await import(pathToFileURL(path.join(repoRoot, "scripts/package-cards.mjs")));
+const { buildCardRenderer } = await import(pathToFileURL(path.join(repoRoot, "src/platform/cards/build.mjs")));
+const { CardCatalog } = await import(pathToFileURL(path.join(repoRoot, "src/platform/cards/catalog.mjs")));
 const { CdpConnection } = await import(pathToFileURL(path.join(repoRoot, "src/cdp-connection.mjs")));
 const { reserveLoopbackPort } = await import(pathToFileURL(path.join(repoRoot, "src/launcher.mjs")));
 const { listCdpTargets } = await import(pathToFileURL(path.join(repoRoot, "src/targets.mjs")));
@@ -65,9 +67,20 @@ try {
   // src/agent/main.mjs 以 JSON import 读取版本号。
   await cp(path.join(repoRoot, "package.json"), path.join(snapshot, "package.json"));
   await symlink(path.join(repoRoot, "node_modules"), path.join(snapshot, "node_modules"));
-  // 夹具卡：只有渲染端、没有后端服务与业务 RPC，验证配置链路不重建节点、独立 generation 只建 scope。
-  // 只写进快照，经真实的目录扫描与注册表生成进入 bundle，开发目录不受影响。
-  const fixtureDir = path.join(snapshot, "cards", FIXTURE_ID);
+  const bun = path.join(repoRoot, "node_modules", "bun", "bin", "bun.exe");
+  // 内置卡片：在快照里重新打包界面，再像 .app 的 Resources/cards 一样放在编译后端同级的 cards/，
+  // 后台服务打成自包含的 service.mjs，由编译后端从磁盘 import。
+  await cp(path.join(repoRoot, "cards"), path.join(snapshot, "cards"), { recursive: true, filter: (source) => !source.endsWith("renderer.js") });
+  await cp(path.join(repoRoot, "sdk"), path.join(snapshot, "sdk"), { recursive: true });
+  for (const entry of await readdir(path.join(snapshot, "cards"), { withFileTypes: true })) {
+    if (entry.isDirectory()) await buildCardRenderer({ dir: path.join(snapshot, "cards", entry.name), bunExecutable: bun });
+  }
+  const builtinCards = path.join(temporary, "cards");
+  await packageBuiltinCards({ cardsDir: path.join(snapshot, "cards"), outDir: builtinCards, bunExecutable: bun });
+  // 夹具卡：用户自己安装的卡片（用户卡片目录），只有界面、没有后台服务与业务 RPC，
+  // 验证配置链路不重建节点、独立 generation 只建 scope。
+  const userCards = path.join(temporary, "user-cards");
+  const fixtureDir = path.join(userCards, FIXTURE_ID);
   await mkdir(fixtureDir, { recursive: true });
   await writeFile(path.join(fixtureDir, "manifest.json"), JSON.stringify({
     id: FIXTURE_ID, title: "静态夹具", version: 1, defaultEnabled: false, defaultOrder: 50,
@@ -82,10 +95,12 @@ try {
   return { dispose() { node.remove(); } };
 }
 `);
-  await generateCardRegistry({ cardsDir: path.join(snapshot, "cards"), outDir: path.join(snapshot, "src"), requireEntries: true });
-  ({ CARD_MANIFESTS } = await import(pathToFileURL(path.join(snapshot, "src/card-registry.mjs"))));
-  assert.ok(CARD_MANIFESTS.some((manifest) => manifest.id === FIXTURE_ID), "夹具卡进入注册表");
-  const bun = path.join(repoRoot, "node_modules", "bun", "bin", "bun.exe");
+  await buildCardRenderer({ dir: fixtureDir, bunExecutable: bun });
+  const catalog = new CardCatalog({ roots: [{ dir: builtinCards, source: "builtin" }, { dir: userCards, source: "user" }], logger: { warn() {} } });
+  await catalog.load();
+  assert.deepEqual(catalog.problems, [], "打包的卡片都能被卡片目录读取");
+  CARD_MANIFESTS = catalog.manifests("codex");
+  assert.ok(CARD_MANIFESTS.some((manifest) => manifest.id === FIXTURE_ID), "夹具卡进入卡片目录");
   const rendererPath = path.join(temporary, "renderer.js");
   await exec(bun, ["build", path.join(snapshot, "src/renderer/entry.mjs"), "--target=browser", "--format=iife", "--outfile", rendererPath]);
   const renderer = await readFile(rendererPath, "utf8");
@@ -129,7 +144,7 @@ try {
   };
   debugPage = evaluate;
   await inspector.send("Page.enable");
-  backend = spawn(executable, [String(targetServer.address().port), configPath], { stdio: ["pipe", "pipe", "pipe"], env: { ...process.env, AGENT_COMPANION_CONFIG_PATH: configPath } });
+  backend = spawn(executable, [String(targetServer.address().port), configPath], { stdio: ["pipe", "pipe", "pipe"], env: { ...process.env, AGENT_COMPANION_CONFIG_PATH: configPath, AGENT_COMPANION_CARDS_DIR: userCards, AGENT_COMPANION_BUILTIN_CARDS: "" } });
   backendExited = new Promise((resolve) => backend.once("exit", (code, signal) => resolve({ code, signal })));
   backend.stderr.on("data", (chunk) => { stderr += chunk; });
   const pending = new Map();
@@ -149,6 +164,12 @@ try {
   });
   await wait(() => ready || (backend.exitCode !== null ? Promise.reject(new Error(stderr || `backend exit ${backend.exitCode}`)) : false), "compiled backend ready", 15000);
   verify(ready.compiled && ready.counters.socketsOpen === 1 && ready.counters.bindings === 1, "编译后端建立真实 CDP session 与 RPC binding");
+  const cardsRootMatches = ready.cardsRoot === await realpath(builtinCards);
+  verify(cardsRootMatches, `编译后端从可执行文件同级的 cards/ 发现内置卡片${cardsRootMatches ? "" : `（实际：${ready.cardsRoot}）`}`);
+  verify(JSON.stringify(ready.cards) === JSON.stringify(catalog.list().map(({ id, source }) => ({ id, source }))) && ready.cardProblems.length === 0,
+    "编译后端读到全部内置卡片与用户卡片");
+  verify(JSON.stringify(ready.services) === JSON.stringify(catalog.list().filter(({ source, service }) => source === "builtin" && service).map(({ id }) => id).concat(FIXTURE_ID).sort()),
+    "内置卡片的后台服务从磁盘 import 并登记，启用的用户卡片随之登记");
   verify(ready.serviceScopes === 0, "仅启用静态夹具卡，媒体服务没有请求 scope");
   await evaluate("globalThis.__AGENT_COMPANION__.setOpen(true)");
   await wait(() => evaluate('Boolean(__find("#agent-companion-root")?.shadowRoot.querySelector("[data-card=fixture-static] .content")?.shadowRoot.querySelector(".fixture-static"))'), "fixture mount");

@@ -28,7 +28,7 @@ function abortable(operation, signal) {
 
 export function createAgentAdapter({
   nativeBridge = null, fallbackSnapshot, configStore, initialConfig, initialState = {},
-  runtimeState = new RuntimeState(), executable = DEFAULT_CODEX_EXECUTABLE, platform,
+  runtimeState = new RuntimeState(), executable = DEFAULT_CODEX_EXECUTABLE, platform, cards = null,
   logger = console, now = Date.now, pid = process.pid, hostPlatform = process.platform,
   reservePort = reserveLoopbackPort, sessionFactory = createCodexSession,
   waitForTargets = waitForCodexTargets, execFileImpl,
@@ -64,7 +64,7 @@ export function createAgentAdapter({
         await abortable(() => waitForTargets(entry.port, { timeoutMs: 2000, signal }), signal);
         signal.throwIfAborted();
         entry.session = sessionFactory({ port: entry.port, configStore, executable, logger, platform,
-          initialConfig: config, processRef: {},
+          initialConfig: config, processRef: {}, ...(cards ? { cards } : {}),
           // 会话自愈（断开重连）记为最近事件，`agent status` 可见。
           onEvent: (event, details) => adapter.record(event, details) });
         await entry.session.start();

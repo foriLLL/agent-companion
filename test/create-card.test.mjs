@@ -8,7 +8,8 @@ import { promisify } from "node:util";
 import test from "node:test";
 import { createCard, parseArgs } from "../scripts/create-card.mjs";
 import { discoverCards } from "../src/platform/registry/discovery.mjs";
-import { generateCardRegistry } from "../scripts/generate-card-registry.mjs";
+import { buildCardRenderer } from "../src/platform/cards/build.mjs";
+import { CardCatalog } from "../src/platform/cards/catalog.mjs";
 import { createStore } from "../src/renderer/platform/storage.mjs";
 import { createEffects } from "../src/renderer/platform/effects.mjs";
 
@@ -59,24 +60,27 @@ test("默认模板关闭且无服务依赖，CLI 生成可严格发现的卡片"
   assert.doesNotMatch(source, /ctx\.rpc\("ping"\)/);
 });
 
-test("五个陌生目录通过 strict discovery 与 generator 自动进入 renderer/service/catalog", async t => {
+test("五个陌生目录打包后由卡片目录发现，界面与服务都从各自目录加载", async t => {
   const directory = await temporary(t);
   const cardsDir = join(directory, "cards");
   for (const id of ["alpha", "beta", "gamma", "delta", "fifth"]) await createCard({ id, cardsDir, service: id === "fifth" });
   const discovered = await discoverCards({ cardsDir, requireEntries: true });
   assert.equal(discovered.cards.length, 5);
-  const { files } = await generateCardRegistry({ cardsDir, outDir: join(directory, "generated"), requireEntries: true });
-  const { CARD_MANIFESTS } = await import(pathToFileURL(files.registry).href);
-  const { RENDERER_REGISTRY } = await import(pathToFileURL(files.rendererRegistry).href);
-  const { SERVICE_REGISTRY } = await import(pathToFileURL(files.serviceRegistry).href);
-  assert.deepEqual(CARD_MANIFESTS.map(card => card.id), ["alpha", "beta", "delta", "fifth", "gamma"]);
-  assert.deepEqual(Object.keys(RENDERER_REGISTRY), CARD_MANIFESTS.map(card => card.id));
-  assert.ok(Object.values(RENDERER_REGISTRY).every(module => typeof module.mount === "function"));
-  assert.deepEqual(Object.keys(SERVICE_REGISTRY), ["fifth"]);
-  const catalog = JSON.parse(await readFile(files.catalog, "utf8"));
-  assert.equal(catalog.cards.find(card => card.id === "fifth").entries.service, true);
-  assert.deepEqual(catalog.cards.find(card => card.id === "fifth").capabilities, ["storage", "rpc"]);
-  const service = SERVICE_REGISTRY.fifth.createService();
+  const before = new CardCatalog({ roots: [{ dir: cardsDir, source: "user" }], logger: { warn() {} } });
+  await before.load();
+  assert.equal(before.list().length, 0, "没打包 renderer.js 的卡片不加载");
+  assert.ok(before.problems.every(problem => problem.code === "MISSING_RENDERER" && /cards build/.test(problem.message)));
+  for (const card of discovered.cards) await buildCardRenderer({ dir: card.directory });
+  const catalog = new CardCatalog({ roots: [{ dir: cardsDir, source: "user" }] });
+  await catalog.load();
+  assert.deepEqual(catalog.list().map(card => card.id), ["alpha", "beta", "delta", "fifth", "gamma"]);
+  assert.ok(catalog.manifests().every(manifest => manifest.defaultEnabled === false && manifest.apiVersion === 1));
+  assert.deepEqual(catalog.list().filter(card => card.service).map(card => card.id), ["fifth"]);
+  assert.deepEqual(catalog.get("fifth").manifest.capabilities, ["storage", "rpc"]);
+  let defined;
+  new Function("__companionDefine", catalog.renderer("alpha").code)(module => { defined = module; });
+  assert.equal(typeof defined.mount, "function", "renderer.js 结尾把模块交给平台");
+  const service = (await catalog.importService("fifth")).createService();
   assert.deepEqual(await service.methods.ping({}, { signal: new AbortController().signal }), { message: "pong" });
   const stopped = new AbortController();
   stopped.abort(new Error("stopped"));

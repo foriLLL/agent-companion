@@ -1134,3 +1134,39 @@ test("卡片设置：控件只写本卡 settings、自动加 id 前缀；卡片�
   assert.equal(bySetting(root, "enabled").disabled, false, "其余设置照常可用");
   f.panel.destroy();
 });
+
+test("runtime：启用时还没送到的卡片不占位，defineCard 送到后按配置挂载，并补上它的设置节", async () => {
+  const document = makeDocument();
+  const client = createRpcClient({ binding: () => () => {} });
+  const shell = createCardShell({ document });
+  const backend = { getItem: () => null, setItem() {} };
+  const base = { layout: { minHeight: 0 }, state: { scope: "target", version: 1 }, lifecycle: { start: "immediate", hidden: "retain" }, capabilities: [] };
+  const manifests = [{ ...catalog[0], ...base }, { ...catalog[1], ...base }];
+  const mounted = [];
+  const runtime = createCardRuntime({
+    manifests, renderers: { alpha: { mount: () => { mounted.push("alpha"); return {}; } } }, rendererHashes: { alpha: "a1" },
+    config: { ...initialConfig(), cards: { alpha: { enabled: true, settings: {} }, beta: { enabled: true, settings: {} } } },
+    shellFactory: () => shell, rpcClient: client, localStorage: backend, sessionStorage: backend,
+    adapterFactory: ({ host }) => {
+      document.body.append(host);
+      return { setPlacement() {}, setHasCards() {}, dispose() {}, getDiagnostics: () => ({ mode: "fixture" }) };
+    }
+  });
+  await turn();
+  assert.deepEqual(runtime.getDiagnostics().shell.ids, ["alpha"], "没送到的 beta 不占位");
+  assert.deepEqual(runtime.getDefinedCards(), { alpha: "a1" });
+  let settingsBuilt = 0;
+  const beta = { mount: () => { mounted.push("beta"); return {}; }, settings(kit) { settingsBuilt++; kit.checkbox(kit.group, "乙开关", "flag", value => ({ flag: value })); return { render() {} }; } };
+  assert.equal(runtime.defineCard("beta", beta, "b1"), true);
+  await turn();
+  assert.deepEqual(mounted, ["alpha", "beta"]);
+  assert.deepEqual(runtime.getDiagnostics().shell.ids.sort(), ["alpha", "beta"]);
+  assert.equal(settingsBuilt, 1, "设置面板补上乙卡片的一节");
+  assert.ok(bySetting(shell.root, "beta-flag"));
+  assert.equal(runtime.defineCard("beta", beta, "b1"), false, "同一份代码不重复挂载");
+  assert.equal(runtime.defineCard("ghost", beta, "g1"), false, "目录里没有的卡片不接收");
+  assert.equal(runtime.defineCard("beta", { mount: () => { mounted.push("beta2"); return {}; } }, "b2"), true);
+  await turn();
+  assert.deepEqual(mounted, ["alpha", "beta", "beta2"], "换了代码的卡片重建实例");
+  await runtime.dispose();
+});

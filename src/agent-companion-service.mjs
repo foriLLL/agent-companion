@@ -18,27 +18,106 @@ function validateParams(params, allowed) {
 
 // 平台 RPC（companion.*）与卡片服务注册表。平台不认识具体卡片：每张卡片的后台服务拿到
 // createCardApi 构造的运行时接口；dependencies 只用于测试替换卡片内部引擎。
+//
+// 卡片从哪来：
+// - cards（platform/cards/catalog.mjs 的 CardCatalog）：常驻 agent 用。内置卡片的服务随启动加载；用户安装的卡片
+//   只在启用后才 import 它的 service.mjs（关闭的插件不运行任何代码），之后保持加载，换代码或卸载时撤下。
+// - modules + manifests：测试与一次性命令直接给出模块，构造时全部登记。
 export class AgentCompanionService {
   constructor({
     configStore = new CompanionConfig(), inspectCodexProxy, logger = console, modules, manifests = CARD_MANIFESTS,
-    platform = {}, host = "codex", hostApi = createHostApi({ host, inspectCodexProxy }), packageDirs = {}, dependencies = {}
+    cards = null, platform = {}, host = "codex", hostApi = createHostApi({ host, inspectCodexProxy }), packageDirs = {}, dependencies = {}
   } = {}) {
     this.host = host;
     this.configStore = configStore;
     this.platform = platform;
-    // 设置页只列这个宿主里会出现的卡片（manifest 的 hosts）。
-    this.catalog = manifests.filter(({ hosts }) => !hosts || hosts.includes(host))
-      .map(({ id, title, defaultEnabled, defaultOrder }) => ({ id, title, defaultEnabled, defaultOrder }));
+    this.logger = logger;
+    this.cards = cards;
+    this.manifests = cards ? cards.manifests(host) : manifests.filter(({ hosts }) => !hosts || hosts.includes(host));
     const loadConfig = () => typeof configStore.loadV2 === "function" ? configStore.loadV2() : configStore.load();
     this.loadConfig = loadConfig;
+    // id → { key, loading }：已登记的卡片服务对应哪份代码；key 变化（更新、换目录）时重新登记。
+    this.loaded = new Map();
     this.registry = new ServiceRegistry({
-      modules, manifests, loadConfig, logger,
-      cardApi: (manifest) => createCardApi({ manifest, packageDir: packageDirs[manifest.id] ?? null, hostApi, logger, loadConfig, extras: dependencies })
+      modules: cards ? {} : modules ?? {}, manifests: cards ? [] : this.manifests, loadConfig, logger,
+      cardApi: (manifest) => createCardApi({
+        manifest, packageDir: cards?.get(manifest.id)?.dir ?? packageDirs[manifest.id] ?? null, hostApi, logger, loadConfig, extras: dependencies
+      })
     });
   }
 
+  // 设置页只列这个宿主里会出现的卡片（manifest 的 hosts），带上来源供界面区分内置与自己安装的卡片。
+  get catalog() {
+    return this.manifests.map(({ id, title, defaultEnabled, defaultOrder, description }) => ({
+      id, title, defaultEnabled, defaultOrder,
+      ...(description ? { description } : {}),
+      ...(this.cards ? { source: this.cards.get(id)?.source ?? "builtin" } : {})
+    }));
+  }
+
+  #cardKey(id) {
+    const card = this.cards.get(id);
+    return card ? JSON.stringify([card.dir, card.manifest, card.service?.path ?? null, card.service?.mtimeMs ?? null]) : null;
+  }
+
+  #wanted(id, config) {
+    if (this.cards.isBuiltin(id)) return true;
+    const raw = config?.cards?.[id];
+    const enabled = typeof raw === "boolean" ? raw : raw?.enabled;
+    return config?.enabled !== false && enabled === true;
+  }
+
+  // 登记一张卡片的服务（并发调用只加载一次）。加载失败只影响这张卡片，调用时返回 CARD_SERVICE_UNAVAILABLE。
+  #load(id) {
+    const key = this.#cardKey(id);
+    const current = this.loaded.get(id);
+    if (current?.key === key) return current.loading;
+    const loading = (async () => {
+      await current?.loading.catch(() => {});
+      if (this.registry.closed) return;
+      await this.registry.unregister(id);
+      const manifest = this.cards.get(id)?.manifest;
+      if (!manifest) return;
+      let module = null;
+      try { module = await this.cards.importService(id); } catch (error) {
+        this.logger.warn?.(`[agent-companion] 卡片 ${id} 后台服务加载失败：${error?.message ?? error}`);
+        module = { createService() { throw error; } };
+      }
+      if (this.loaded.get(id)?.loading !== loading || this.registry.closed) return;
+      this.registry.register(manifest, module);
+    })();
+    this.loaded.set(id, { key, loading });
+    return loading;
+  }
+
+  /**
+   * 按卡片目录与配置同步已登记的服务：撤下已卸载或换了代码的卡片，登记内置卡片和已启用的用户卡片。
+   * 卡片目录变化（setCards 之后）、配置变化与启动时调用。
+   */
+  async syncCards(config) {
+    if (!this.cards || this.registry.closed) return;
+    this.manifests = this.cards.manifests(this.host);
+    const ids = new Set(this.manifests.map(({ id }) => id));
+    const jobs = [];
+    for (const [id, current] of this.loaded) {
+      if (ids.has(id) && current.key === this.#cardKey(id)) continue;
+      this.loaded.delete(id);
+      jobs.push(current.loading.catch(() => {}).then(() => this.registry.unregister(id)));
+    }
+    await Promise.allSettled(jobs);
+    await Promise.allSettled(this.manifests.filter(({ id }) => this.#wanted(id, config)).map(({ id }) => this.#load(id)));
+  }
+
   async handleRpc(method, params = {}, context = {}) {
-    if (!method.startsWith("companion.")) return this.registry.handleRpc(method, params, context);
+    if (!method.startsWith("companion.")) {
+      // 刚启用的用户卡片可能还没来得及登记：按需加载一次再路由。
+      const id = method.split(".")[0];
+      if (this.cards?.has(id) && !this.loaded.has(id) && this.manifests.some((manifest) => manifest.id === id)) {
+        const config = await this.loadConfig();
+        if (this.#wanted(id, config)) await this.#load(id);
+      } else if (this.loaded.has(id)) await this.loaded.get(id).loading;
+      return this.registry.handleRpc(method, params, context);
+    }
     if (context.cardId !== undefined && context.cardId !== "companion") {
       throw rpcError("RPC_INVALID_REQUEST", "RPC 方法与平台命名空间不匹配");
     }
@@ -91,7 +170,10 @@ export class AgentCompanionService {
         throw rpcError("RPC_METHOD_NOT_FOUND", "未知平台 RPC 方法");
     }
   }
-  applyConfig(config) { return this.registry.applyConfig(config); }
+  async applyConfig(config) {
+    await this.syncCards(config);
+    return this.registry.applyConfig(config);
+  }
   disposeContext(targetId, executionContextId) { return this.registry.disposeContext(targetId, executionContextId); }
   disposeTarget(targetId) { return this.registry.disposeTarget(targetId); }
   dispose() { return this.registry.dispose(); }

@@ -12,6 +12,18 @@ const PACKAGE_ENTRY = "index.js";
 let modulePromise = null;
 let runtimeDirOverride = null;
 
+function moduleDir() {
+  try { return dirname(fileURLToPath(import.meta.url)); } catch { return null; }
+}
+
+// 卡片自带：<卡片目录>/openhongguo。打包后的后台服务是卡片目录里的单个 service.mjs，
+// 自己装的（fork 的）红果卡片可以把运行时放在卡片目录里，不依赖应用随包的那份。
+function cardRuntimeDir() {
+  const dir = moduleDir();
+  const candidate = dir && join(dir, "openhongguo");
+  return candidate && existsSync(join(candidate, PACKAGE_ENTRY)) ? candidate : null;
+}
+
 // 打包后的可执行文件在 .app/Contents/Resources/agent-companion，运行时目录
 // 随包放在同级 Resources/openhongguo（见 scripts/build-app.mjs）。开发态则用
 // 仓库内的 node_modules/openhongguo。
@@ -24,10 +36,10 @@ function packagedRuntimeDir() {
 }
 
 function developmentRuntimeDir() {
-  let here;
-  try { here = fileURLToPath(import.meta.url); } catch { return null; }
+  const here = moduleDir();
+  if (!here) return null;
   // 开发态模块位于 <仓库>/cards/hongguo/，依赖在仓库根的 node_modules。
-  const dir = join(dirname(here), "..", "..", "node_modules", "openhongguo");
+  const dir = join(here, "..", "..", "node_modules", "openhongguo");
   return existsSync(join(dir, PACKAGE_ENTRY)) ? dir : null;
 }
 
@@ -36,7 +48,7 @@ export function runtimeDir() {
   if (runtimeDirOverride) return runtimeDirOverride;
   const override = process.env.AGENT_COMPANION_HONGGUO_RUNTIME;
   if (override && existsSync(join(override, PACKAGE_ENTRY))) return override;
-  return packagedRuntimeDir() ?? developmentRuntimeDir();
+  return cardRuntimeDir() ?? packagedRuntimeDir() ?? developmentRuntimeDir();
 }
 
 export function setRuntimeDir(dir) {

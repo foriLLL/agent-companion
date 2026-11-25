@@ -2,9 +2,15 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { CodexInjector } from "../src/injector.mjs";
 import { RPC_BINDING_NAME } from "../src/rpc-bridge.mjs";
-import { ARTIFACT_HASH } from "../src/injection.mjs";
+import { createInjectionArtifact } from "../src/injection.mjs";
 import { CARD_MANIFESTS } from "../src/card-registry.mjs";
 import { normalizeRuntimeConfig } from "../src/platform/config/runtime-config.mjs";
+
+// 内置卡片组成的注入产物；界面代码用占位，页面行为由 FakeSocket 模拟。
+const BUILTIN_ARTIFACT = createInjectionArtifact({
+  manifests: CARD_MANIFESTS, renderers: CARD_MANIFESTS.map(({ id }) => ({ id, hash: `hash-${id}`, code: `/* ${id} */` }))
+});
+const ARTIFACT_HASH = BUILTIN_ARTIFACT.hash;
 
 const originalFetch = globalThis.fetch;
 const originalWebSocket = globalThis.WebSocket;
@@ -61,8 +67,14 @@ class AutoReplyWebSocket {
           artifactHash: payload.artifactHash,
           mounted: true,
           config: normalizeRuntimeConfig(payload.config, CARD_MANIFESTS),
+          // 整页注入时随平台送来的卡片界面（register 调用）。
+          cards: Object.fromEntries([...source.matchAll(/\.register\("([a-z0-9-]+)", "([^"]+)"/g)].map(([, id, hash]) => [id, hash])),
         };
         result = { result: { value: { status: payload.action === "unmount" ? "unmounted" : "mounted" } } };
+      } else if (source.includes(".defineCard(")) {
+        const [, id, hash] = source.match(/\.defineCard\("([a-z0-9-]+)", "([^"]+)"/);
+        this.health.cards[id] = hash;
+        result = { result: { value: { status: "defined", id } } };
       } else if (source.includes("probeRpc(")) {
         result = { result: { value: this.probe } };
       } else if (source.startsWith('globalThis["__AGENT_COMPANION__"]?.runtime?.applyConfig(')) {
@@ -306,7 +318,7 @@ const quietLogger = { info() {}, warn() {}, debug() {} };
 async function runningInjector(t, options = {}) {
   cdpTargets = [mainTarget];
   AutoReplyWebSocket.instances = [];
-  const injector = new CodexInjector(9222, { logger: quietLogger, ...options });
+  const injector = new CodexInjector(9222, { logger: quietLogger, artifact: BUILTIN_ARTIFACT, ...options });
   t.after(() => injector.stop());
   await injector.start();
   return { injector, socket: AutoReplyWebSocket.instances.at(-1) };
@@ -337,6 +349,31 @@ test("v2 settings、未知卡片与顺序完整透传，配置变化不重跑 bu
   const payload = JSON.parse(registered.slice(registered.lastIndexOf("bootstrap(") + "bootstrap(".length, -1));
   assert.deepEqual(payload.config, socket.health.config);
   assert.equal(socket.calls.filter(({ method }) => method === "Runtime.addBinding").length, 1);
+});
+
+test("只送启用卡片的界面；之后启用的卡片单独补送，不整体重新注入；卡片目录变化才整体重建", async (t) => {
+  const initial = { revision: 1, cards: { emby: { enabled: false, settings: {} } } };
+  const { injector, socket } = await runningInjector(t, { config: initial });
+  const mount = mountCalls(socket)[0].params.expression;
+  assert.ok(mount.includes('.register("tasks", "hash-tasks"'), "启用的卡片随整页注入");
+  assert.ok(!mount.includes('.register("emby"') && !mount.includes("/* emby */"), "关闭的卡片不送代码");
+  const defines = () => socket.calls.filter(({ method, params }) => method === "Runtime.evaluate" && params.expression.includes(".defineCard("));
+  injector.setConfig({ config: { ...initial, revision: 2, cards: { emby: { enabled: true, settings: {} } } } });
+  await injector.scanNow();
+  assert.equal(defines().length, 1);
+  assert.ok(defines()[0].params.expression.includes("/* emby */"));
+  assert.equal(mountCalls(socket).length, 1, "补送不重建页面");
+  assert.equal(socket.health.config.cards.emby.enabled, true);
+  await injector.scanNow();
+  assert.equal(defines().length, 1, "已送达的不重复送");
+  const script = [...socket.scripts.values()][0];
+  assert.ok(script.includes('.register("emby"'), "导航脚本带上新启用的卡片");
+
+  injector.setArtifact(createInjectionArtifact({ manifests: CARD_MANIFESTS,
+    renderers: CARD_MANIFESTS.map(({ id }) => ({ id, hash: id === "emby" ? "hash-emby-2" : `hash-${id}`, code: `/* ${id} */` })) }));
+  await injector.scanNow();
+  assert.equal(mountCalls(socket).length, 2, "卡片代码更新后整体重新注入");
+  assert.equal(socket.health.cards.emby, "hash-emby-2");
 });
 
 test("健康配置一致时不重复更新、注入或注册导航脚本", async (t) => {
@@ -390,7 +427,7 @@ test("停用后导航脚本也携带 enabled=false，重载不会重新启用卡
 
 test("legacy getter/setter 兼容，配置与 getter 不共享可变 settings", () => {
   const settings = { nested: { value: 1 } };
-  const injector = new CodexInjector(9222, { cards: { emby: false }, cardOrder: ["emby"] });
+  const injector = new CodexInjector(9222, { cards: { emby: false }, cardOrder: ["emby"], artifact: BUILTIN_ARTIFACT });
   assert.equal(injector.cards.emby, false);
   assert.deepEqual(injector.cardOrder, ["proxy", "usage", "tasks", "hongguo", "emby"]);
   injector.setConfig({ cards: { emby: { settings } } });

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, writeFile, mkdir } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, writeFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import test from "node:test";
 import { generateCardRegistry } from "../scripts/generate-card-registry.mjs";
@@ -231,7 +231,7 @@ test("生成两次字节相同，且 src/cards 内的生成文件不参与目录
   });
 });
 
-test("临时第五张卡生成可导入的入口注册表，输出目录与卡片目录分离", async () => {
+test("内置卡片的 manifest 快照只含元数据，输出目录与卡片目录分离", async () => {
   const root = await mkdtemp(join(tmpdir(), "card-registry-gen-"));
   try {
     const cardsDir = join(root, "library");
@@ -241,25 +241,16 @@ test("临时第五张卡生成可导入的入口注册表，输出目录与卡�
     await writeCard(cardsDir, "games", manifest({ id: "games", title: "摸鱼", defaultOrder: 10 }));
     await writeCard(cardsDir, "hongguo", manifest({ id: "hongguo", title: "红果", defaultOrder: 20, capabilities: ["rpc", "storage"] }));
     await writeCard(cardsDir, "chess", manifest({ id: "chess", title: "Chess", defaultOrder: 30, capabilities: ["rpc"] }));
-    await writeCard(cardsDir, "arcade", manifest({ id: "arcade", title: "Arcade", defaultOrder: 15, capabilities: ["storage", "rpc"] }), { renderer: true, service: true });
-    await writeFile(join(cardsDir, "arcade", "renderer.mjs"), "export const marker = \"arcade-renderer\";\n");
-    await writeFile(join(cardsDir, "arcade", "service.mjs"), "export const marker = \"arcade-service\";\n");
+    await writeCard(cardsDir, "arcade", manifest({ id: "arcade", title: "Arcade", defaultOrder: 15, capabilities: ["storage", "rpc"], apiVersion: 1, description: "街机" }), { renderer: true, service: true });
     const result = await generateCardRegistry({ cardsDir, outDir });
     const registry = await import(pathToFileURL(result.files.registry).href);
-    const renderers = await import(pathToFileURL(result.files.rendererRegistry).href);
-    const services = await import(pathToFileURL(result.files.serviceRegistry).href);
     assert.deepEqual(registry.CARD_MANIFESTS.map((item) => item.id), ["games", "arcade", "hongguo", "chess", "emby"]);
     assert.equal(registry.getCardManifest("arcade").title, "Arcade");
+    assert.equal(registry.getCardManifest("arcade").description, "街机");
     assert.equal(registry.getCardManifest("missing"), null);
     assert.equal(registry.CARD_REGISTRY_HASH, result.hash);
-    assert.equal(renderers.RENDERER_REGISTRY.arcade.marker, "arcade-renderer");
-    assert.equal(services.SERVICE_REGISTRY.arcade.marker, "arcade-service");
-    assert.deepEqual(Object.keys(renderers.RENDERER_REGISTRY), ["arcade"]);
-    const rendererSource = await readFile(result.files.rendererRegistry, "utf8");
-    assert.match(rendererSource, /from "\.\.\/\.\.\/library\/arcade\/renderer\.mjs"/);
-    const catalog = JSON.parse(await readFile(result.files.catalog, "utf8"));
-    assert.equal(catalog.hash, result.hash);
-    assert.equal(catalog.cards.length, 5);
+    assert.deepEqual(Object.keys(result.files), ["registry"], "不再生成静态的界面 / 服务导入表");
+    assert.doesNotMatch(await readFile(result.files.registry, "utf8"), /renderer\.mjs|service\.mjs/);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -283,9 +274,38 @@ test("未知字段与严格缺入口在生成阶段失败", async () => {
     );
     await writeFile(join(cardsDir, "alpha", "renderer.mjs"), "export const marker = \"alpha\";\n");
     const result = await generateCardRegistry({ cardsDir, outDir, requireEntries: true });
-    const renderers = await import(pathToFileURL(result.files.rendererRegistry).href);
-    const services = await import(pathToFileURL(result.files.serviceRegistry).href);
-    assert.equal(renderers.RENDERER_REGISTRY.alpha.marker, "alpha");
-    assert.equal(Object.keys(services.SERVICE_REGISTRY).length, 1);
+    assert.deepEqual(result.cards.map((card) => card.entries), [{ renderer: true, service: true }]);
   });
+});
+
+// 卡片是独立的包：只从自己的目录、sdk/、node: 内置模块与运行依赖引入代码，不直接引用平台内部（src/）。
+// 运行依赖必须在 dependencies 里：Homebrew 安装会删掉开发依赖，后台服务在那里直接从源码运行。
+test("内置卡片只引入自己的目录、sdk/、node: 内置模块与运行依赖", async () => {
+  const repo = fileURLToPath(new URL("../", import.meta.url));
+  const cardsRoot = join(repo, "cards");
+  const sdk = join(repo, "sdk");
+  const { dependencies } = JSON.parse(await readFile(join(repo, "package.json"), "utf8"));
+  const inside = (path, dir) => path === dir || path.startsWith(`${dir}${sep}`);
+  const violations = [];
+  for (const entry of await readdir(cardsRoot, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const id = entry.name;
+    const dir = join(cardsRoot, id);
+    const files = (await readdir(dir, { recursive: true })).filter((name) => name.endsWith(".mjs") && !name.startsWith("."));
+    for (const name of files) {
+      const source = await readFile(join(dir, name), "utf8");
+      for (const [, specifier] of source.matchAll(/(?:\bfrom\s*|\bimport\s*\(?\s*)["']([^"']+)["']/g)) {
+        if (specifier.startsWith("node:")) continue;
+        if (!specifier.startsWith(".")) {
+          if (!Object.hasOwn(dependencies, specifier.startsWith("@") ? specifier.split("/").slice(0, 2).join("/") : specifier.split("/")[0])) {
+            violations.push(`${id}/${name}：${specifier} 不在 dependencies 里`);
+          }
+          continue;
+        }
+        const target = resolve(dirname(join(dir, name)), specifier);
+        if (!inside(target, dir) && !inside(target, sdk)) violations.push(`${id}/${name}：${specifier} 越过了卡片目录与 sdk/`);
+      }
+    }
+  }
+  assert.deepEqual(violations, []);
 });

@@ -32,15 +32,37 @@ const discovered = await discoverCards({ cardsDir, requireEntries: true });
 assert.equal(discovered.cards.length, CARD_MANIFESTS.length + 1);
 const catalog = discovered.cards.map(card => ({ manifest: card.manifest, rendererUrl: `/fixture-cards/${card.manifest.id}/renderer.mjs` }));
 const fixturePath = join(ownRepo, "scripts/fixtures/card-platform-browser.mjs");
+// 真实注入链路：内置卡片目录 → 注入产物 → 注入器实际送进页面的代码（平台 + register），以及补送 usage 的 defineCard。
+const { CardCatalog } = await import(pathToFileURL(join(repo, "src/platform/cards/catalog.mjs")));
+const { cardsArtifact } = await import(pathToFileURL(join(repo, "src/agent/session.mjs")));
+const { buildInjectionSource, cardDefineSource } = await import(pathToFileURL(join(repo, "src/injection.mjs")));
+const builtinCatalog = new CardCatalog({ roots: [{ dir: join(repo, "cards"), source: "builtin" }], logger: { warn() {} } });
+await builtinCatalog.load();
+assert.deepEqual(builtinCatalog.problems, [], "内置卡片缺少打包好的 renderer.js：先运行 npm run generate:renderer");
+const artifact = cardsArtifact(builtinCatalog, "codex");
+const injectionConfig = {
+  version: 2, revision: 1, enabled: true, placement: "standalone-button", order: [],
+  cards: Object.fromEntries(artifact.manifests.map(manifest => [manifest.id, { enabled: manifest.id === "proxy", settings: {} }])),
+  launch: { proxy: { enabled: false, port: 7890 } }, agent: { autoRelaunch: true }
+};
+const injection = {
+  hash: artifact.hash, config: injectionConfig, cards: artifact.manifests.map(manifest => manifest.id),
+  mount: buildInjectionSource("mount", { config: injectionConfig, artifact }),
+  define: cardDefineSource(artifact.renderers.get("usage")), usageHash: artifact.renderers.get("usage").hash
+};
 const server = createServer(async (req, res) => {
   try {
     if (req.url === "/") { res.setHeader("Content-Type", "text/html"); res.end('<html><head><style>html,body{margin:0;padding:0}</style></head><body data-ready="true"></body></html>'); return; }
+    if (req.url === "/fixture-injection.json") { res.setHeader("Content-Type", "application/json"); res.end(JSON.stringify(injection)); return; }
     if (req.url === "/fixture-catalog.json") { res.setHeader("Content-Type", "application/json"); res.end(JSON.stringify(catalog)); return; }
     let file;
     if (req.url === "/fixture.mjs") file = fixturePath;
     else if (req.url.startsWith("/src/")) {
       file = resolve(repo, `.${req.url}`);
       if (!file.startsWith(`${repo}${sep}src${sep}`)) throw Error("invalid source path");
+    } else if (req.url.startsWith("/cards/")) {
+      file = resolve(repo, `.${req.url}`);
+      if (!file.startsWith(`${repo}${sep}cards${sep}`)) throw Error("invalid card path");
     } else if (req.url.startsWith("/fixture-cards/")) {
       file = resolve(cardsDir, req.url.slice("/fixture-cards/".length));
       if (!file.startsWith(`${cardsDir}${sep}`)) throw Error("invalid fixture path");
