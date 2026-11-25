@@ -11,6 +11,7 @@
   `list`，以及写插件用的 `create`、`build`、`link`。后台服务运行中时，安装、卸载、更新几秒内生效。
   没有官方市场：在 GitHub 搜 topic `agent-companion-card` 找插件，规范见 `cards/README.md`。
 - 卡片可以往 Companion 设置里加自己的一节（`renderer.mjs` 导出 `settings(kit)`）；任务看板的设置改由卡片自己提供。
+- 修复设置页「更新」里「立即更新」按钮在亮色主题下文字对比度不足。
 
 ## 0.4.0 - 2026-11-25
 

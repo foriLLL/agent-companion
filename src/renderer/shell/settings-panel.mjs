@@ -357,7 +357,7 @@ export function createSettingsPanel({ document: doc, call, connection, onClose =
     .cc-settings fieldset[data-attention] .cc-group > * + * { border-top-color:color-mix(in srgb,var(--attn) 20%,transparent); }
     .cc-settings fieldset[data-attention] .cc-status p { font-weight:600; }
     .cc-settings fieldset[data-attention] button.cc-primary,
-    .cc-settings fieldset[data-attention] button.cc-primary:hover:not(:disabled) { background:var(--attn);color:#fff; }
+    .cc-settings fieldset[data-attention] button.cc-primary:hover:not(:disabled) { background:color-mix(in srgb,var(--attn) 78%,#000);color:#fff; }
     @media (prefers-reduced-motion:reduce) { .cc-settings * { transition:none !important; } }
   `;
   const header = node("header");
