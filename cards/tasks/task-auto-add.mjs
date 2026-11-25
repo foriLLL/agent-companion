@@ -1,5 +1,3 @@
-import { THREAD_ID_PATTERN, isDesktopUserSession, threadCreatedAt } from "../../src/codex-sessions.mjs";
-
 // 新会话自动加入看板：定期列出 Codex 今天和昨天的会话记录，新出现的文件读第一行 session_meta，
 // 是用户在桌面端自己新开的会话就交给 onSession 加入看板。
 // - 启动后第一轮只取基线：已有的文件全部记为已知，不加；
@@ -11,8 +9,10 @@ export const AUTO_ADD_INTERVAL_MS = 2000;
 const GIVE_UP_MS = 30_000;
 const GRACE_MS = 10 * 60_000;
 
+// codexSessions：平台提供的会话数据源（api.sessions.source），需有 recentRollouts / sessionMeta，
+// 可选 isUserSession(meta) / createdAt(meta)；isValidId 校验会话 id 形状。
 export function createSessionWatcher({
-  codexSessions, onSession, intervalMs = AUTO_ADD_INTERVAL_MS, now = Date.now, logger = console,
+  codexSessions, onSession, isValidId = (id) => typeof id === "string" && id !== "", intervalMs = AUTO_ADD_INTERVAL_MS, now = Date.now, logger = console,
   setTimer = (fn, ms) => { const timer = setTimeout(fn, ms); timer.unref?.(); return () => clearTimeout(timer); }
 }) {
   let running = false;
@@ -51,10 +51,10 @@ export function createSessionWatcher({
       }
       seen.add(path);
       const id = typeof meta.id === "string" ? meta.id : null;
-      // 数据源可以自己判断来源与创建时间（Antigravity 的会话 id 不带时间戳）；缺省按 Codex 的规则。
-      const created = !id ? null : codexSessions.createdAt ? codexSessions.createdAt(meta) : threadCreatedAt(id);
-      const userSession = codexSessions.isUserSession ? codexSessions.isUserSession(meta) : isDesktopUserSession(meta);
-      if (!id || !THREAD_ID_PATTERN.test(id) || !userSession || (created !== null && created < startedAt - GRACE_MS)) {
+      // 来源与创建时间由数据源判断（Codex 看 session_meta 与 UUIDv7，Antigravity 看摘要）；不提供时不过滤。
+      const created = !id ? null : codexSessions.createdAt?.(meta) ?? null;
+      const userSession = codexSessions.isUserSession ? codexSessions.isUserSession(meta) : true;
+      if (!id || !isValidId(id) || !userSession || (created !== null && created < startedAt - GRACE_MS)) {
         failing.delete(path);
         continue;
       }

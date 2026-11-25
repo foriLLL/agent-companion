@@ -1,4 +1,3 @@
-import { buildCodexLaunchEnvironment, detectCodexProxy } from "../../src/launcher.mjs";
 import { normalizeCodexRateLimits, readCodexRateLimits, resolveCodexCli } from "./codex-usage.mjs";
 
 // 额度变化不快，上游请求按需发起：缓存 5 分钟，手动刷新至少间隔 1 分钟。
@@ -19,9 +18,13 @@ export async function resolveProxyPort({ inspectCodexProxy, loadConfig }) {
   return null;
 }
 
+// 平台提供：api.codex.inspectProxy（正在运行的 Codex 的启动代理）、api.codex.launchEnvironment（带代理的子进程环境）、
+// api.config.load（读配置里的启动代理）。
 export function createService({
-  inspectCodexProxy = () => detectCodexProxy(),
-  loadConfig,
+  codex, config,
+  inspectCodexProxy = codex?.inspectProxy ?? (async () => ({})),
+  loadConfig = config?.load,
+  launchEnvironment = codex?.launchEnvironment ?? ((_port, env) => ({ ...env })),
   readImpl = readCodexRateLimits,
   resolveCliImpl = resolveCodexCli,
   env = process.env,
@@ -38,7 +41,7 @@ export function createService({
       const codexBin = resolveCliImpl({ env });
       if (!codexBin) return { ok: false, fetchedAt: startedAt, code: "CODEX_CLI_NOT_FOUND", error: "没有找到 Codex 命令行，请先安装 Codex 桌面端" };
       const proxyPort = await resolveProxyPort({ inspectCodexProxy, loadConfig });
-      const childEnv = proxyPort ? buildCodexLaunchEnvironment(proxyPort, env) : { ...env };
+      const childEnv = proxyPort ? launchEnvironment(proxyPort, env) : { ...env };
       const result = await readImpl({ codexBin, env: childEnv });
       return { ok: true, fetchedAt: now(), proxyPort, ...normalizeCodexRateLimits(result) };
     } catch (error) {

@@ -18,7 +18,8 @@ const CLIPS_MANIFEST = Object.freeze({
   capabilities: ["rpc", "storage"]
 });
 
-export function createServiceWithClips({ clipsService = {}, ...options } = {}) {
+// embyService / hongguoService：替换对应卡片的内部引擎，经 dependencies 交给卡片的 createService。
+export function createServiceWithClips({ clipsService = {}, embyService, hongguoService, dependencies = {}, ...options } = {}) {
   const manifests = [
     ...CARD_MANIFESTS.filter((manifest) => manifest.defaultOrder < CLIPS_MANIFEST.defaultOrder),
     CLIPS_MANIFEST,
@@ -35,5 +36,6 @@ export function createServiceWithClips({ clipsService = {}, ...options } = {}) {
       dispose: () => clipsService.dispose?.()
     })
   };
-  return new AgentCompanionService({ ...options, manifests, modules: { ...SERVICE_REGISTRY, clips } });
+  const engines = { ...(embyService ? { embyService } : {}), ...(hongguoService ? { hongguoService } : {}) };
+  return new AgentCompanionService({ ...options, manifests, modules: { ...SERVICE_REGISTRY, clips }, dependencies: { ...engines, ...dependencies } });
 }

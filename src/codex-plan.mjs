@@ -266,16 +266,3 @@ export function currentPlan(state) {
   if (plan.turn !== state.turn && !(unfinished && plan.turn === state.turn - 1)) return null;
   return { createdAt: plan.createdAt, updatedAt: plan.updatedAt, explanation: plan.explanation, steps: plan.steps.map((step) => ({ ...step })), ...(plan.source === "message" ? { source: "message" } : {}) };
 }
-
-/** 看板条目用的计划摘要：总步数、完成数、进行中的那一步。 */
-export function planSummary(plan) {
-  if (!plan?.steps?.length) return null;
-  const active = plan.steps.findIndex((step) => step.status === "in_progress");
-  return {
-    total: plan.steps.length,
-    done: plan.steps.filter((step) => step.status === "completed").length,
-    active: active >= 0 ? active : null,
-    steps: plan.steps.map(({ text, status }) => ({ text, status })),
-    ...(plan.source === "message" ? { source: "message" } : {})
-  };
-}

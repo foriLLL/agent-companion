@@ -1,5 +1,5 @@
 import { createFile } from "mp4box";
-import { EmbyError } from "../../../cards/emby/emby-client.mjs";
+import { MediaError } from "./errors.mjs";
 
 // 2MB 与 Emby 的 Range 上限（DEFAULT_DIRECT_RANGE_LIMIT）
 // 对齐；普通分片每次 RPC 仍最多 8MB。异常媒体仍可能产生更大的完整分片，允许
@@ -63,7 +63,7 @@ function keyframeMetadata(file, track) {
 }
 
 function cancelled(cause) {
-  return new EmbyError("CANCELLED", "直连媒体读取已取消", { cause });
+  return new MediaError("CANCELLED", "直连媒体读取已取消", { cause });
 }
 
 export class DirectMp4Session {
@@ -158,7 +158,7 @@ export class DirectMp4Session {
     };
     file.onError = (...parts) => {
       const message = parts.filter(Boolean).join(": ") || "MP4 解析失败";
-      this.#pumpFailure = new EmbyError("MP4_PARSE_ERROR", message);
+      this.#pumpFailure = new MediaError("MP4_PARSE_ERROR", message);
       this.#streamController?.abort(this.#pumpFailure);
       this.#notifyData();
     };
@@ -190,12 +190,12 @@ export class DirectMp4Session {
     }
     if (!this.#info) {
       if (this.#pumpFailure) throw this.#pumpFailure;
-      throw new EmbyError("MP4_METADATA_UNAVAILABLE", "无法读取 MP4 元数据，文件可能不完整或格式不受支持");
+      throw new MediaError("MP4_METADATA_UNAVAILABLE", "无法读取 MP4 元数据，文件可能不完整或格式不受支持");
     }
 
     const playableTracks = this.#info.tracks.filter((track) => track.type === "video" || track.type === "audio");
     if (!playableTracks.some((track) => track.type === "video")) {
-      throw new EmbyError("MP4_VIDEO_TRACK_MISSING", "媒体中没有可播放的视频轨道");
+      throw new MediaError("MP4_VIDEO_TRACK_MISSING", "媒体中没有可播放的视频轨道");
     }
     const codecs = playableTracks.map((track) => track.codec);
     this.#tracks = [{
@@ -220,7 +220,7 @@ export class DirectMp4Session {
       });
     }
     const initialization = file.initializeSegmentation();
-    if (!initialization?.buffer) throw new EmbyError("MP4_INIT_ERROR", "MP4 缺少合并初始化数据");
+    if (!initialization?.buffer) throw new MediaError("MP4_INIT_ERROR", "MP4 缺少合并初始化数据");
     this.#tracks[0].initData = asBase64(initialization.buffer);
 
     const requestedSeconds = Math.max(0, Number(startTimeSeconds) || 0);
@@ -234,7 +234,7 @@ export class DirectMp4Session {
   async next({ signal } = {}) {
     this.#assertReady();
     if (this.#pulling) {
-      throw new EmbyError("DIRECT_PULL_BUSY", "上一个媒体分片仍在读取", { retryable: true });
+      throw new MediaError("DIRECT_PULL_BUSY", "上一个媒体分片仍在读取", { retryable: true });
     }
     this.#pulling = true;
     const generation = this.#generation;
@@ -307,7 +307,7 @@ export class DirectMp4Session {
   async #read(start, signal) {
     this.#assertAlive();
     if (!Number.isSafeInteger(start) || start < 0) {
-      throw new EmbyError("MP4_INVALID_OFFSET", "MP4 解析器返回了无效的媒体偏移量");
+      throw new MediaError("MP4_INVALID_OFFSET", "MP4 解析器返回了无效的媒体偏移量");
     }
     const controller = new AbortController();
     this.#readController = controller;
@@ -353,7 +353,7 @@ export class DirectMp4Session {
       } else {
         this.#pumpFailure = error instanceof Error
           ? error
-          : new EmbyError("MEDIA_STREAM_FAILED", "持续媒体流读取失败", { cause: error });
+          : new MediaError("MEDIA_STREAM_FAILED", "持续媒体流读取失败", { cause: error });
       }
       this.#notifyData();
     }).finally(() => {
@@ -394,7 +394,7 @@ export class DirectMp4Session {
           || !stream.body
           || typeof stream.body[Symbol.asyncIterator] !== "function"
         ) {
-          throw new EmbyError("INVALID_RANGE_RESPONSE", "持续媒体流返回了无效的 Range");
+          throw new MediaError("INVALID_RANGE_RESPONSE", "持续媒体流返回了无效的 Range");
         }
         this.#activeStream = stream;
         this.#rememberStream(stream);
@@ -408,7 +408,7 @@ export class DirectMp4Session {
           const start = this.#nextOffset;
           const end = start + chunk.byteLength - 1;
           if (end > stream.end || (this.#total !== null && end >= this.#total)) {
-            throw new EmbyError("INVALID_RANGE_RESPONSE", "持续媒体流返回了超出声明范围的数据");
+            throw new MediaError("INVALID_RANGE_RESPONSE", "持续媒体流返回了超出声明范围的数据");
           }
           const result = { start, end };
           const suggested = this.#file.appendBuffer(
@@ -462,7 +462,7 @@ export class DirectMp4Session {
       // 上游在 Content-Range 声明的末尾之前结束；从实际收到的位置续接。
       if (received > 0) retriesWithoutProgress = 0;
       else if (++retriesWithoutProgress > MAX_STREAM_RETRIES_WITHOUT_PROGRESS) {
-        throw new EmbyError("MEDIA_STREAM_TRUNCATED", "媒体 CDN 流提前结束", { retryable: true });
+        throw new MediaError("MEDIA_STREAM_TRUNCATED", "媒体 CDN 流提前结束", { retryable: true });
       }
     }
   }
@@ -497,7 +497,7 @@ export class DirectMp4Session {
       const segment = this.#segments[0];
       const completeBytes = Number(segment.buffer?.byteLength) || 0;
       if (completeBytes > this.#maxSegmentBytes) {
-        throw new EmbyError("DIRECT_SEGMENT_TOO_LARGE", "完整媒体分片超过安全传输大小");
+        throw new MediaError("DIRECT_SEGMENT_TOO_LARGE", "完整媒体分片超过安全传输大小");
       }
       const offset = Number(segment.offset) || 0;
       const remaining = completeBytes - offset;
@@ -605,7 +605,7 @@ export class DirectMp4Session {
 
   #rememberRange(result) {
     if (!(result?.bytes instanceof Uint8Array)) {
-      throw new EmbyError("INVALID_RANGE_RESPONSE", "媒体 Range 没有返回二进制数据");
+      throw new MediaError("INVALID_RANGE_RESPONSE", "媒体 Range 没有返回二进制数据");
     }
     if (Number.isSafeInteger(result.total) && result.total >= 0) this.#total = result.total;
     if (typeof result.resolvedUrl === "string" && result.resolvedUrl) this.#resolvedUrl = result.resolvedUrl;
@@ -654,11 +654,11 @@ export class DirectMp4Session {
   }
 
   #assertAlive() {
-    if (this.#destroyed) throw new EmbyError("PLAYBACK_NOT_FOUND", "直连播放会话已经结束");
+    if (this.#destroyed) throw new MediaError("PLAYBACK_NOT_FOUND", "直连播放会话已经结束");
   }
 
   #assertReady() {
     this.#assertAlive();
-    if (!this.#ready) throw new EmbyError("DIRECT_NOT_INITIALIZED", "直连播放器尚未初始化");
+    if (!this.#ready) throw new MediaError("DIRECT_NOT_INITIALIZED", "直连播放器尚未初始化");
   }
 }

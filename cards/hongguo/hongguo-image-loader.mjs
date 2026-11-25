@@ -1,7 +1,7 @@
 import { lookup } from "node:dns/promises";
 import { request as httpsRequest } from "node:https";
 import { Readable } from "node:stream";
-import { resolveExternalMediaAddress } from "../emby/emby-client.mjs";
+import { resolveExternalMediaAddress } from "../../sdk/media.mjs";
 import { HongguoError } from "./hongguo-sdk-client.mjs";
 
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;

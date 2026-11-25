@@ -6,30 +6,30 @@ import {
   buildConnector,
   fetch as undiciFetch
 } from "undici";
+import {
+  DEFAULT_SUBTITLE_LIMIT,
+  MediaError,
+  SECRET_QUERY_KEYS,
+  isPrivateAddress,
+  resolveExternalMediaAddress,
+  validateExternalMediaUrl
+} from "../../sdk/media.mjs";
+
+// 媒体地址校验与凭据参数名由平台媒体库提供；这里转出，保持原有导出名。
+export { DEFAULT_SUBTITLE_LIMIT, SECRET_QUERY_KEYS, resolveExternalMediaAddress, validateExternalMediaUrl };
 
 const DEFAULT_JSON_LIMIT = 4 * 1024 * 1024;
 export const DEFAULT_RESOURCE_LIMIT = 8 * 1024 * 1024;
 export const DEFAULT_DIRECT_RANGE_LIMIT = 2 * 1024 * 1024;
-export const DEFAULT_SUBTITLE_LIMIT = 4 * 1024 * 1024;
 export const EMBY_CLIENT_NAME = "Agent Companion";
 export const EMBY_CLIENT_VERSION = "0.0.1";
 export const EMBY_USER_AGENT = `Emby/${EMBY_CLIENT_VERSION}`;
 
-export const SECRET_QUERY_KEYS = new Set([
-  "api_key",
-  "apikey",
-  "access_token",
-  "token",
-  "x-emby-token"
-]);
-
-export class EmbyError extends Error {
-  constructor(code, message, { status = null, retryable = false, cause } = {}) {
-    super(message, { cause });
+// 继承共享媒体层的 MediaError：媒体库抛出的错误与 Emby 自己的错误按同一种方式转成 RPC 回包。
+export class EmbyError extends MediaError {
+  constructor(code, message, options = {}) {
+    super(code, message, options);
     this.name = "EmbyError";
-    this.code = code;
-    this.status = status;
-    this.retryable = retryable;
   }
 }
 
@@ -133,25 +133,6 @@ export function sanitizeDirectStreamUrl(baseUrl, input) {
   return stripSecretQuery(resource).href;
 }
 
-function isPrivateAddress(address) {
-  const normalized = String(address).toLowerCase().split("%")[0];
-  if (normalized === "::1" || normalized === "::" || normalized.startsWith("fc") || normalized.startsWith("fd")) {
-    return true;
-  }
-  if (normalized.startsWith("fe") || normalized.startsWith("ff")) return true;
-  if (normalized.startsWith("::ffff:")) return isPrivateAddress(normalized.slice(7));
-  if (isIP(normalized) !== 4) return false;
-  const [a, b] = normalized.split(".").map(Number);
-  return a === 0
-    || a === 10
-    || a === 127
-    || (a === 100 && b >= 64 && b <= 127)
-    || (a === 169 && b === 254)
-    || (a === 172 && b >= 16 && b <= 31)
-    || (a === 192 && b === 168)
-    || a >= 224;
-}
-
 // 登录目标的 SSRF 收口：自建 Emby 常驻 LAN（10./172.16./192.168.），因此不能像媒体
 // 重定向那样一律拒绝私网；但必须拦住回环、link-local（含云元数据 169.254.169.254）、
 // 通配与组播/保留地址——这些是 SSRF 探测内网/元数据端点的高价值目标，Emby 绝不会在此。
@@ -200,52 +181,6 @@ export async function assertLoginHostAllowed(baseUrl, { dnsLookup = defaultDnsLo
   if (addresses.some(({ address }) => isBlockedLoginAddress(address))) {
     throw new EmbyError("UNSAFE_SERVER_URL", "Emby 服务器地址解析到了回环 / 链路本地 / 元数据地址");
   }
-}
-
-export async function resolveExternalMediaAddress(hostname, { dnsLookup = defaultDnsLookup } = {}) {
-  const normalized = String(hostname).toLowerCase().replace(/^\[|\]$/g, "");
-  if (isIP(normalized)) {
-    if (isPrivateAddress(normalized)) {
-      throw new EmbyError("UNSAFE_MEDIA_REDIRECT", "媒体重定向不能指向内网地址");
-    }
-    return { address: normalized, family: isIP(normalized) };
-  }
-
-  let addresses;
-  try {
-    addresses = await dnsLookup(normalized, { all: true, verbatim: true });
-  } catch (cause) {
-    throw new EmbyError("MEDIA_REDIRECT_DNS_ERROR", "无法解析媒体 CDN 地址", {
-      retryable: true,
-      cause
-    });
-  }
-  if (!Array.isArray(addresses) || addresses.length === 0 || addresses.some(({ address }) => isPrivateAddress(address))) {
-    throw new EmbyError("UNSAFE_MEDIA_REDIRECT", "媒体 CDN 解析到了本机或内网地址");
-  }
-  const selected = addresses.find(({ family }) => Number(family) === 4) ?? addresses[0];
-  return { address: selected.address, family: Number(selected.family) || isIP(selected.address) };
-}
-
-export async function validateExternalMediaUrl(input, { dnsLookup = defaultDnsLookup } = {}) {
-  let url;
-  try {
-    url = new URL(input);
-  } catch (cause) {
-    throw new EmbyError("UNSAFE_MEDIA_REDIRECT", "媒体重定向地址无效", { cause });
-  }
-  if (url.protocol !== "https:") {
-    throw new EmbyError("UNSAFE_MEDIA_REDIRECT", "跨源媒体重定向只允许 HTTPS");
-  }
-  if (url.username || url.password) {
-    throw new EmbyError("UNSAFE_MEDIA_REDIRECT", "媒体重定向不能包含用户名或密码");
-  }
-  const hostname = url.hostname.toLowerCase().replace(/^\[|\]$/g, "");
-  if (hostname === "localhost" || hostname.endsWith(".localhost")) {
-    throw new EmbyError("UNSAFE_MEDIA_REDIRECT", "媒体重定向不能指向本机");
-  }
-  await resolveExternalMediaAddress(hostname, { dnsLookup });
-  return url;
 }
 
 function createExternalStreamTransport(dnsLookup) {
@@ -749,7 +684,7 @@ export class EmbyClient {
         }
       }
     } catch (cause) {
-      if (cause instanceof EmbyError) throw cause;
+      if (cause instanceof MediaError) throw cause;
       if (signal?.aborted || cause?.name === "AbortError") {
         throw new EmbyError("CANCELLED", "Emby 请求已取消", { cause });
       }
@@ -779,7 +714,7 @@ export class EmbyClient {
     try {
       bytes = await readLimited(response, maxBytes);
     } catch (cause) {
-      if (cause instanceof EmbyError) throw cause;
+      if (cause instanceof MediaError) throw cause;
       if (signal?.aborted || cause?.name === "AbortError") {
         throw new EmbyError("CANCELLED", "Emby 请求已取消", { cause });
       }
@@ -965,7 +900,7 @@ export class EmbyClient {
         return result;
       });
     } catch (cause) {
-      if (cause instanceof EmbyError) throw cause;
+      if (cause instanceof MediaError) throw cause;
       if (signal?.aborted || cause?.name === "AbortError") {
         throw new EmbyError("CANCELLED", "Emby 请求已取消", { cause });
       }
@@ -1022,7 +957,7 @@ export class EmbyClient {
           response = await requestImpl(requestUrl, { method: "GET", headers, signal, redirect: "manual" });
         }
       } catch (cause) {
-        if (cause instanceof EmbyError) throw cause;
+        if (cause instanceof MediaError) throw cause;
         if (signal?.aborted || cause?.name === "AbortError") {
           throw new EmbyError("CANCELLED", "媒体 Range 请求已取消", { cause });
         }
@@ -1131,7 +1066,7 @@ export class EmbyClient {
         }
         response = await requestImpl(requestUrl, requestOptions);
       } catch (cause) {
-        if (cause instanceof EmbyError) throw cause;
+        if (cause instanceof MediaError) throw cause;
         if (signal?.aborted || cause?.name === "AbortError") {
           throw new EmbyError("CANCELLED", "媒体流请求已取消", { cause });
         }

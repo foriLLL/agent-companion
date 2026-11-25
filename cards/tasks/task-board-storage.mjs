@@ -2,11 +2,11 @@ import { chmod, mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
-import { THREAD_ID_PATTERN } from "../../src/codex-sessions.mjs";
-import { companionDataDir } from "../../src/platform/paths.mjs";
-import { replaceFile } from "../../src/platform/replace-file.mjs";
+import { companionDataDir, replaceFile } from "../../sdk/service.mjs";
 
 const FILE_LIMIT = 1024 * 1024;
+// 看板接受的会话 id 形状（Codex 的 UUIDv7 与 Antigravity 的会话 id 都满足）。
+export const THREAD_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9-]{7,127}$/;
 export const MAX_TASKS = 100;
 export const MAX_RECENT = 100;
 export const NAME_LIMIT = 120;

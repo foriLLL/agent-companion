@@ -1,7 +1,5 @@
-import { createMediaScope } from "../../src/renderer/media/scope.mjs";
-import { createMediaUi } from "../../src/renderer/media/ui.mjs";
-import { createDirectMp4Stream } from "../../src/renderer/media/direct-mp4.mjs";
-import { mediaStyles } from "../../src/renderer/media/styles.mjs";
+import { createDirectMp4Stream, createMediaScope, createMediaUi } from "../../sdk/renderer-media.mjs";
+import { cardStyles } from "./styles.mjs";
 
 // 「我的片单」超过这个数时折叠，只列最近打开的几部。
 const LIST_COLLAPSED = 3;
@@ -13,7 +11,7 @@ export function mount(ctx) {
   const { makeElement, makeToolbarIcon, makeFullscreenButton, rpcError, toRpcError, decodeBase64, responseBytes } = ui;
   const configureDirectMp4Stream = createDirectMp4Stream(scope, ui);
   const shadow = ctx.root;
-  shadow.innerHTML = `<style>${mediaStyles}</style><section class="panel hg-panel" data-card="hongguo" aria-label="红果短剧播放器"><div class="hg-app" aria-live="polite"></div></section>`;
+  shadow.innerHTML = `<style>${cardStyles}</style><section class="panel hg-panel" data-card="hongguo" aria-label="红果短剧播放器"><div class="hg-app" aria-live="polite"></div></section>`;
   const hongguoApp = shadow.querySelector(".hg-app");
   let refreshHongguoImages = () => {};
   let objectUrl = null;

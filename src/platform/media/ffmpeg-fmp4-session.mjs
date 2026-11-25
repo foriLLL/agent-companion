@@ -8,7 +8,7 @@ import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { resolveFfmpegPath } from "./ffmpeg-path.mjs";
-import { EmbyError } from "../../../cards/emby/emby-client.mjs";
+import { MediaError } from "./errors.mjs";
 
 const RANGE_CHUNK_BYTES = 1024 * 1024;
 const MAX_QUEUE_BYTES = 24 * 1024 * 1024;
@@ -34,7 +34,7 @@ export async function requireToneMappingSupport(ffmpegPath, { execFileImpl = exe
       "-vf", SDR_TONE_MAP_FILTER, "-frames:v", "1", "-f", "null", "-"
     ], { timeout: 15_000, maxBuffer: 32 * 1024 }).then(() => true).catch(() => {
       colorSupport.delete(ffmpegPath);
-      throw new EmbyError("HDR_TONEMAPPING_UNAVAILABLE", "当前 FFmpeg 无法处理杜比视界/HDR 色彩；请安装 brew install ffmpeg-full molten-vk（含 libplacebo 与 macOS Vulkan 驱动），或通过 AGENT_COMPANION_FFMPEG 指定支持该滤镜的 FFmpeg");
+      throw new MediaError("HDR_TONEMAPPING_UNAVAILABLE", "当前 FFmpeg 无法处理杜比视界/HDR 色彩；请安装 brew install ffmpeg-full molten-vk（含 libplacebo 与 macOS Vulkan 驱动），或通过 AGENT_COMPANION_FFMPEG 指定支持该滤镜的 FFmpeg");
     });
     colorSupport.set(ffmpegPath, probe);
   }
@@ -42,7 +42,7 @@ export async function requireToneMappingSupport(ffmpegPath, { execFileImpl = exe
 }
 
 function cancelled(cause) {
-  return new EmbyError("CANCELLED", "FFmpeg 媒体处理已取消", { cause });
+  return new MediaError("CANCELLED", "FFmpeg 媒体处理已取消", { cause });
 }
 
 function asBase64(bytes) {
@@ -52,11 +52,11 @@ function asBase64(bytes) {
 function parseRangeHeader(value) {
   if (!value) return { start: 0, end: null, partial: false };
   const match = /^bytes=(\d+)-(\d*)$/i.exec(String(value).trim());
-  if (!match) throw new EmbyError("INVALID_RANGE", "FFmpeg 请求了无效的媒体 Range");
+  if (!match) throw new MediaError("INVALID_RANGE", "FFmpeg 请求了无效的媒体 Range");
   const start = Number(match[1]);
   const end = match[2] === "" ? null : Number(match[2]);
   if (!Number.isSafeInteger(start) || start < 0 || (end !== null && (!Number.isSafeInteger(end) || end < start))) {
-    throw new EmbyError("INVALID_RANGE", "FFmpeg 请求了无效的媒体 Range");
+    throw new MediaError("INVALID_RANGE", "FFmpeg 请求了无效的媒体 Range");
   }
   return { start, end, partial: true };
 }
@@ -87,7 +87,7 @@ function boxSize(buffer) {
   if (buffer.length < 16) return null;
   const large = buffer.readBigUInt64BE(8);
   if (large > BigInt(Number.MAX_SAFE_INTEGER)) {
-    throw new EmbyError("FFMPEG_OUTPUT_INVALID", "FFmpeg 输出了过大的 MP4 box");
+    throw new MediaError("FFMPEG_OUTPUT_INVALID", "FFmpeg 输出了过大的 MP4 box");
   }
   return Number(large);
 }
@@ -120,7 +120,7 @@ class FragmentParser {
   push(chunk) {
     if (!chunk?.length) return;
     if (this.buffer.length + chunk.length > MAX_OUTPUT_FRAGMENT_BYTES) {
-      throw new EmbyError("FFMPEG_OUTPUT_INVALID", "FFmpeg 输出的媒体 box 超过内存预算");
+      throw new MediaError("FFMPEG_OUTPUT_INVALID", "FFmpeg 输出的媒体 box 超过内存预算");
     }
     this.buffer = this.buffer.length === 0
       ? Buffer.from(chunk)
@@ -128,17 +128,17 @@ class FragmentParser {
     while (this.buffer.length >= 8) {
       const size = boxSize(this.buffer);
       if (size !== null && size > MAX_OUTPUT_FRAGMENT_BYTES) {
-        throw new EmbyError("FFMPEG_OUTPUT_INVALID", "FFmpeg 输出的媒体 box 超过内存预算");
+        throw new MediaError("FFMPEG_OUTPUT_INVALID", "FFmpeg 输出的媒体 box 超过内存预算");
       }
       if (size === null || this.buffer.length < size) return;
-      if (size < 8) throw new EmbyError("FFMPEG_OUTPUT_INVALID", "FFmpeg 输出了无效的 MP4 box");
+      if (size < 8) throw new MediaError("FFMPEG_OUTPUT_INVALID", "FFmpeg 输出了无效的 MP4 box");
       const box = Buffer.from(this.buffer.subarray(0, size));
       this.buffer = this.buffer.subarray(size);
       const type = box.toString("ascii", 4, 8);
       if (!this.ready) {
         this.initializationBytes += box.length;
         if (this.initializationBytes > MAX_OUTPUT_FRAGMENT_BYTES) {
-          throw new EmbyError("FFMPEG_OUTPUT_INVALID", "FFmpeg 初始化数据超过内存预算");
+          throw new MediaError("FFMPEG_OUTPUT_INVALID", "FFmpeg 初始化数据超过内存预算");
         }
         this.initialization.push(box);
         if (type === "moov") {
@@ -152,7 +152,7 @@ class FragmentParser {
       }
       this.fragmentBytes += box.length;
       if (this.fragmentBytes > MAX_OUTPUT_FRAGMENT_BYTES) {
-        throw new EmbyError("FFMPEG_OUTPUT_INVALID", "FFmpeg 媒体分片超过内存预算");
+        throw new MediaError("FFMPEG_OUTPUT_INVALID", "FFmpeg 媒体分片超过内存预算");
       }
       this.fragment.push(box);
       if (type === "mdat") {
@@ -215,7 +215,7 @@ export class RangeProxy {
     const address = server.address();
     if (!address || typeof address === "string") {
       server.close();
-      throw new EmbyError("FFMPEG_PROXY_FAILED", "无法启动 FFmpeg 本机媒体桥");
+      throw new MediaError("FFMPEG_PROXY_FAILED", "无法启动 FFmpeg 本机媒体桥");
     }
     this.server = server;
     this.serverRuntime = "node";
@@ -421,7 +421,7 @@ export class RangeProxy {
           await cancelActive();
           if (finalEnd !== null && offset > finalEnd) return;
           if (received === 0) {
-            throw new EmbyError("MEDIA_STREAM_TRUNCATED", "媒体 CDN 流提前结束", { retryable: true });
+            throw new MediaError("MEDIA_STREAM_TRUNCATED", "媒体 CDN 流提前结束", { retryable: true });
           }
           retries = 0;
           active = await owner.openRangeStream({ start: offset, end: finalEnd, signal });
@@ -576,7 +576,7 @@ export class RangeProxy {
           return;
         }
         if (received === 0) {
-          throw new EmbyError("MEDIA_STREAM_TRUNCATED", "媒体 CDN 流提前结束", { retryable: true });
+          throw new MediaError("MEDIA_STREAM_TRUNCATED", "媒体 CDN 流提前结束", { retryable: true });
         }
         retries = 0;
       }
@@ -696,7 +696,7 @@ export function buildFfmpegArguments({
     if (styledText) {
       const subtitleInput = subtitleFromFile ? subtitleFile : inputUrl;
       if (!subtitleInput) {
-        throw new EmbyError("SUBTITLE_SOURCE_MISSING", "外挂字幕缺少可供 FFmpeg 使用的数据");
+        throw new MediaError("SUBTITLE_SOURCE_MISSING", "外挂字幕缺少可供 FFmpeg 使用的数据");
       }
       const subtitleStreams = (mediaSource?.MediaStreams ?? [])
         .filter((stream) => String(stream?.Type ?? "").toLowerCase() === "subtitle");
@@ -791,7 +791,7 @@ export class FfmpegFmp4Session {
       throw new TypeError("媒体批次与队列限制无效");
     }
     if (!ffmpegPathImpl) {
-      throw new EmbyError(
+      throw new MediaError(
         "FFMPEG_UNAVAILABLE",
         "未找到系统 FFmpeg；请运行 brew install ffmpeg，或设置 AGENT_COMPANION_FFMPEG"
       );
@@ -905,7 +905,7 @@ export class FfmpegFmp4Session {
     this.queue.length = 0;
     this.queueBytes = 0;
     this.segmentOffset = 0;
-    this.#rejectWaiters(new EmbyError("PLAYBACK_NOT_FOUND", "FFmpeg 播放会话已经结束"));
+    this.#rejectWaiters(new MediaError("PLAYBACK_NOT_FOUND", "FFmpeg 播放会话已经结束"));
     void this.proxy?.close();
     if (this.subtitleDirectory) void rm(this.subtitleDirectory, { recursive: true, force: true });
     this.subtitleDirectory = null;
@@ -975,7 +975,7 @@ export class FfmpegFmp4Session {
       };
     });
     const timeout = setTimeout(() => {
-      rejectStart(new EmbyError("FFMPEG_START_TIMEOUT", "FFmpeg 启动超时", { retryable: true }));
+      rejectStart(new MediaError("FFMPEG_START_TIMEOUT", "FFmpeg 启动超时", { retryable: true }));
       this.#stopChild();
     }, START_TIMEOUT_MS);
     timeout.unref?.();
@@ -1001,7 +1001,7 @@ export class FfmpegFmp4Session {
     });
     child.once("error", (cause) => {
       if (generation !== this.generation || this.destroyed) return;
-      const error = new EmbyError("FFMPEG_START_FAILED", "无法启动 FFmpeg", { cause });
+      const error = new MediaError("FFMPEG_START_FAILED", "无法启动 FFmpeg", { cause });
       rejectStart(error);
       this.#fail(error);
     });
@@ -1009,14 +1009,14 @@ export class FfmpegFmp4Session {
       if (generation !== this.generation || this.destroyed) return;
       this.child = null;
       if (code === 0) {
-        if (!this.ready) rejectStart(new EmbyError("FFMPEG_OUTPUT_INVALID", "FFmpeg 已退出但未产生可播放的视频"));
+        if (!this.ready) rejectStart(new MediaError("FFMPEG_OUTPUT_INVALID", "FFmpeg 已退出但未产生可播放的视频"));
         this.ended = true;
         this.#resolveWaiters();
         return;
       }
       const detail = this.stderr.trim().split(/\r?\n/).slice(-1)[0];
       const suffix = detail ? `：${detail}` : "";
-      const error = this.failure ?? new EmbyError(
+      const error = this.failure ?? new MediaError(
         "FFMPEG_FAILED",
         `FFmpeg 处理媒体失败${suffix}`,
         { retryable: false, cause: exitSignal ? new Error(exitSignal) : undefined }
@@ -1129,11 +1129,11 @@ export class FfmpegFmp4Session {
   }
 
   #assertAlive() {
-    if (this.destroyed) throw new EmbyError("PLAYBACK_NOT_FOUND", "FFmpeg 播放会话已经结束");
+    if (this.destroyed) throw new MediaError("PLAYBACK_NOT_FOUND", "FFmpeg 播放会话已经结束");
   }
 
   #assertReady() {
     this.#assertAlive();
-    if (!this.ready) throw new EmbyError("FFMPEG_NOT_INITIALIZED", "FFmpeg 播放器尚未初始化");
+    if (!this.ready) throw new MediaError("FFMPEG_NOT_INITIALIZED", "FFmpeg 播放器尚未初始化");
   }
 }

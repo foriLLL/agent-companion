@@ -1,4 +1,4 @@
-import { EmbyError } from "../../../cards/emby/emby-client.mjs";
+import { MediaError } from "./errors.mjs";
 
 const DEFAULT_EVENT_FORMAT = [
   "layer",
@@ -112,7 +112,7 @@ export function assToWebVtt(input) {
   }
 
   if (cues.length === 0) {
-    throw new EmbyError("INVALID_SUBTITLE_RESPONSE", "ASS/SSA 字幕中没有可显示的文字事件");
+    throw new MediaError("INVALID_SUBTITLE_RESPONSE", "ASS/SSA 字幕中没有可显示的文字事件");
   }
   return `WEBVTT\n\n${cues.join("\n\n")}\n`;
 }

@@ -1,19 +1,14 @@
-import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { stat } from "node:fs/promises";
 import { setTimeout as delay } from "node:timers/promises";
-import { promisify } from "node:util";
-import { createPlanHint } from "../../src/codex-plan-hint.mjs";
-import { planSummary } from "../../src/codex-plan.mjs";
-import { AntigravitySessions } from "../../src/antigravity-sessions.mjs";
-import { CodexSessions, THREAD_ID_PATTERN } from "../../src/codex-sessions.mjs";
-import { rpcError } from "../../src/platform/services/errors.mjs";
+import { rpcError } from "../../sdk/service.mjs";
+import { planSummary } from "./plan-summary.mjs";
 import { createSessionWatcher } from "./task-auto-add.mjs";
 import {
-  COLOR_COUNT, MAX_TASKS, TaskBoardStorage, TaskRecentStorage, defaultTaskBoardPath, defaultTaskRecentPath, normalizeName, normalizeTask, pickColor
+  COLOR_COUNT, MAX_TASKS, THREAD_ID_PATTERN, TaskBoardStorage, TaskRecentStorage, defaultTaskBoardPath, defaultTaskRecentPath,
+  normalizeName, normalizeTask, pickColor
 } from "./task-board-storage.mjs";
 
-const execFileAsync = promisify(execFile);
 // 长轮询：每 300ms 只比较文件指纹，有变化才重新解析；最多挂起 25 秒后照常返回。
 const WATCH_POLL_MS = 300;
 const WATCH_MAX_MS = 25_000;
@@ -30,22 +25,9 @@ function threadId(value) {
   return value;
 }
 
-// 深链由 ChatGPT.app 注册；只在侧栏里找不到条目时作为兜底。
-async function openThreadLink(id, { platform = process.platform } = {}) {
-  if (platform !== "darwin") throw rpcError("UNSUPPORTED", "此系统暂不支持从看板打开会话");
-  await execFileAsync("/usr/bin/open", [`codex://threads/${id}`], { timeout: 5000 });
-}
-
-// Antigravity 的会话由页面里的路由直接打开（看板 reveal），没有可用的深链。
 async function unsupportedOpen() {
-  throw rpcError("UNSUPPORTED", "请在 Antigravity 侧栏里打开这个会话");
+  throw rpcError("UNSUPPORTED", "当前宿主不支持从看板打开会话");
 }
-
-// 每种宿主的会话数据源与默认打开方式；看板文件也按宿主分开，两边的任务互不相混。
-const HOST_SOURCES = {
-  codex: { createSessions: () => new CodexSessions(), openThread: openThreadLink },
-  antigravity: { createSessions: () => new AntigravitySessions(), openThread: unsupportedOpen }
-};
 
 // 「长任务先列计划」开关：只在配置里明确给出 planHint 时才动 Codex 指令文件，从没碰过开关的配置不读不写。
 // 任务看板或整个 Companion 被停用时也删掉提示。
@@ -60,13 +42,18 @@ function wantAutoAdd(config) {
   return config?.cards?.tasks?.settings?.autoAdd === true && config?.enabled !== false && config?.cards?.tasks?.enabled !== false;
 }
 
+// 宿主能力都来自平台注入的 api：
+// - api.sessions：当前宿主的会话数据源（source）与打开会话（open）；Codex 与 Antigravity 由平台各自实现，看板不区分；
+// - api.codex.createPlanHint：「长任务先列计划」写 Codex 的全局指令文件，只在 Codex 宿主使用。
+// 其余参数供测试替换。看板文件按宿主分开，两边的任务互不相混。
 export function createService({
-  host = "codex",
+  host = "codex", sessions, codex, logger = console,
   taskBoard = new TaskBoardStorage({ path: defaultTaskBoardPath(undefined, host) }),
   recentStorage = new TaskRecentStorage({ path: defaultTaskRecentPath(undefined, host) }),
-  codexSessions = (HOST_SOURCES[host] ?? HOST_SOURCES.codex).createSessions(),
-  openThread = (HOST_SOURCES[host] ?? HOST_SOURCES.codex).openThread, planHint = null, logger = console, autoAddIntervalMs
+  codexSessions = sessions?.source,
+  openThread = sessions?.open ?? unsupportedOpen, planHint = null, autoAddIntervalMs
 } = {}) {
+  if (!codexSessions) throw new TypeError("任务看板需要平台提供会话数据源（api.sessions）");
   let hint = planHint;
   let hintApplied = null;
 
@@ -87,7 +74,7 @@ export function createService({
 
   // 自动加入：名字留空（view 从 session_index 补），项目 id 从 Codex 的项目分配里读；看板满了只记日志。
   const watcher = createSessionWatcher({
-    codexSessions, logger, ...(autoAddIntervalMs ? { intervalMs: autoAddIntervalMs } : {}),
+    codexSessions, logger, isValidId: (id) => THREAD_ID_PATTERN.test(id), ...(autoAddIntervalMs ? { intervalMs: autoAddIntervalMs } : {}),
     async onSession({ threadId: rawId }) {
       const { id, aliases } = await resolveIds(rawId);
       const projectId = await codexSessions.projectOf(id).catch(() => null);
@@ -148,7 +135,8 @@ export function createService({
       if (host !== "codex") return;
       const want = wantPlanHint(config);
       if (want === null || want === hintApplied) return;
-      hint ??= createPlanHint();
+      hint ??= codex?.createPlanHint?.() ?? null;
+      if (!hint) return;
       await hint.set(want);
       hintApplied = want;
     },

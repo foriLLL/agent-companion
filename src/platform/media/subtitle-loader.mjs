@@ -2,7 +2,10 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { RangeProxy } from "./ffmpeg-fmp4-session.mjs";
 import { resolveFfmpegPath } from "./ffmpeg-path.mjs";
-import { EmbyError, DEFAULT_SUBTITLE_LIMIT } from "../../../cards/emby/emby-client.mjs";
+import { MediaError } from "./errors.mjs";
+
+// 单个字幕轨读取上限。
+export const DEFAULT_SUBTITLE_LIMIT = 4 * 1024 * 1024;
 
 const execFileAsync = promisify(execFile);
 export const SUBTITLE_WINDOW_SECONDS = 60;
@@ -42,7 +45,7 @@ export async function extractSubtitleWindow({ readRange, openRangeStream, index,
     return { data: offsetWebVtt(stdout, start), window: { from, until } };
   } catch (cause) {
     if (signal?.aborted) throw signal.reason;
-    throw new EmbyError("SUBTITLE_EXTRACTION_FAILED", "当前片段字幕提取失败，可重试或切换字幕轨", { retryable: true, cause });
+    throw new MediaError("SUBTITLE_EXTRACTION_FAILED", "当前片段字幕提取失败，可重试或切换字幕轨", { retryable: true, cause });
   } finally {
     await proxy.close();
   }
@@ -55,13 +58,13 @@ export class SubtitleLoader {
   disposed = false;
 
   load(key, operation) {
-    if (this.disposed) return Promise.reject(new EmbyError("CANCELLED", "播放已结束"));
-    if (this.active?.key !== key) this.active?.controller.abort(new EmbyError("CANCELLED", "字幕位置已改变"));
+    if (this.disposed) return Promise.reject(new MediaError("CANCELLED", "播放已结束"));
+    if (this.active?.key !== key) this.active?.controller.abort(new MediaError("CANCELLED", "字幕位置已改变"));
     if (this.cache.has(key)) return Promise.resolve(this.cache.get(key));
     if (this.active?.key === key && !this.active.controller.signal.aborted) return this.active.promise;
     const controller = new AbortController();
     const entry = { key, controller };
-    const timeout = setTimeout(() => controller.abort(new EmbyError("SUBTITLE_TIMEOUT", "字幕服务响应较慢，请重试或换一条字幕", { retryable: true })), 55_000);
+    const timeout = setTimeout(() => controller.abort(new MediaError("SUBTITLE_TIMEOUT", "字幕服务响应较慢，请重试或换一条字幕", { retryable: true })), 55_000);
     entry.promise = Promise.resolve().then(() => operation(controller.signal)).then((result) => {
       controller.signal.throwIfAborted();
       if (this.cache.size >= 6) this.cache.delete(this.cache.keys().next().value);
@@ -82,6 +85,6 @@ export class SubtitleLoader {
   }
 
   cancel() {
-    this.active?.controller.abort(new EmbyError("CANCELLED", "字幕任务已取消"));
+    this.active?.controller.abort(new MediaError("CANCELLED", "字幕任务已取消"));
   }
 }

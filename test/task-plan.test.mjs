@@ -3,7 +3,8 @@ import test from "node:test";
 import { appendFile, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { applyPlanEvents, createPlanState, currentPlan, parseLiteral, parsePlanEvents, planSummary, plansFromItem, planFromMessage } from "../src/codex-plan.mjs";
+import { applyPlanEvents, createPlanState, currentPlan, parseLiteral, parsePlanEvents, plansFromItem, planFromMessage } from "../src/codex-plan.mjs";
+import { planSummary } from "../cards/tasks/plan-summary.mjs";
 import { PLAN_HINT_BODY } from "../src/codex-plan-hint-text.mjs";
 import { PLAN_HINT_END, PLAN_HINT_START, PLAN_TOOL_MARKER, PLAN_TOOL_SNIPPET, createPlanHint, hasHint, hasPlanTool, userPlanTool, withHint,
   withPlanTool, withoutHint, withoutPlanTool } from "../src/codex-plan-hint.mjs";
@@ -420,7 +421,7 @@ test("config.toml 开关：保留原内容与 0600 权限、跟随符号链接�
 
 test("任务看板服务：只在配置明确给出开关时动文件，看板或 Companion 停用时删除；平台把配置转给卡片服务", async () => {
   const calls = [];
-  const service = createService({ planHint: { set: async (value) => { calls.push(value); return true; } } });
+  const service = createService({ codexSessions: {}, planHint: { set: async (value) => { calls.push(value); return true; } } });
   await service.applyConfig({ enabled: true, cards: { tasks: { enabled: true, settings: {} } } });
   assert.deepEqual(calls, [], "没碰过开关不读不写");
   await service.applyConfig({ enabled: true, cards: { tasks: { enabled: true, settings: { planHint: true } } } });

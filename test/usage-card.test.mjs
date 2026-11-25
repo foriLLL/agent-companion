@@ -1,4 +1,5 @@
 import test from "node:test";
+import { buildCodexLaunchEnvironment } from "../src/launcher.mjs";
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
@@ -107,6 +108,8 @@ test("服务缓存 5 分钟、手动刷新至少隔 1 分钟，并发请求只�
   const service = createService({
     inspectCodexProxy: async () => ({ proxyPort: null }),
     loadConfig: async () => ({ launch: { proxy: { enabled: true, port: 7890 } } }),
+    // 平台经 api.codex.launchEnvironment 提供带代理的子进程环境。
+    launchEnvironment: buildCodexLaunchEnvironment,
     resolveCliImpl: () => "/x/codex",
     readImpl: async ({ env }) => { reads += 1; envs.push(env); return SAMPLE; },
     env: { PATH: "/usr/bin" },

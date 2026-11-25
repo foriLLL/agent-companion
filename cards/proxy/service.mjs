@@ -1,5 +1,4 @@
 import net from "node:net";
-import { detectCodexProxy } from "../../src/launcher.mjs";
 
 const PROBE_TIMEOUT_MS = 1500;
 
@@ -17,7 +16,8 @@ export function probeLoopbackPort(port, { timeoutMs = PROBE_TIMEOUT_MS } = {}) {
   });
 }
 
-export function createService({ inspectCodexProxy = () => detectCodexProxy(), probePortImpl = probeLoopbackPort } = {}) {
+// 正在运行的 Codex 用的启动代理由平台提供（api.codex.inspectProxy）。
+export function createService({ codex, inspectCodexProxy = codex?.inspectProxy ?? (async () => ({ supported: false })), probePortImpl = probeLoopbackPort } = {}) {
   return {
     methods: {
       async status(_params, context) {

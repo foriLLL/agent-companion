@@ -1,5 +1,5 @@
 import { EmbyService } from "./emby-service.mjs";
-import { rpcError } from "../../src/platform/services/errors.mjs";
+import { rpcError } from "../../sdk/service.mjs";
 
 export const EMBY_OPERATIONS = Object.freeze([
   "connection.status", "auth.login", "auth.logout", "servers.list", "servers.switch", "servers.remove",
@@ -7,8 +7,9 @@ export const EMBY_OPERATIONS = Object.freeze([
   "playback.direct.init", "playback.direct.next", "playback.direct.seek", "playback.subtitle.load", "playback.subtitle.select", "resource.load"
 ]);
 
-export function createService({ embyService, logger = console } = {}) {
-  const engine = embyService ?? new EmbyService({ logger });
+// api.media.interceptor：平台的 CDP 媒体拦截，用于原生 MP4 直放。embyService 只供测试替换。
+export function createService({ embyService, media, logger = console } = {}) {
+  const engine = embyService ?? new EmbyService({ logger, interceptor: media?.interceptor ?? null });
   const owners = new Map();
   return {
     methods: Object.fromEntries(EMBY_OPERATIONS.map(operation => [operation, async (params, context) => {

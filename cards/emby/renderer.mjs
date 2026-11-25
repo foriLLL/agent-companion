@@ -1,8 +1,6 @@
 import Hls from "hls.js";
-import { createMediaScope } from "../../src/renderer/media/scope.mjs";
-import { createMediaUi } from "../../src/renderer/media/ui.mjs";
-import { createDirectMp4Stream } from "../../src/renderer/media/direct-mp4.mjs";
-import { mediaStyles } from "../../src/renderer/media/styles.mjs";
+import { createDirectMp4Stream, createMediaScope, createMediaUi } from "../../sdk/renderer-media.mjs";
+import { cardStyles } from "./styles.mjs";
 
 export function mount(ctx) {
   const scope = createMediaScope(ctx);
@@ -11,7 +9,7 @@ export function mount(ctx) {
   const { makeElement, makeToolbarIcon, makeFullscreenButton, rpcError, toRpcError, decodeBase64, responseBytes } = ui;
   const configureDirectMp4Stream = createDirectMp4Stream(scope, ui);
   const shadow = ctx.root;
-  shadow.innerHTML = `<style>${mediaStyles}</style><section class="panel emby-card" data-card="emby" aria-label="Emby 媒体库"><div class="emby-app" aria-live="polite"></div></section>`;
+  shadow.innerHTML = `<style>${cardStyles}</style><section class="panel emby-card" data-card="emby" aria-label="Emby 媒体库"><div class="emby-app" aria-live="polite"></div></section>`;
   const embyApp = shadow.querySelector(".emby-app");
   let refreshEmbyImages = () => {};
   const embyState = {

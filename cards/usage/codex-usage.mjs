@@ -3,7 +3,7 @@
 // 只调用 account/rateLimits/read，不调用会返回邮箱等身份信息的 account/read。
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { searchPathCandidates } from "../../src/platform/paths.mjs";
+import { searchPathCandidates } from "../../sdk/service.mjs";
 
 const DEFAULT_TIMEOUT_MS = 45_000;
 

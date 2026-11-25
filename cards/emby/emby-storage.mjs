@@ -5,9 +5,7 @@ import { dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { promisify } from "node:util";
 import { EmbyError } from "./emby-client.mjs";
-import { companionDataDir, legacyCompanionDataDir } from "../../src/platform/paths.mjs";
-import { createSecretStore } from "../../src/platform/secret-store.mjs";
-import { replaceFile } from "../../src/platform/replace-file.mjs";
+import { companionDataDir, createSecretStore, legacyCompanionDataDir, replaceFile } from "../../sdk/service.mjs";
 
 const execFileAsync = promisify(execFile);
 export const KEYCHAIN_SERVICE = "agent-companion.emby";

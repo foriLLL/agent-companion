@@ -1,8 +1,20 @@
-import { videoColorInfo } from "../../src/platform/media/video-color.mjs";
-import { SubtitleLoader, extractSubtitleWindow, SUBTITLE_WINDOW_SECONDS } from "../../src/platform/media/subtitle-loader.mjs";
 import { randomUUID } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
-import { assToWebVtt } from "../../src/platform/media/ass-to-vtt.mjs";
+import {
+  DirectMp4Session,
+  FfmpegFmp4Session,
+  HlsProxy,
+  MediaError,
+  SUBTITLE_WINDOW_SECONDS,
+  SubtitleLoader,
+  assToWebVtt,
+  extractSubtitleWindow,
+  ffmpegStrategy,
+  mediaSourceExceedsDirectBitrate,
+  resolveFfmpegPath,
+  videoBitrateFor,
+  videoColorInfo
+} from "../../sdk/media.mjs";
 import {
   DEFAULT_RESOURCE_LIMIT,
   DEFAULT_SUBTITLE_LIMIT,
@@ -17,17 +29,7 @@ import {
   validateExternalMediaUrl,
   validateSameOriginResource
 } from "./emby-client.mjs";
-import { DirectMp4Session } from "../../src/platform/media/direct-mp4-session.mjs";
 import { EmbyStorage, embyServerKey } from "./emby-storage.mjs";
-import {
-  FfmpegFmp4Session,
-  ffmpegStrategy,
-  mediaSourceExceedsDirectBitrate,
-  videoBitrateFor
-} from "../../src/platform/media/ffmpeg-fmp4-session.mjs";
-import { resolveFfmpegPath } from "../../src/platform/media/ffmpeg-path.mjs";
-import { HlsProxy } from "../../src/platform/media/hls-proxy.mjs";
-import { toMediaInterceptUrl } from "../../src/platform/media/media-intercept.mjs";
 
 const DEFAULT_METADATA_TIMEOUT_MS = 12_000;
 const DEFAULT_METADATA_ATTEMPTS = 2;
@@ -385,7 +387,8 @@ function playbackEventName(value, isPaused) {
 }
 
 export function toRpcError(error, secrets = []) {
-  const normalized = error instanceof EmbyError
+  // 平台媒体库抛出的 MediaError 与 EmbyError 一样带稳定错误码，原样转出。
+  const normalized = error instanceof MediaError
     ? error
     : new EmbyError("INTERNAL_ERROR", "Emby 操作失败", { cause: error });
   return {
@@ -412,6 +415,9 @@ export class EmbyService {
     playbackEventTimeoutMs = DEFAULT_PLAYBACK_EVENT_TIMEOUT_MS,
     ffmpegAvailable,
     loginHostGuard = assertLoginHostAllowed,
+    // 平台注入的 CDP 媒体拦截（api.media.interceptor）：登记代理端口、把 loopback 地址换成拦截地址。
+    // 没有时（测试、一次性注入）原生直放不可用，回退到 MSE + RPC 分片。
+    interceptor = null,
     now = Date.now
   } = {}) {
     if (!Number.isFinite(metadataTimeoutMs) || metadataTimeoutMs <= 0) {
@@ -440,8 +446,10 @@ export class EmbyService {
       ? null
       : (hlsProxyFactory ?? ((options) => new HlsProxy(options)))({
           upstream: (args) => this.#mediaUpstream(args),
-          randomUUIDImpl
+          randomUUIDImpl,
+          registerInterceptPort: interceptor?.register ?? null
         });
+    this.interceptor = interceptor;
     this.randomUUIDImpl = randomUUIDImpl;
     this.logger = logger;
     this.config = null;
@@ -963,7 +971,7 @@ export class EmbyService {
       if (mediaTransport === "intercept" && streamMode === "direct-mp4" && session.directStreamUrl) {
         const mediaProxySession = await this.#registerMediaProxySession(client, session.directStreamUrl);
         const directMediaUrl = mediaProxySession
-          ? toMediaInterceptUrl(mediaProxySession.urlFor(session.directStreamUrl))
+          ? (this.interceptor?.toUrl(mediaProxySession.urlFor(session.directStreamUrl)) ?? null)
           : null;
         if (directMediaUrl) {
           session.hlsProxySession = mediaProxySession;

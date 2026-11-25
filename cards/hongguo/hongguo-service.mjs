@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { FfmpegFmp4Session } from "../../src/platform/media/ffmpeg-fmp4-session.mjs";
+import { FfmpegFmp4Session } from "../../sdk/media.mjs";
 import { HongguoError, HongguoSdkClient } from "./hongguo-sdk-client.mjs";
 import { HongguoListStorage, normalizeListEntry } from "./hongguo-list-storage.mjs";
 import { HongguoImageLoader, isHongguoImageUrl } from "./hongguo-image-loader.mjs";

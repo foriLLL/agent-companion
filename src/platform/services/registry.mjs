@@ -3,9 +3,14 @@ import { SERVICE_REGISTRY } from "../../cards/service-registry.generated.mjs";
 
 import { rpcError } from "./errors.mjs";
 
-// 方法只能由可信构建目录中的 service entry 声明，不能由配置或 RPC 提供模块路径。
+// 方法只能由已加载卡片的 service entry 声明，不能由配置或 RPC 提供模块路径。
+// cardApi(manifest) 为每张卡片构造 createService 的参数（见 card-api.mjs 的 createCardApi）；
+// 缺省时把 dependencies 原样交给每张卡片（测试用）。
 export class ServiceRegistry {
-  constructor({ modules = SERVICE_REGISTRY, manifests = CARD_MANIFESTS, dependencies = {}, loadConfig, logger = console } = {}) {
+  constructor({
+    modules = SERVICE_REGISTRY, manifests = CARD_MANIFESTS, dependencies = {}, loadConfig, logger = console,
+    cardApi = (manifest) => ({ ...dependencies, card: { id: manifest.id } })
+  } = {}) {
     this.services = new Map();
     this.routes = new Map();
     this.scopes = new Map();
@@ -18,7 +23,7 @@ export class ServiceRegistry {
       if (module && typeof module.createService !== "function") throw new TypeError(`卡片 ${manifest.id} 缺少 createService`);
       let service = {};
       let initializationError;
-      try { service = module?.createService(dependencies) ?? {}; }
+      try { service = module?.createService(cardApi(manifest)) ?? {}; }
       catch (error) {
         initializationError = error;
         Promise.resolve().then(() => logger.warn?.(`[agent-companion] 卡片 ${manifest.id} 服务初始化失败`)).catch(() => {});

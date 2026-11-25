@@ -22,9 +22,10 @@ const AGENT = {
   lastEvent: { event: "attached", at: 1000 }, nativeHelper: "ok", extraStatus: { preserved: true }
 };
 
-function createService(t, options = {}) {
+function createService(t, { embyService, ...options } = {}) {
   const service = new AgentCompanionService({
-    configStore: { loadV2: async () => CONFIG }, modules: {}, ...options
+    configStore: { loadV2: async () => CONFIG }, modules: {}, ...options,
+    ...(embyService ? { dependencies: { embyService } } : {})
   });
   t.after(() => service.dispose());
   return service;

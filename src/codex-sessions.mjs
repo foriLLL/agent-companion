@@ -393,6 +393,10 @@ export class CodexSessions {
     this.planQueue = Promise.resolve();
   }
 
+
+  // 新会话自动加入看板用，与 AntigravitySessions 同一接口：是否是用户在桌面端自己新开的会话、创建时间。
+  isUserSession(meta) { return isDesktopUserSession(meta); }
+  createdAt(meta) { return threadCreatedAt(meta?.id); }
   /**
    * 新建会话在本次运行中，侧栏条目一直用客户端临时 id（local:client-new-thread:<uuid>），
    * 真实会话 id 在发出第一条消息后才分配；两者的绑定由 Codex 存在 .codex-global-state.json 的

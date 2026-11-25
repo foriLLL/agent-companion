@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { EmbyError } from "../cards/emby/emby-client.mjs";
 import { embyServerKey } from "../cards/emby/emby-storage.mjs";
-import { resolveMediaInterceptUrl } from "../src/platform/media/media-intercept.mjs";
+import { registerMediaInterceptPort, resolveMediaInterceptUrl, toMediaInterceptUrl } from "../src/platform/media/media-intercept.mjs";
 import {
   EmbyService,
   computeSourceKey,
@@ -1424,7 +1424,9 @@ test("仅支持直连的 MP4 优先返回本机 Range 代理并保留 MSE 会话
       seek(timeSeconds) { directCalls.push({ method: "seek", timeSeconds }); return { timeSeconds, offset: 10 }; },
       destroy() { destroyed = true; }
     }),
-    randomUUIDImpl: () => "direct-playback"
+    randomUUIDImpl: () => "direct-playback",
+    // 平台注入的媒体拦截（卡片里经 api.media.interceptor 拿到）。
+    interceptor: { register: registerMediaInterceptPort, toUrl: toMediaInterceptUrl }
   });
 
   const opened = await service.handleRpc("playback.open", { itemId: "movie" }, { mediaTransport: "intercept" });

@@ -233,8 +233,11 @@ test("Antigravity 宿主的任务服务：不碰 Codex 计划提示，深链打�
     const added = await service.methods.add({ threadId: ID }, {});
     assert.equal(added.tasks[0].status, "missing");
     service.dispose();
-    // 不传 codexSessions 时默认就是 Antigravity 数据源
-    const fallback = createService({ host: "antigravity", taskBoard: new TaskBoardStorage({ path: path.join(dir, "b2.json") }) });
+    // 平台按宿主提供数据源与打开方式：Antigravity 宿主拿到 AntigravitySessions，打开会话给出提示。
+    const { createHostApi } = await import("../src/platform/services/card-api.mjs");
+    const hostApi = createHostApi({ host: "antigravity", sessionsFactory: () => new Sessions({ dataDir: dir, query: async () => [] }) });
+    assert.ok(hostApi.sessions.source instanceof Sessions);
+    const fallback = createService({ host: "antigravity", sessions: hostApi.sessions, taskBoard: new TaskBoardStorage({ path: path.join(dir, "b2.json") }), recentStorage: new TaskRecentStorage({ path: path.join(dir, "r2.json") }) });
     await assert.rejects(fallback.methods.open({ threadId: ID }, {}), (error) => error.code === "UNSUPPORTED");
     fallback.dispose();
   } finally { await rm(dir, { recursive: true, force: true }); }

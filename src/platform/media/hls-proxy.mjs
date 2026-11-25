@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 import { pipeline } from "node:stream/promises";
-import { EmbyError, SECRET_QUERY_KEYS, validateExternalMediaUrl } from "../../../cards/emby/emby-client.mjs";
+import { MediaError } from "./errors.mjs";
+import { SECRET_QUERY_KEYS, validateExternalMediaUrl } from "./net-guard.mjs";
 import { registerMediaInterceptPort } from "./media-intercept.mjs";
 
 // playlist 很小（几十 KB），重写时需要整体缓冲；超过上限说明上游在冒充清单，直接报错。
@@ -16,7 +17,7 @@ const FORWARD_HEADERS = new Map([
 ]);
 
 function cancelled(cause) {
-  return new EmbyError("CANCELLED", "HLS 代理请求已取消", { cause });
+  return new MediaError("CANCELLED", "HLS 代理请求已取消", { cause });
 }
 
 function stripSecretQuery(url) {
@@ -51,16 +52,23 @@ function stripRelativeSecretQuery(value) {
   return `${path}${query ? `?${query}` : ""}${hash}`;
 }
 
-// Emby 媒体的本地回路代理：既可代发 HLS manifest / 分片 / key，也可透传原生
+// 媒体服务器的本地回路代理：既可代发 HLS manifest / 分片 / key，也可透传原生
 // MP4 的持续 Range。后者替代「RPC + Base64 过 CDP」的高开销通道。
 // 安全模型与 RangeProxy 一致：只绑 loopback + 随机端口 + randomUUID 秘密路径；
-// token 只出现在发往 Emby 的 header 里，绝不出现在 URL。
+// token 只出现在发往上游的 header（tokenHeader，缺省为 Emby 的 X-Emby-Token）里，绝不出现在 URL。
+// registerInterceptPort：把代理端口登记给 CDP 媒体拦截。卡片里使用时必须传平台注入的
+// api.media.interceptor.register——卡片打包了自己的一份本模块，缺省值登记不到平台那里。
 export class HlsProxy {
-  constructor({ upstream, randomUUIDImpl = randomUUID, dnsLookup = undefined } = {}) {
+  constructor({
+    upstream, randomUUIDImpl = randomUUID, dnsLookup = undefined,
+    tokenHeader = "X-Emby-Token", registerInterceptPort = registerMediaInterceptPort
+  } = {}) {
     if (typeof upstream !== "function") {
       throw new TypeError("upstream 回调是必须的");
     }
     this.upstream = upstream;
+    this.tokenHeader = tokenHeader;
+    this.registerInterceptPort = registerInterceptPort;
     this.randomUUIDImpl = randomUUIDImpl;
     this.dnsLookup = dnsLookup;
     this.server = null;
@@ -103,12 +111,12 @@ export class HlsProxy {
     const address = server.address();
     if (!address || typeof address === "string") {
       server.close();
-      throw new EmbyError("HLS_PROXY_FAILED", "无法启动 HLS 本地代理");
+      throw new MediaError("HLS_PROXY_FAILED", "无法启动 HLS 本地代理");
     }
     this.server = server;
     this.port = address.port;
     // 只有登记过的代理端口才允许被 CDP 媒体拦截改写（见 media-intercept.mjs）。
-    this.unregisterIntercept = registerMediaInterceptPort(this.port);
+    this.unregisterIntercept = this.registerInterceptPort?.(this.port) ?? null;
     // 辅助服务器不允许独自撑起事件循环：忘记 close（如单元测试没有 dispose）时
     // 不能阻止进程退出；存活期由持有它的服务进程里的其它句柄保证。
     server.unref();
@@ -136,7 +144,7 @@ export class HlsProxy {
   // Emby 其它端点。返回的 urlFor 把同源目标 URL 映射为代理路径形式，跨源映射为 @ext 形式。
   register({ token, baseUrl, pathPrefix }) {
     if (!this.server || this.port === null) {
-      throw new EmbyError("HLS_PROXY_NOT_STARTED", "HLS 本地代理尚未启动");
+      throw new MediaError("HLS_PROXY_NOT_STARTED", "HLS 本地代理尚未启动");
     }
     const parsedBase = new URL(baseUrl);
     const secret = this.randomUUIDImpl();
@@ -229,7 +237,7 @@ export class HlsProxy {
 
       const headers = { Accept: "*/*" };
       if (typeof request.headers.range === "string") headers.Range = request.headers.range;
-      if (!external && session.token) headers["X-Emby-Token"] = session.token;
+      if (!external && session.token) headers[this.tokenHeader] = session.token;
 
       let upstream;
       try {
@@ -288,7 +296,7 @@ export class HlsProxy {
       let size = firstChunk?.length ?? 0;
       for (;;) {
         if (size > MAX_PLAYLIST_BYTES) {
-          throw new EmbyError("HLS_PLAYLIST_TOO_LARGE", "HLS 清单超过本地代理的缓冲上限");
+          throw new MediaError("HLS_PLAYLIST_TOO_LARGE", "HLS 清单超过本地代理的缓冲上限");
         }
         const next = await iterator.next();
         if (next.done) break;

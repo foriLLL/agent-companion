@@ -1,6 +1,7 @@
 import { CompanionConfig } from "./companion-config.mjs";
 import { CARD_MANIFESTS } from "./card-registry.mjs";
 import { rpcError } from "./platform/services/errors.mjs";
+import { createCardApi, createHostApi } from "./platform/services/card-api.mjs";
 import { ServiceRegistry } from "./platform/services/registry.mjs";
 
 function isRecord(value) {
@@ -15,22 +16,24 @@ function validateParams(params, allowed) {
   }
 }
 
-// 保留旧构造注入边界，具体引擎与方法清单由各卡片 service entry 拥有。
+// 平台 RPC（companion.*）与卡片服务注册表。平台不认识具体卡片：每张卡片的后台服务拿到
+// createCardApi 构造的运行时接口；dependencies 只用于测试替换卡片内部引擎。
 export class AgentCompanionService {
-  constructor({ configStore = new CompanionConfig(), inspectCodexProxy, logger = console, embyService, hongguoService, modules, manifests = CARD_MANIFESTS, platform = {}, host = "codex" } = {}) {
+  constructor({
+    configStore = new CompanionConfig(), inspectCodexProxy, logger = console, modules, manifests = CARD_MANIFESTS,
+    platform = {}, host = "codex", hostApi = createHostApi({ host, inspectCodexProxy }), packageDirs = {}, dependencies = {}
+  } = {}) {
     this.host = host;
     this.configStore = configStore;
     this.platform = platform;
     // 设置页只列这个宿主里会出现的卡片（manifest 的 hosts）。
     this.catalog = manifests.filter(({ hosts }) => !hosts || hosts.includes(host))
       .map(({ id, title, defaultEnabled, defaultOrder }) => ({ id, title, defaultEnabled, defaultOrder }));
-    this.embyService = embyService;
-    this.hongguoService = hongguoService;
     const loadConfig = () => typeof configStore.loadV2 === "function" ? configStore.loadV2() : configStore.load();
     this.loadConfig = loadConfig;
     this.registry = new ServiceRegistry({
       modules, manifests, loadConfig, logger,
-      dependencies: { embyService, hongguoService, inspectCodexProxy, logger, loadConfig, host }
+      cardApi: (manifest) => createCardApi({ manifest, packageDir: packageDirs[manifest.id] ?? null, hostApi, logger, loadConfig, extras: dependencies })
     });
   }
 

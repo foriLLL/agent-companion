@@ -1,7 +1,7 @@
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { existsSync } from "node:fs";
-import { companionDataDir } from "../../src/platform/paths.mjs";
+import { companionDataDir } from "../../sdk/service.mjs";
 
 // openhongguo 的 Node 绑定把 Go 编译的 wasm 一起发布，包内用相对自身的路径
 // 读取 dist/openhongguo.wasm，所以必须从真实文件位置 import：bun --compile 出来的
