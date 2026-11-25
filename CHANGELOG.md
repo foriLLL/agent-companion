@@ -4,6 +4,8 @@
 
 ## Unreleased
 
+## 0.4.0 - 2026-11-25
+
 - 项目改名为 Agent Companion（原 Codex Companion），为接入 Codex 以外的宿主（Antigravity）做准备：仓库改为
   `foriLLL/agent-companion`，Homebrew formula、命令改为 `agent-companion`，数据目录、日志目录、后台服务标签
   （`com.agentcompanion.agent` / `agent-companion-agent.service`）与环境变量前缀（`AGENT_COMPANION_*`）同步改名。
