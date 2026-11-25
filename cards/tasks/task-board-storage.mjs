@@ -2,9 +2,9 @@ import { chmod, mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
-import { THREAD_ID_PATTERN } from "./codex-sessions.mjs";
-import { companionDataDir } from "./platform/paths.mjs";
-import { replaceFile } from "./platform/replace-file.mjs";
+import { THREAD_ID_PATTERN } from "../../src/codex-sessions.mjs";
+import { companionDataDir } from "../../src/platform/paths.mjs";
+import { replaceFile } from "../../src/platform/replace-file.mjs";
 
 const FILE_LIMIT = 1024 * 1024;
 export const MAX_TASKS = 100;

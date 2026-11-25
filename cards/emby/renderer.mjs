@@ -1,8 +1,8 @@
 import Hls from "hls.js";
-import { createMediaScope } from "../../renderer/media/scope.mjs";
-import { createMediaUi } from "../../renderer/media/ui.mjs";
-import { createDirectMp4Stream } from "../../renderer/media/direct-mp4.mjs";
-import { mediaStyles } from "../../renderer/media/styles.mjs";
+import { createMediaScope } from "../../src/renderer/media/scope.mjs";
+import { createMediaUi } from "../../src/renderer/media/ui.mjs";
+import { createDirectMp4Stream } from "../../src/renderer/media/direct-mp4.mjs";
+import { mediaStyles } from "../../src/renderer/media/styles.mjs";
 
 export function mount(ctx) {
   const scope = createMediaScope(ctx);

@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { CdpConnection } from "../src/cdp-connection.mjs";
 import { reserveLoopbackPort } from "../src/launcher.mjs";
-import { attachMediaIntercept, registerMediaInterceptPort } from "../src/media-intercept.mjs";
+import { attachMediaIntercept, registerMediaInterceptPort } from "../src/platform/media/media-intercept.mjs";
 import { listCdpTargets } from "../src/targets.mjs";
 
 const run = promisify(execFile);
@@ -21,7 +21,7 @@ let cdp;
 let server;
 try {
   const bun = path.join(root, "node_modules", "bun", "bin", "bun.exe");
-  for (const [source, output] of [["src/cards/emby/renderer.mjs", "emby.js"], ["src/cards/hongguo/renderer.mjs", "hongguo.js"], ["src/renderer/platform/effects.mjs", "effects.js"]]) {
+  for (const [source, output] of [["cards/emby/renderer.mjs", "emby.js"], ["cards/hongguo/renderer.mjs", "hongguo.js"], ["src/renderer/platform/effects.mjs", "effects.js"]]) {
     await run(bun, ["build", source, "--target", "browser", "--outfile", path.join(temporary, output)], { cwd: root });
   }
   // 所有媒体由本机生成，测试不接触真实服务器或用户凭据。

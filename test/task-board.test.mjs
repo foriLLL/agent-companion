@@ -4,8 +4,8 @@ import { appendFile, mkdir, mkdtemp, readFile, rm, stat, utimes, writeFile } fro
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { CodexSessions, parseTrace, STALLED_AFTER_MS, defaultCodexHome, endsWithQuestion, lastLifecycle, threadCreatedAt } from "../src/codex-sessions.mjs";
-import { TaskBoardStorage, pickColor } from "../src/task-board-storage.mjs";
-import { createService } from "../src/cards/tasks/service.mjs";
+import { TaskBoardStorage, pickColor } from "../cards/tasks/task-board-storage.mjs";
+import { createService } from "../cards/tasks/service.mjs";
 import { assertMode } from "./helpers/permissions.mjs";
 
 // 01a18216-3b02 → 2026-10-28T10:37:37.410Z

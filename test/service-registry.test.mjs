@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { ServiceRegistry } from "../src/platform/services/registry.mjs";
-import { EMBY_OPERATIONS } from "../src/cards/emby/service.mjs";
+import { EMBY_OPERATIONS } from "../cards/emby/service.mjs";
 import { SERVICE_REGISTRY } from "../src/cards/service-registry.generated.mjs";
 import { createServiceWithClips } from "./helpers/clips-card.mjs";
 

@@ -8,7 +8,7 @@ import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { resolveFfmpegPath } from "./ffmpeg-path.mjs";
-import { EmbyError } from "./emby-client.mjs";
+import { EmbyError } from "../../../cards/emby/emby-client.mjs";
 
 const RANGE_CHUNK_BYTES = 1024 * 1024;
 const MAX_QUEUE_BYTES = 24 * 1024 * 1024;

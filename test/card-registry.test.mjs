@@ -187,7 +187,7 @@ test("requireEntries 要求 renderer.mjs，service.mjs 可选", async () => {
 });
 
 test("仓库内置卡片可被发现且能力符合冻结枚举", async () => {
-  const cardsDir = fileURLToPath(new URL("../src/cards/", import.meta.url));
+  const cardsDir = fileURLToPath(new URL("../cards/", import.meta.url));
   const discovered = await discoverCards({ cardsDir });
   assert.deepEqual(discovered.cards.map((card) => card.manifest.id), ["proxy", "usage", "tasks", "hongguo", "emby"]);
   assert.deepEqual(discovered.cards.map((card) => card.manifest.defaultOrder), [0, 2, 5, 20, 40]);

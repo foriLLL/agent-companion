@@ -4,8 +4,8 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { AntigravitySessions, decodeSummary, describeAntigravityTool, parseAntigravityTrace, querySqlite } from "../src/antigravity-sessions.mjs";
-import { createSessionWatcher } from "../src/task-auto-add.mjs";
-import { defaultTaskBoardPath, defaultTaskRecentPath } from "../src/task-board-storage.mjs";
+import { createSessionWatcher } from "../cards/tasks/task-auto-add.mjs";
+import { defaultTaskBoardPath, defaultTaskRecentPath } from "../cards/tasks/task-board-storage.mjs";
 
 // ---------- 最小 protobuf 编码器（只为造测试数据） ----------
 const varint = (value) => {
@@ -214,11 +214,11 @@ test("看板文件按宿主分开，Codex 沿用原文件名", () => {
 });
 
 test("Antigravity 宿主的任务服务：不碰 Codex 计划提示，深链打开给出提示", async () => {
-  const { createService } = await import("../src/cards/tasks/service.mjs");
+  const { createService } = await import("../cards/tasks/service.mjs");
   const { AntigravitySessions: Sessions } = await import("../src/antigravity-sessions.mjs");
   const dir = await mkdtemp(path.join(os.tmpdir(), "agy-tasks-"));
   try {
-    const { TaskBoardStorage, TaskRecentStorage } = await import("../src/task-board-storage.mjs");
+    const { TaskBoardStorage, TaskRecentStorage } = await import("../cards/tasks/task-board-storage.mjs");
     let hintCalls = 0;
     const service = createService({
       host: "antigravity",

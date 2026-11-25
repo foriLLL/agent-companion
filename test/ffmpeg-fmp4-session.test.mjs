@@ -7,8 +7,8 @@ import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import test from "node:test";
 import { promisify } from "node:util";
-import { EmbyError } from "../src/emby-client.mjs";
-import { resolveFfmpegPath } from "../src/ffmpeg-path.mjs";
+import { EmbyError } from "../cards/emby/emby-client.mjs";
+import { resolveFfmpegPath } from "../src/platform/media/ffmpeg-path.mjs";
 import {
   FfmpegFmp4Session,
   RangeProxy,
@@ -16,7 +16,7 @@ import {
   ffmpegStrategy,
   mediaSourceExceedsDirectBitrate,
   videoBitrateFor
-} from "../src/ffmpeg-fmp4-session.mjs";
+} from "../src/platform/media/ffmpeg-fmp4-session.mjs";
 
 const execFileAsync = promisify(execFile);
 const ffmpegPath = resolveFfmpegPath();
@@ -38,7 +38,7 @@ async function ffmpegHasFilter(name) {
 
 test("Bun 发布运行时使用原生 loopback Range 服务并保持字节精确", async () => {
   const bunPath = join(process.cwd(), "node_modules", "bun", "bin", "bun.exe");
-  const moduleUrl = new URL("../src/ffmpeg-fmp4-session.mjs", import.meta.url).href;
+  const moduleUrl = new URL("../src/platform/media/ffmpeg-fmp4-session.mjs", import.meta.url).href;
   const script = `
     import { RangeProxy } from ${JSON.stringify(moduleUrl)};
     const nativeServe = Bun.serve;

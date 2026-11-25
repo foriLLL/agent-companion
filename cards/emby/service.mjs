@@ -1,5 +1,5 @@
-import { EmbyService } from "../../emby-service.mjs";
-import { rpcError } from "../../platform/services/errors.mjs";
+import { EmbyService } from "./emby-service.mjs";
+import { rpcError } from "../../src/platform/services/errors.mjs";
 
 export const EMBY_OPERATIONS = Object.freeze([
   "connection.status", "auth.login", "auth.logout", "servers.list", "servers.switch", "servers.remove",

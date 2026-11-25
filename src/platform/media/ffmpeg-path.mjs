@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
-import { searchPathCandidates } from "./platform/paths.mjs";
+import { searchPathCandidates } from "../paths.mjs";
 
 /**
  * 解析 FFmpeg 可执行文件路径。

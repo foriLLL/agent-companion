@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import net from "node:net";
 import test from "node:test";
-import { createService, probeLoopbackPort } from "../src/cards/proxy/service.mjs";
+import { createService, probeLoopbackPort } from "../cards/proxy/service.mjs";
 import { AgentCompanionService } from "../src/agent-companion-service.mjs";
 
 const context = { signal: new AbortController().signal };

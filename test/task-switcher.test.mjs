@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { SHOW_DELAY_MS, createSwitchController, isMac, mergeRecent, modifierOf, orderByRecent, touchRecent } from "../src/cards/tasks/switcher.mjs";
+import { SHOW_DELAY_MS, createSwitchController, isMac, mergeRecent, modifierOf, orderByRecent, touchRecent } from "../cards/tasks/switcher.mjs";
 import { createOverlayLayer } from "../src/renderer/shell/overlay-layer.mjs";
 import { createEffects } from "../src/renderer/platform/effects.mjs";
 

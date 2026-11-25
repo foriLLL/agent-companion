@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { packLaneSegments } from "../src/cards/tasks/trace.mjs";
+import { packLaneSegments } from "../cards/tasks/trace.mjs";
 
 const toX = (ms) => ms / 100; // 10px/秒
 

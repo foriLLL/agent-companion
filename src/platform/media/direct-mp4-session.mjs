@@ -1,5 +1,5 @@
 import { createFile } from "mp4box";
-import { EmbyError } from "./emby-client.mjs";
+import { EmbyError } from "../../../cards/emby/emby-client.mjs";
 
 // 2MB 与 Emby 的 Range 上限（DEFAULT_DIRECT_RANGE_LIMIT）
 // 对齐；普通分片每次 RPC 仍最多 8MB。异常媒体仍可能产生更大的完整分片，允许

@@ -1,5 +1,5 @@
 import net from "node:net";
-import { detectCodexProxy } from "../../launcher.mjs";
+import { detectCodexProxy } from "../../src/launcher.mjs";
 
 const PROBE_TIMEOUT_MS = 1500;
 

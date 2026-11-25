@@ -11,7 +11,7 @@ import { discoverCards } from "../src/platform/registry/discovery.mjs";
  *   node scripts/generate-card-registry.mjs
  *     [--cards-dir <dir>] [--out-dir <dir>] [--require-entries]
  *
- * --cards-dir  默认 <repo>/src/cards
+ * --cards-dir  默认 <repo>/cards
  * --out-dir    默认 <repo>/src，其下写出：
  *              card-registry.mjs
  *              cards/renderer-registry.generated.mjs
@@ -240,7 +240,7 @@ function readValue(argv, index, flag) {
 
 const HELP = `用法: node scripts/generate-card-registry.mjs [--cards-dir <dir>] [--out-dir <dir>] [--require-entries]
 
-默认 --cards-dir src/cards，--out-dir src。
+默认 --cards-dir cards，--out-dir src。
 metadata-only（默认）允许缺少 renderer.mjs；--require-entries 缺少前端入口时失败。
 service.mjs 始终可选。`;
 
@@ -251,7 +251,7 @@ async function main() {
     return;
   }
   const result = await generateCardRegistry({
-    cardsDir: options.cardsDir ?? join(REPO_ROOT, "src", "cards"),
+    cardsDir: options.cardsDir ?? join(REPO_ROOT, "cards"),
     outDir: options.outDir ?? join(REPO_ROOT, "src"),
     requireEntries: options.requireEntries
   });

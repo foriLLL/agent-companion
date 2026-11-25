@@ -8,8 +8,8 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { CdpConnection } from "../src/cdp-connection.mjs";
 import { CodexSessions, threadCreatedAt } from "../src/codex-sessions.mjs";
-import { createService } from "../src/cards/tasks/service.mjs";
-import { TaskBoardStorage } from "../src/task-board-storage.mjs";
+import { createService } from "../cards/tasks/service.mjs";
+import { TaskBoardStorage } from "../cards/tasks/task-board-storage.mjs";
 import { reserveLoopbackPort } from "../src/launcher.mjs";
 import { listCdpTargets } from "../src/targets.mjs";
 
@@ -71,7 +71,7 @@ const server = createServer(async (request, response) => {
 try {
   const fixture = join(temporary, "page.mjs");
   await writeFile(fixture, `
-    import { mount } from ${JSON.stringify(join(root, "src/cards/tasks/renderer.mjs"))};
+    import { mount } from ${JSON.stringify(join(root, "cards/tasks/renderer.mjs"))};
     import { createEffects } from ${JSON.stringify(join(root, "src/renderer/platform/effects.mjs"))};
     import { createOverlayLayer } from ${JSON.stringify(join(root, "src/renderer/shell/overlay-layer.mjs"))};
     const controller = new AbortController();

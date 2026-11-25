@@ -1,4 +1,4 @@
-import { EmbyError } from "./emby-client.mjs";
+import { EmbyError } from "../../../cards/emby/emby-client.mjs";
 
 const DEFAULT_EVENT_FORMAT = [
   "layer",

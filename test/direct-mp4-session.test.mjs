@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { DIRECT_MP4_SEGMENT_BYTES, DirectMp4Session } from "../src/direct-mp4-session.mjs";
+import { DIRECT_MP4_SEGMENT_BYTES, DirectMp4Session } from "../src/platform/media/direct-mp4-session.mjs";
 
 function bytes(...values) {
   return Uint8Array.from(values);

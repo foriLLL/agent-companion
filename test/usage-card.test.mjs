@@ -2,9 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
-import { codexCliCandidates, normalizeCodexRateLimits, readCodexRateLimits, resolveCodexCli } from "../src/codex-usage.mjs";
-import { createService, resolveProxyPort } from "../src/cards/usage/service.mjs";
-import { antigravityGroupLabel, antigravityWindowLabel, remainingTone, resetText, shortResetText, shouldUseRings, windowLabel } from "../src/cards/usage/renderer.mjs";
+import { codexCliCandidates, normalizeCodexRateLimits, readCodexRateLimits, resolveCodexCli } from "../cards/usage/codex-usage.mjs";
+import { createService, resolveProxyPort } from "../cards/usage/service.mjs";
+import { antigravityGroupLabel, antigravityWindowLabel, remainingTone, resetText, shortResetText, shouldUseRings, windowLabel } from "../cards/usage/renderer.mjs";
 import { createAntigravityHostApi } from "../src/renderer/adapters/antigravity-host-api.mjs";
 
 // 假的 `codex app-server`：按行读 JSON-RPC 请求，按脚本回包，记录收到的方法。

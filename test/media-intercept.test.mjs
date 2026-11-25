@@ -6,7 +6,7 @@ import {
   registerMediaInterceptPort,
   resolveMediaInterceptUrl,
   toMediaInterceptUrl
-} from "../src/media-intercept.mjs";
+} from "../src/platform/media/media-intercept.mjs";
 
 const SECRET = "11111111-1111-4111-8111-111111111111";
 

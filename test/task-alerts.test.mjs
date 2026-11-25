@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { ALERT_DEFAULTS, alertLevel, taskAlerts } from "../src/cards/tasks/alerts.mjs";
+import { ALERT_DEFAULTS, alertLevel, taskAlerts } from "../cards/tasks/alerts.mjs";
 
 const task = (threadId, status, turnAt, unread = true) => ({ threadId, status, turnAt, unread });
 const board = (...tasks) => ({ tasks });

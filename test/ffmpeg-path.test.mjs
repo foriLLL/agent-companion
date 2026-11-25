@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { resolveFfmpegPath } from "../src/ffmpeg-path.mjs";
+import { resolveFfmpegPath } from "../src/platform/media/ffmpeg-path.mjs";
 
 test("环境变量覆盖优先且必须存在", () => {
   const path = resolveFfmpegPath({

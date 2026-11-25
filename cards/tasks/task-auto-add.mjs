@@ -1,4 +1,4 @@
-import { THREAD_ID_PATTERN, isDesktopUserSession, threadCreatedAt } from "./codex-sessions.mjs";
+import { THREAD_ID_PATTERN, isDesktopUserSession, threadCreatedAt } from "../../src/codex-sessions.mjs";
 
 // 新会话自动加入看板：定期列出 Codex 今天和昨天的会话记录，新出现的文件读第一行 session_meta，
 // 是用户在桌面端自己新开的会话就交给 onSession 加入看板。

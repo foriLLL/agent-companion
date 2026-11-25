@@ -12,7 +12,7 @@ import {
   sanitizeHlsManifest,
   validateExternalMediaUrl,
   validateSameOriginResource
-} from "../src/emby-client.mjs";
+} from "../cards/emby/emby-client.mjs";
 
 test("字幕下载不被占满的封面队列阻塞", async () => {
   let releaseImage;

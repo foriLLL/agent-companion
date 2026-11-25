@@ -1,8 +1,8 @@
-import { videoColorInfo } from "./video-color.mjs";
-import { SubtitleLoader, extractSubtitleWindow, SUBTITLE_WINDOW_SECONDS } from "./subtitle-loader.mjs";
+import { videoColorInfo } from "../../src/platform/media/video-color.mjs";
+import { SubtitleLoader, extractSubtitleWindow, SUBTITLE_WINDOW_SECONDS } from "../../src/platform/media/subtitle-loader.mjs";
 import { randomUUID } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
-import { assToWebVtt } from "./ass-to-vtt.mjs";
+import { assToWebVtt } from "../../src/platform/media/ass-to-vtt.mjs";
 import {
   DEFAULT_RESOURCE_LIMIT,
   DEFAULT_SUBTITLE_LIMIT,
@@ -17,17 +17,17 @@ import {
   validateExternalMediaUrl,
   validateSameOriginResource
 } from "./emby-client.mjs";
-import { DirectMp4Session } from "./direct-mp4-session.mjs";
+import { DirectMp4Session } from "../../src/platform/media/direct-mp4-session.mjs";
 import { EmbyStorage, embyServerKey } from "./emby-storage.mjs";
 import {
   FfmpegFmp4Session,
   ffmpegStrategy,
   mediaSourceExceedsDirectBitrate,
   videoBitrateFor
-} from "./ffmpeg-fmp4-session.mjs";
-import { resolveFfmpegPath } from "./ffmpeg-path.mjs";
-import { HlsProxy } from "./hls-proxy.mjs";
-import { toMediaInterceptUrl } from "./media-intercept.mjs";
+} from "../../src/platform/media/ffmpeg-fmp4-session.mjs";
+import { resolveFfmpegPath } from "../../src/platform/media/ffmpeg-path.mjs";
+import { HlsProxy } from "../../src/platform/media/hls-proxy.mjs";
+import { toMediaInterceptUrl } from "../../src/platform/media/media-intercept.mjs";
 
 const DEFAULT_METADATA_TIMEOUT_MS = 12_000;
 const DEFAULT_METADATA_ATTEMPTS = 2;

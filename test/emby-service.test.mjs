@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { EmbyError } from "../src/emby-client.mjs";
-import { embyServerKey } from "../src/emby-storage.mjs";
-import { resolveMediaInterceptUrl } from "../src/media-intercept.mjs";
+import { EmbyError } from "../cards/emby/emby-client.mjs";
+import { embyServerKey } from "../cards/emby/emby-storage.mjs";
+import { resolveMediaInterceptUrl } from "../src/platform/media/media-intercept.mjs";
 import {
   EmbyService,
   computeSourceKey,
@@ -14,7 +14,7 @@ import {
   mediaSourceSupportsRendererFmp4,
   pickMediaSource,
   secondsToTicks
-} from "../src/emby-service.mjs";
+} from "../cards/emby/emby-service.mjs";
 
 // 遥测超时计时器在生产中 unref，避免拖住进程退出；部分用例的假客户端永不完成，
 // 若宿主上恰好没有其它活动句柄，事件循环会在超时触发前结束。这里显式保活。

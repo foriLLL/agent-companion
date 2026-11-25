@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { get as httpGet } from "node:http";
 import test from "node:test";
-import { HlsProxy } from "../src/hls-proxy.mjs";
+import { HlsProxy } from "../src/platform/media/hls-proxy.mjs";
 
 const BASE_URL = "https://emby.example/emby";
 const PATH_PREFIX = "/emby/Videos/movie/";

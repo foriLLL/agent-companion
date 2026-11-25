@@ -11,7 +11,7 @@ const exec = promisify(execFile);
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 
 export async function generateRenderer({ repoRoot = root, requireEntries = true } = {}) {
-  await generateCardRegistry({ cardsDir: join(repoRoot, "src/cards"), outDir: join(repoRoot, "src"), requireEntries });
+  await generateCardRegistry({ cardsDir: join(repoRoot, "cards"), outDir: join(repoRoot, "src"), requireEntries });
   const temporary = await mkdtemp(join(tmpdir(), "companion-renderer-build-"));
   try {
     const output = join(temporary, "renderer.js");

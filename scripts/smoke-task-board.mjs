@@ -62,7 +62,7 @@ try {
   await evaluate(`(async () => {
     const [{ createCodexThreads }, { mount }, { createEffects }, { createOverlayLayer }, { createAttentionLayer }] = await Promise.all([
       import(${JSON.stringify(await moduleUrl("src/renderer/adapters/codex-threads.mjs"))}),
-      import(${JSON.stringify(await moduleUrl("src/cards/tasks/renderer.mjs"))}),
+      import(${JSON.stringify(await moduleUrl("cards/tasks/renderer.mjs"))}),
       import(${JSON.stringify(await moduleUrl("src/renderer/platform/effects.mjs"))}),
       import(${JSON.stringify(await moduleUrl("src/renderer/shell/overlay-layer.mjs"))}),
       import(${JSON.stringify(await moduleUrl("src/renderer/shell/attention-layer.mjs"))})
@@ -139,7 +139,7 @@ try {
     });
     document.querySelector('[data-app-action-sidebar-thread-id="local:' + ids.a3 + '"]').setAttribute('data-app-action-sidebar-thread-active', 'true');
 
-    // 内存版看板服务，语义与 src/cards/tasks/service.mjs 一致。
+    // 内存版看板服务，语义与 cards/tasks/service.mjs 一致。
     globalThis.rpcCalls = [];
     let revision = 0, tasks = [];
     const statusOf = globalThis.statusOf = { [ids.a24]: 'running', [ids.bHidden]: 'asking', [ids.s1]: 'interrupted' };

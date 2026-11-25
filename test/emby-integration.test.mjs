@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import test from "node:test";
-import { EmbyService } from "../src/emby-service.mjs";
+import { EmbyService } from "../cards/emby/emby-service.mjs";
 
 const ACCESS_TOKEN = "integration-access-token";
 

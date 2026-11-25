@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { assToWebVtt } from "../src/ass-to-vtt.mjs";
+import { assToWebVtt } from "../src/platform/media/ass-to-vtt.mjs";
 
 test("ASS 转 WebVTT 保留逗号和换行，并移除样式控制码", () => {
   const result = assToWebVtt(`[Script Info]

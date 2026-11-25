@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { HongguoSdkClient } from "../src/hongguo-sdk-client.mjs";
+import { HongguoSdkClient } from "../cards/hongguo/hongguo-sdk-client.mjs";
 
 test("discover 将频道与上游游标传给 SDK，不伪造 pageSize", async () => {
   const calls = [];

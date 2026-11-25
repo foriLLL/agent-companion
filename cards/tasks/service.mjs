@@ -3,15 +3,15 @@ import { createHash } from "node:crypto";
 import { stat } from "node:fs/promises";
 import { setTimeout as delay } from "node:timers/promises";
 import { promisify } from "node:util";
-import { createPlanHint } from "../../codex-plan-hint.mjs";
-import { planSummary } from "../../codex-plan.mjs";
-import { AntigravitySessions } from "../../antigravity-sessions.mjs";
-import { CodexSessions, THREAD_ID_PATTERN } from "../../codex-sessions.mjs";
-import { rpcError } from "../../platform/services/errors.mjs";
-import { createSessionWatcher } from "../../task-auto-add.mjs";
+import { createPlanHint } from "../../src/codex-plan-hint.mjs";
+import { planSummary } from "../../src/codex-plan.mjs";
+import { AntigravitySessions } from "../../src/antigravity-sessions.mjs";
+import { CodexSessions, THREAD_ID_PATTERN } from "../../src/codex-sessions.mjs";
+import { rpcError } from "../../src/platform/services/errors.mjs";
+import { createSessionWatcher } from "./task-auto-add.mjs";
 import {
   COLOR_COUNT, MAX_TASKS, TaskBoardStorage, TaskRecentStorage, defaultTaskBoardPath, defaultTaskRecentPath, normalizeName, normalizeTask, pickColor
-} from "../../task-board-storage.mjs";
+} from "./task-board-storage.mjs";
 
 const execFileAsync = promisify(execFile);
 // 长轮询：每 300ms 只比较文件指纹，有变化才重新解析；最多挂起 25 秒后照常返回。

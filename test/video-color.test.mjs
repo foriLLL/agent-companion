@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { videoColorInfo, SDR_TONE_MAP_FILTER } from "../src/video-color.mjs";
-import { buildFfmpegArguments, ffmpegStrategy, requireToneMappingSupport } from "../src/ffmpeg-fmp4-session.mjs";
-import { mapMediaSourceOption, mediaSourceSupportsRendererFmp4, pickMediaSource } from "../src/emby-service.mjs";
-import { resolveFfmpegPath } from "../src/ffmpeg-path.mjs";
+import { videoColorInfo, SDR_TONE_MAP_FILTER } from "../src/platform/media/video-color.mjs";
+import { buildFfmpegArguments, ffmpegStrategy, requireToneMappingSupport } from "../src/platform/media/ffmpeg-fmp4-session.mjs";
+import { mapMediaSourceOption, mediaSourceSupportsRendererFmp4, pickMediaSource } from "../cards/emby/emby-service.mjs";
+import { resolveFfmpegPath } from "../src/platform/media/ffmpeg-path.mjs";
 
 const source = (video) => ({ Container: "mkv", MediaStreams: [{ Type: "Video", Codec: "hevc", ...video }] });
 

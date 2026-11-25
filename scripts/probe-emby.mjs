@@ -2,7 +2,7 @@
 
 import { randomUUID } from "node:crypto";
 import { createInterface } from "node:readline/promises";
-import { assToWebVtt } from "../src/ass-to-vtt.mjs";
+import { assToWebVtt } from "../src/platform/media/ass-to-vtt.mjs";
 import { pathToFileURL } from "node:url";
 import {
   EmbyClient,
@@ -10,10 +10,10 @@ import {
   normalizeServerUrl,
   redactSensitive,
   sanitizeDirectStreamUrl
-} from "../src/emby-client.mjs";
-import { DirectMp4Session } from "../src/direct-mp4-session.mjs";
-import { mapSubtitleStreams } from "../src/emby-service.mjs";
-import { FfmpegFmp4Session } from "../src/ffmpeg-fmp4-session.mjs";
+} from "../cards/emby/emby-client.mjs";
+import { DirectMp4Session } from "../src/platform/media/direct-mp4-session.mjs";
+import { mapSubtitleStreams } from "../cards/emby/emby-service.mjs";
+import { FfmpegFmp4Session } from "../src/platform/media/ffmpeg-fmp4-session.mjs";
 
 export function parseProbeArgs(argv) {
   const options = { server: "", username: "", search: "", itemId: "", help: false };

@@ -8,9 +8,9 @@ import { PLAN_HINT_BODY } from "../src/codex-plan-hint-text.mjs";
 import { PLAN_HINT_END, PLAN_HINT_START, PLAN_TOOL_MARKER, PLAN_TOOL_SNIPPET, createPlanHint, hasHint, hasPlanTool, userPlanTool, withHint,
   withPlanTool, withoutHint, withoutPlanTool } from "../src/codex-plan-hint.mjs";
 import { CodexSessions, threadCreatedAt } from "../src/codex-sessions.mjs";
-import { createService } from "../src/cards/tasks/service.mjs";
+import { createService } from "../cards/tasks/service.mjs";
 import { ServiceRegistry } from "../src/platform/services/registry.mjs";
-import { TaskBoardStorage } from "../src/task-board-storage.mjs";
+import { TaskBoardStorage } from "../cards/tasks/task-board-storage.mjs";
 import { uninstallAgent } from "../src/agent/launch-agent.mjs";
 import { assertMode } from "./helpers/permissions.mjs";
 

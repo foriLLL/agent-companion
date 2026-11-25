@@ -1,6 +1,6 @@
 import { completeCardOrder } from "../../platform/config/runtime-config.mjs";
 import { PLAN_HINT_BODY, PLAN_TOOL_SNIPPET } from "../../codex-plan-hint-text.mjs";
-import { alertLevel } from "../../cards/tasks/alerts.mjs";
+import { alertLevel } from "../../../cards/tasks/alerts.mjs";
 
 // agent 拒绝重启时返回机器原因码，这里只展示对用户有意义的说明。
 const RESTART_REFUSALS = {

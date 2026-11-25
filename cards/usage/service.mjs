@@ -1,5 +1,5 @@
-import { buildCodexLaunchEnvironment, detectCodexProxy } from "../../launcher.mjs";
-import { normalizeCodexRateLimits, readCodexRateLimits, resolveCodexCli } from "../../codex-usage.mjs";
+import { buildCodexLaunchEnvironment, detectCodexProxy } from "../../src/launcher.mjs";
+import { normalizeCodexRateLimits, readCodexRateLimits, resolveCodexCli } from "./codex-usage.mjs";
 
 // 额度变化不快，上游请求按需发起：缓存 5 分钟，手动刷新至少间隔 1 分钟。
 export const CACHE_MS = 5 * 60_000;

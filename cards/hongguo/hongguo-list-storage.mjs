@@ -2,8 +2,8 @@ import { chmod, mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
-import { companionDataDir } from "./platform/paths.mjs";
-import { replaceFile } from "./platform/replace-file.mjs";
+import { companionDataDir } from "../../src/platform/paths.mjs";
+import { replaceFile } from "../../src/platform/replace-file.mjs";
 
 const LIST_FILE_LIMIT = 1 * 1024 * 1024;
 const MAX_ENTRIES = 200;

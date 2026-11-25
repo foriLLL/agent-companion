@@ -8,7 +8,7 @@ import {
   KEYCHAIN_SERVICE,
   LEGACY_KEYCHAIN_SERVICE, LEGACY_KEYCHAIN_SERVICES,
   embyServerKey
-} from "../src/emby-storage.mjs";
+} from "../cards/emby/emby-storage.mjs";
 import { assertMode } from "./helpers/permissions.mjs";
 
 test("配置只保存非敏感字段、权限为 0600 且 DeviceId 稳定", async (t) => {

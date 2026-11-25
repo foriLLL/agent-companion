@@ -1,4 +1,4 @@
-import { HongguoService } from "../../hongguo-service.mjs";
+import { HongguoService } from "./hongguo-service.mjs";
 
 export const HONGGUO_OPERATIONS = Object.freeze([
   "home", "feed.next", "search", "list.get", "list.add", "list.remove", "detail", "image.load",

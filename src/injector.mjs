@@ -1,7 +1,7 @@
 import { CdpConnection } from "./cdp-connection.mjs";
 import { buildInjectionSource, buildConfigUpdateSource, ARTIFACT_HASH, BRIDGE_KEY } from "./injection.mjs";
 import { CARD_MANIFESTS } from "./card-registry.mjs";
-import { attachMediaIntercept } from "./media-intercept.mjs";
+import { attachMediaIntercept } from "./platform/media/media-intercept.mjs";
 import { normalizeRuntimeConfig } from "./platform/config/runtime-config.mjs";
 import { CdpRpcBridge, DEFAULT_RPC_TIMEOUT_MS } from "./rpc-bridge.mjs";
 import { hostTargets, listCdpTargets, waitForCodexTargets } from "./targets.mjs";

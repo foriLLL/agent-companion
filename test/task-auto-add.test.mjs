@@ -4,9 +4,9 @@ import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CodexSessions, isDesktopUserSession } from "../src/codex-sessions.mjs";
-import { MAX_RECENT, MAX_TASKS, TaskBoardStorage, TaskRecentStorage } from "../src/task-board-storage.mjs";
-import { createSessionWatcher } from "../src/task-auto-add.mjs";
-import { createService } from "../src/cards/tasks/service.mjs";
+import { MAX_RECENT, MAX_TASKS, TaskBoardStorage, TaskRecentStorage } from "../cards/tasks/task-board-storage.mjs";
+import { createSessionWatcher } from "../cards/tasks/task-auto-add.mjs";
+import { createService } from "../cards/tasks/service.mjs";
 import { assertMode } from "./helpers/permissions.mjs";
 
 const context = { signal: new AbortController().signal };

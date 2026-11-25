@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { HongguoService, jpegCoverUrl } from "../src/hongguo-service.mjs";
-import { HongguoError } from "../src/hongguo-sdk-client.mjs";
+import { HongguoService, jpegCoverUrl } from "../cards/hongguo/hongguo-service.mjs";
+import { HongguoError } from "../cards/hongguo/hongguo-sdk-client.mjs";
 import { ServiceRegistry } from "../src/platform/services/registry.mjs";
-import { createService as createHongguoService } from "../src/cards/hongguo/service.mjs";
+import { createService as createHongguoService } from "../cards/hongguo/service.mjs";
 
 const HEIC = "https://p3-reading-sign.fqnovelpic.com/novel-pic/abc123~tplv-81nmtwyey9-superreso-aifit:400:0.heic?lk3s=1&x-signature=x";
 

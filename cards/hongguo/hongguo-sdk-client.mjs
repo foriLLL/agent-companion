@@ -1,7 +1,7 @@
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { existsSync } from "node:fs";
-import { companionDataDir } from "./platform/paths.mjs";
+import { companionDataDir } from "../../src/platform/paths.mjs";
 
 // openhongguo 的 Node 绑定把 Go 编译的 wasm 一起发布，包内用相对自身的路径
 // 读取 dist/openhongguo.wasm，所以必须从真实文件位置 import：bun --compile 出来的
@@ -26,7 +26,8 @@ function packagedRuntimeDir() {
 function developmentRuntimeDir() {
   let here;
   try { here = fileURLToPath(import.meta.url); } catch { return null; }
-  const dir = join(dirname(dirname(here)), "node_modules", "openhongguo");
+  // 开发态模块位于 <仓库>/cards/hongguo/，依赖在仓库根的 node_modules。
+  const dir = join(dirname(here), "..", "..", "node_modules", "openhongguo");
   return existsSync(join(dir, PACKAGE_ENTRY)) ? dir : null;
 }
 

@@ -1,13 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { SubtitleLoader, offsetWebVtt } from "../src/subtitle-loader.mjs";
-import { extractSubtitleWindow } from "../src/subtitle-loader.mjs";
+import { SubtitleLoader, offsetWebVtt } from "../src/platform/media/subtitle-loader.mjs";
+import { extractSubtitleWindow } from "../src/platform/media/subtitle-loader.mjs";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { mkdtemp, writeFile, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { resolveFfmpegPath } from "../src/ffmpeg-path.mjs";
+import { resolveFfmpegPath } from "../src/platform/media/ffmpeg-path.mjs";
 
 test("字幕窗口恢复绝对时间，保留 cue 设置及正文中的时间", () => {
   assert.equal(offsetWebVtt("WEBVTT\n\n00:11.405 --> 00:17.661 align:start\n00:00.000 是正文\n", 60),

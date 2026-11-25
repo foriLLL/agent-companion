@@ -67,7 +67,7 @@ try {
   await symlink(path.join(repoRoot, "node_modules"), path.join(snapshot, "node_modules"));
   // 夹具卡：只有渲染端、没有后端服务与业务 RPC，验证配置链路不重建节点、独立 generation 只建 scope。
   // 只写进快照，经真实的目录扫描与注册表生成进入 bundle，开发目录不受影响。
-  const fixtureDir = path.join(snapshot, "src/cards", FIXTURE_ID);
+  const fixtureDir = path.join(snapshot, "cards", FIXTURE_ID);
   await mkdir(fixtureDir, { recursive: true });
   await writeFile(path.join(fixtureDir, "manifest.json"), JSON.stringify({
     id: FIXTURE_ID, title: "静态夹具", version: 1, defaultEnabled: false, defaultOrder: 50,
@@ -82,7 +82,7 @@ try {
   return { dispose() { node.remove(); } };
 }
 `);
-  await generateCardRegistry({ cardsDir: path.join(snapshot, "src/cards"), outDir: path.join(snapshot, "src"), requireEntries: true });
+  await generateCardRegistry({ cardsDir: path.join(snapshot, "cards"), outDir: path.join(snapshot, "src"), requireEntries: true });
   ({ CARD_MANIFESTS } = await import(pathToFileURL(path.join(snapshot, "src/card-registry.mjs"))));
   assert.ok(CARD_MANIFESTS.some((manifest) => manifest.id === FIXTURE_ID), "夹具卡进入注册表");
   const bun = path.join(repoRoot, "node_modules", "bun", "bin", "bun.exe");

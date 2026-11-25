@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
-import { HongguoImageLoader } from "../src/hongguo-image-loader.mjs";
+import { HongguoImageLoader } from "../cards/hongguo/hongguo-image-loader.mjs";
 
 const COVER = "https://p6-novel.byteimg.com/novel-pic/abc.image";
 const publicDns = async () => [{ address: "93.184.216.34", family: 4 }];

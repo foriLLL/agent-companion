@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { readdir, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { resolveFfmpegPath } from "../src/ffmpeg-path.mjs";
+import { resolveFfmpegPath } from "../src/platform/media/ffmpeg-path.mjs";
 import { searchPathCandidates } from "../src/platform/paths.mjs";
 import { buildNative } from "./build-native.mjs";
 

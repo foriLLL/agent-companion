@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 import { pipeline } from "node:stream/promises";
-import { EmbyError, SECRET_QUERY_KEYS, validateExternalMediaUrl } from "./emby-client.mjs";
+import { EmbyError, SECRET_QUERY_KEYS, validateExternalMediaUrl } from "../../../cards/emby/emby-client.mjs";
 import { registerMediaInterceptPort } from "./media-intercept.mjs";
 
 // playlist 很小（几十 KB），重写时需要整体缓冲；超过上限说明上游在冒充清单，直接报错。

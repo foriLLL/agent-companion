@@ -1,10 +1,10 @@
 // 使用已登录 Emby 的实际片源验证本机 HDR/DV 色彩链路；不向服务端上报观看进度。
 // node scripts/probe-color.mjs <itemId> <sourceOrdinal> [startSeconds] [output.mp4]
 import { writeFile } from "node:fs/promises";
-import { EmbyStorage } from "../src/emby-storage.mjs";
-import { EmbyClient, sanitizeDirectStreamUrl } from "../src/emby-client.mjs";
-import { FfmpegFmp4Session } from "../src/ffmpeg-fmp4-session.mjs";
-import { videoColorInfo } from "../src/video-color.mjs";
+import { EmbyStorage } from "../cards/emby/emby-storage.mjs";
+import { EmbyClient, sanitizeDirectStreamUrl } from "../cards/emby/emby-client.mjs";
+import { FfmpegFmp4Session } from "../src/platform/media/ffmpeg-fmp4-session.mjs";
+import { videoColorInfo } from "../src/platform/media/video-color.mjs";
 
 const [itemId, ordinalArg, startArg = "60", output = "/tmp/agent-companion-color-probe.mp4"] = process.argv.slice(2);
 if (!itemId || !/^\d+$/.test(ordinalArg ?? "")) throw new Error("用法：node scripts/probe-color.mjs <itemId> <sourceOrdinal> [startSeconds] [output.mp4]");

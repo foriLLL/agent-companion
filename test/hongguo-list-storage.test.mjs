@@ -3,7 +3,7 @@ import test from "node:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { HongguoListStorage } from "../src/hongguo-list-storage.mjs";
+import { HongguoListStorage } from "../cards/hongguo/hongguo-list-storage.mjs";
 
 async function listStorage(testContext) {
   const directory = await mkdtemp(join(tmpdir(), "hongguo-list-test-"));

@@ -2,7 +2,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { RangeProxy } from "./ffmpeg-fmp4-session.mjs";
 import { resolveFfmpegPath } from "./ffmpeg-path.mjs";
-import { EmbyError, DEFAULT_SUBTITLE_LIMIT } from "./emby-client.mjs";
+import { EmbyError, DEFAULT_SUBTITLE_LIMIT } from "../../../cards/emby/emby-client.mjs";
 
 const execFileAsync = promisify(execFile);
 export const SUBTITLE_WINDOW_SECONDS = 60;
