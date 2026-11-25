@@ -94,8 +94,15 @@ function sectionsOf(data) {
   return sections;
 }
 
+// 多分组或 3 个及以上窗口用圆环省空间；1~2 个无分组窗口（如 Codex）改用横向进度条，信息更紧凑。
+export function shouldUseRings(sections) {
+  const count = sections.reduce((sum, section) => sum + (section.items?.length ?? 0), 0);
+  return count >= 3 || sections.some((section) => Boolean(section.title));
+}
+
 const RING_R = 19;
 const RING_C = 2 * Math.PI * RING_R;
+const REFRESH_ICON = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M13.2 8a5.2 5.2 0 1 1-1.3-3.45"/><path d="M13.2 2.8v2.3h-2.3"/></svg>';
 
 export function mount({ root, rpc, effects, signal, host }) {
   const antigravity = host?.id === "antigravity" && typeof host.quota === "function";
@@ -103,23 +110,30 @@ export function mount({ root, rpc, effects, signal, host }) {
     :host{display:block;--text:color-mix(in srgb,currentColor 60%,transparent);--line:color-mix(in srgb,currentColor 10%,transparent);
       font-family:"Inter",ui-sans-serif,system-ui,-apple-system,"PingFang SC",sans-serif;letter-spacing:-.006em;-webkit-font-smoothing:antialiased}
     *{box-sizing:border-box}
-    .wrap{padding:10px 12px 12px 14px;display:flex;flex-direction:column;gap:8px;font-size:13px;line-height:1.35}
-    .head{display:flex;align-items:center;gap:8px}
-    .head strong{font-weight:600}
+    .wrap{padding:10px 10px 11px 14px;display:flex;flex-direction:column;gap:8px;font-size:13px;line-height:1.35}
+    .head{display:flex;align-items:center;gap:6px}
+    .head strong{font-size:14px;font-weight:600}
     .plan{font-size:11px;padding:0 6px;border-radius:999px;color:var(--text);box-shadow:inset 0 0 0 1px var(--line)}
     .plan:empty{display:none}
     .ago{margin-left:auto;font-size:11.5px;color:var(--text)}
-    button{flex:none;font:inherit;font-size:11.5px;letter-spacing:inherit;border:0;border-radius:7px;padding:2px 8px;cursor:pointer;color:inherit;
-      background:color-mix(in srgb,currentColor 5%,transparent);box-shadow:inset 0 0 0 1px var(--line);transition:background-color .16s ease}
-    button:hover{background:color-mix(in srgb,currentColor 9%,transparent)}
-    button:disabled{opacity:.5;cursor:default}
+    .refresh{flex:none;display:grid;place-items:center;width:24px;height:24px;padding:0;border:0;border-radius:7px;
+      background:transparent;color:var(--text);cursor:pointer;transition:background-color .15s,color .15s}
+    .refresh:hover:not(:disabled){background:color-mix(in srgb,currentColor 7%,transparent);color:inherit}
+    .refresh:focus-visible{outline:2px solid color-mix(in srgb,currentColor 30%,transparent);outline-offset:1px}
+    .refresh:disabled{opacity:.55;cursor:default}
+    .refresh svg{display:block;width:13.5px;height:13.5px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+    .refresh[data-busy] svg{animation:spin .75s linear infinite}
+    @keyframes spin{to{transform:rotate(360deg)}}
     .sections{display:flex;flex-wrap:wrap;gap:8px 18px}
+    .sections[data-layout=bars]{flex-direction:column;gap:8px;padding-right:4px}
     .section{display:flex;flex-direction:column;gap:4px;min-width:0}
     .title{font-size:11.5px;color:var(--text);white-space:nowrap}
     .title:empty{display:none}
     .rings{display:flex;gap:6px}
     .ring{--tone:#8b8d98;width:62px;display:flex;flex-direction:column;align-items:center;gap:1px;text-align:center}
-    .ring[data-tone=ok]{--tone:#2f9e6e}.ring[data-tone=warn]{--tone:#d9661b}.ring[data-tone=bad]{--tone:#d93025}
+    .ring[data-tone=ok],.bar[data-tone=ok]{--tone:#2f9e6e}
+    .ring[data-tone=warn],.bar[data-tone=warn]{--tone:#d9661b}
+    .ring[data-tone=bad],.bar[data-tone=bad]{--tone:#d93025}
     .dial{position:relative;width:46px;height:46px}
     .dial svg{display:block;width:100%;height:100%;transform:rotate(-90deg)}
     .track{fill:none;stroke:color-mix(in srgb,currentColor 9%,transparent);stroke-width:4.5}
@@ -128,12 +142,19 @@ export function mount({ root, rpc, effects, signal, host }) {
     .pct small{font-size:8px;font-weight:500;margin-left:.5px;margin-top:2px}
     .name{font-size:12px;font-weight:500;margin-top:2px}
     .reset{font-size:11px;color:var(--text);font-variant-numeric:tabular-nums;white-space:nowrap}
+    .bar{--tone:#8b8d98;display:flex;flex-direction:column;gap:4px;min-width:0}
+    .bar-head{display:flex;align-items:baseline;gap:6px;font-size:12px}
+    .bar-name{flex:none;font-weight:500}
+    .bar-reset{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;color:var(--text);font-variant-numeric:tabular-nums}
+    .bar-pct{flex:none;margin-left:auto;font-size:12px;font-weight:600;font-variant-numeric:tabular-nums;color:var(--tone)}
+    .bar-track{height:6px;border-radius:999px;background:color-mix(in srgb,currentColor 9%,transparent);overflow:hidden}
+    .bar-fill{height:100%;border-radius:inherit;background:var(--tone);transition:width .3s ease}
     .note{font-size:11.5px;color:var(--text);overflow-wrap:anywhere}
     .note[data-tone=warn]{color:#d9661b}.note[data-tone=bad]{color:#d93025}
     .note:empty{display:none}
   </style><div class="wrap">
     <div class="head"><strong>${antigravity ? "Antigravity" : "Codex"}</strong><span class="plan"></span><span class="ago" role="status">正在读取额度…</span>
-      <button type="button" aria-label="刷新额度">刷新</button></div>
+      <button type="button" class="refresh" aria-label="刷新额度" title="刷新">${REFRESH_ICON}</button></div>
     <div class="sections"></div>
     <div class="note"></div>
   </div>`;
@@ -177,19 +198,43 @@ export function mount({ root, rpc, effects, signal, host }) {
     return node;
   }
 
+  function bar(item, now) {
+    const node = el("div", "bar");
+    const remaining = item.disabled ? null : item.remaining;
+    node.dataset.tone = item.disabled ? "off" : remainingTone(remaining);
+    const reset = item.disabled ? "不可用" : remaining === 100 ? "未使用" : remaining === 0 ? "已用完" : resetText(item.resetsAt, now);
+    const head = el("div", "bar-head");
+    head.append(el("span", "bar-name", item.label), el("span", "bar-reset", reset),
+      el("span", "bar-pct", item.disabled || remaining === null ? "—" : `${remaining}%`));
+    const track = el("div", "bar-track");
+    const fill = el("div", "bar-fill");
+    fill.style.width = `${Math.max(0, Math.min(100, remaining ?? 0))}%`;
+    track.append(fill);
+    node.append(head, track);
+    const full = item.disabled ? "不可用" : remaining === null ? "未知" : `剩余 ${remaining}%`;
+    node.title = [item.label + (item.hint ? `（${item.hint}）` : ""), full, remaining === 100 ? "" : resetText(item.resetsAt, now)].filter(Boolean).join(" · ");
+    return node;
+  }
+
   function render() {
     if (!data) return;
     const now = Date.now();
     plan.textContent = data.plan ?? "";
     ago.textContent = data.fetchedAt && (data.ok || data.stale) ? agoText(data.fetchedAt, now) : "";
     const sections = sectionsOf(data);
-    list.replaceChildren(...sections.map((section) => {
-      const node = el("div", "section");
-      const rings = el("div", "rings");
-      rings.append(...section.items.map((item) => ring(item, now)));
-      node.append(el("div", "title", section.title), rings);
-      return node;
-    }));
+    const useRings = shouldUseRings(sections);
+    list.dataset.layout = useRings ? "rings" : "bars";
+    if (useRings) {
+      list.replaceChildren(...sections.map((section) => {
+        const node = el("div", "section");
+        const rings = el("div", "rings");
+        rings.append(...section.items.map((item) => ring(item, now)));
+        node.append(el("div", "title", section.title), rings);
+        return node;
+      }));
+    } else {
+      list.replaceChildren(...sections.flatMap((section) => section.items.map((item) => bar(item, now))));
+    }
     const notes = [];
     let tone = "";
     if (data.limitReached) { notes.push("已用完额度，重置前无法继续使用"); tone = "bad"; }
@@ -203,6 +248,7 @@ export function mount({ root, rpc, effects, signal, host }) {
   function refresh(force = false) {
     if (pending) return pending;
     button.disabled = true;
+    button.setAttribute("data-busy", "");
     pending = (async () => {
       try {
         const next = antigravity
@@ -217,7 +263,10 @@ export function mount({ root, rpc, effects, signal, host }) {
         render();
       } finally {
         pending = null;
-        if (!signal.aborted) button.disabled = false;
+        if (!signal.aborted) {
+          button.disabled = false;
+          button.removeAttribute("data-busy");
+        }
       }
     })();
     return pending;

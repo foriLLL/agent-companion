@@ -41,7 +41,7 @@ function bootstrap({ action = "mount", config = {}, host = "codex", artifactHash
   }
   try { previous?.unmount?.(); } catch {}
   // 只清理本平台旧宿主，不访问原生 Summary。
-  for (const id of ["agent-companion-root", "agent-companion-rail"]) document.getElementById(id)?.remove();
+  for (const id of ["agent-companion-root", "agent-companion-rail", "agent-companion-rail-backdrop"]) document.getElementById(id)?.remove();
   const runtime = createCardRuntime({ manifests: CARD_MANIFESTS, renderers: RENDERER_REGISTRY, config, artifactHash, host });
   const bridge = {
     version, artifactHash, cardsKey: artifactHash, runtime, host,

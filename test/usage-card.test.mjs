@@ -4,7 +4,7 @@ import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { codexCliCandidates, normalizeCodexRateLimits, readCodexRateLimits, resolveCodexCli } from "../src/codex-usage.mjs";
 import { createService, resolveProxyPort } from "../src/cards/usage/service.mjs";
-import { antigravityGroupLabel, antigravityWindowLabel, remainingTone, resetText, shortResetText, windowLabel } from "../src/cards/usage/renderer.mjs";
+import { antigravityGroupLabel, antigravityWindowLabel, remainingTone, resetText, shortResetText, shouldUseRings, windowLabel } from "../src/cards/usage/renderer.mjs";
 import { createAntigravityHostApi } from "../src/renderer/adapters/antigravity-host-api.mjs";
 
 // 假的 `codex app-server`：按行读 JSON-RPC 请求，按脚本回包，记录收到的方法。
@@ -241,4 +241,11 @@ test("圆环下的重置时间用短写法", () => {
   assert.equal(shortResetText(at(120), now), "2h 后");
   assert.equal(shortResetText(new Date(2026, 11, 1, 4, 8).getTime() / 1000, now), "12/1 04:08");
   assert.equal(shortResetText(undefined, now), "");
+});
+
+test("额度展示方式：无分组且不超过两个窗口用进度条，多分组或多窗口用圆环", () => {
+  assert.equal(shouldUseRings([{ title: "", items: [{}] }]), false);
+  assert.equal(shouldUseRings([{ title: "", items: [{}, {}] }]), false);
+  assert.equal(shouldUseRings([{ title: "", items: [{}, {}, {}] }]), true);
+  assert.equal(shouldUseRings([{ title: "Gemini 模型", items: [{}, {}] }, { title: "Claude / GPT 模型", items: [{}, {}] }]), true);
 });

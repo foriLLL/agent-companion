@@ -10,11 +10,41 @@ const GAP_PX = 34;
 const ICON_MIN_PX = 22;
 const LABEL_MIN_PX = 64;
 const DURATION_MIN_PX = 120;
+const AXIS_H = 26;
+const BAR_H = 22;
+const BAR_GAP = 4;
+const ROW_PAD = 7;
+const SUB_ROW_PITCH = BAR_H + BAR_GAP;
 const MIN_SCALE = 6;
 const MAX_SCALE = 40;
 const ZOOM = 1.6;
 // 刻度间隔候选（秒），按当前比例挑一个让刻度相距约 70px 的。
 const TICK_STEPS = [1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800];
+
+const laneRowHeight = (rows) => ROW_PAD * 2 + rows * BAR_H + Math.max(0, rows - 1) * BAR_GAP;
+
+// 同一泳道内并发重叠的段（如并行工具调用）按像素区间贪心排到不同子行，避免色块与文字叠在一起。
+export function packLaneSegments(segments, toX, current) {
+  const items = segments.map((segment, index) => {
+    const left = toX(segment.start);
+    const right = left + Math.max(toX(segment.end ?? current) - left, 2);
+    return { segment, index, left, right };
+  });
+  items.sort((a, b) => a.left - b.left || b.right - a.right || a.index - b.index);
+  const ends = [];
+  const rowOfSegment = new Map();
+  for (const item of items) {
+    let row = ends.findIndex((end) => end <= item.left + 0.5);
+    if (row === -1) {
+      row = ends.length;
+      ends.push(item.right);
+    } else {
+      ends[row] = item.right;
+    }
+    rowOfSegment.set(item.segment, row);
+  }
+  return { rows: Math.max(1, ends.length), rowOfSegment };
+}
 
 const LANES = [
   { id: "plan", name: "计划", icon: '<path d="M7 4.5h6M7 8h6M7 11.5h6"/><path d="M2.8 4.6l.9.9 1.6-1.8M2.8 8.1l.9.9 1.6-1.8"/><circle cx="3.9" cy="11.5" r=".8"/>' },
@@ -458,7 +488,24 @@ export function createTraceView({ rpc, effects, signal, threads, element, fail, 
       track.append(row);
       return [lane.id, row];
     }));
-    const rowIndex = new Map(lanes.map((lane, index) => [lane.id, index]));
+    const laneRows = new Map();
+    const subRowOf = new Map();
+    for (const lane of lanes) {
+      const list = lane.id === "plan" ? steps : turns.flatMap((turn) => turn.segments.filter((segment) => segment.lane === lane.id));
+      const packed = packLaneSegments(list, layout.toX, current);
+      laneRows.set(lane.id, packed.rows);
+      for (const [segment, row] of packed.rowOfSegment) subRowOf.set(segment, row);
+    }
+    const laneHeight = new Map(lanes.map((lane) => [lane.id, laneRowHeight(laneRows.get(lane.id) ?? 1)]));
+    const laneTop = new Map();
+    let laneY = AXIS_H;
+    for (const lane of lanes) {
+      laneTop.set(lane.id, laneY);
+      laneY += laneHeight.get(lane.id);
+    }
+    const templateRows = `${AXIS_H}px ${lanes.map((lane) => `${laneHeight.get(lane.id)}px`).join(" ")}`;
+    labels.style.gridTemplateRows = templateRows;
+    track.style.gridTemplateRows = templateRows;
     // 刻度：按比例挑间隔，每个回合内从开头起算；回合开头标时钟时间。
     const step = TICK_STEPS.find((value) => value * scale >= 70) ?? TICK_STEPS.at(-1);
     layout.blocks.forEach((block, index) => {
@@ -496,12 +543,13 @@ export function createTraceView({ rpc, effects, signal, threads, element, fail, 
       live.push({ kind: "now", node: pill });
     }
 
-    const modelIndex = rowIndex.get("model");
     const addBar = (segment) => {
       const row = rowOf.get(segment.lane) ?? rowOf.get("model");
+      const subRow = subRowOf.get(segment) ?? 0;
       const bar = element("span", "seg-bar");
       bar.dataset.kind = segment.kind;
       bar.dataset.lane = segment.lane;
+      bar.style.top = `${ROW_PAD + subRow * SUB_ROW_PITCH}px`;
       if (segment.failed) bar.dataset.failed = "";
       if (segment.paused) bar.dataset.paused = "";
       if (segment.end === null) bar.dataset.live = "";
@@ -513,12 +561,16 @@ export function createTraceView({ rpc, effects, signal, threads, element, fail, 
       row.append(bar);
       if (segment.end === null) live.push({ kind: "bar", node: bar, segment });
       // 模型把活交给工具：从模型泳道到工具泳道画一道虚线。
-      if (segment.kind === "tool" && rowIndex.has(segment.lane)) {
-        const link = element("span", "tl-link");
-        link.style.left = `${layout.toX(segment.start)}px`;
-        link.style.top = `${26 + modelIndex * 36 + 29}px`;
-        link.style.height = `${(rowIndex.get(segment.lane) - modelIndex) * 36 - 22}px`;
-        track.append(link);
+      if (segment.kind === "tool" && laneTop.has(segment.lane) && laneTop.has("model")) {
+        const fromY = laneTop.get("model") + laneHeight.get("model") - ROW_PAD;
+        const toY = laneTop.get(segment.lane) + ROW_PAD + subRow * SUB_ROW_PITCH;
+        if (toY > fromY) {
+          const link = element("span", "tl-link");
+          link.style.left = `${layout.toX(segment.start)}px`;
+          link.style.top = `${fromY}px`;
+          link.style.height = `${toY - fromY}px`;
+          track.append(link);
+        }
       }
     };
     for (const segment of steps) addBar(segment);

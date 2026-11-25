@@ -437,7 +437,7 @@ export function createCodexAdapter({ host, placement = "standalone-button", onVi
         box-shadow:0 2px 8px #0001;
       }
       button:hover { color:var(--color-token-text-primary, #1a1c1f); }
-      svg { width:16px; height:16px; fill:none; stroke:currentColor; stroke-width:1.3; stroke-linejoin:round; }
+      svg { width:16px; height:16px; fill:none; stroke:currentColor; stroke-width:1.15; stroke-linecap:round; stroke-linejoin:round; }
       button[hidden] { display:none; }
       button[aria-expanded="true"] { outline:2px solid #8888; }
       button:focus-visible { outline:2px solid #4b91e2; outline-offset:2px; }
@@ -517,23 +517,46 @@ export function createCodexAdapter({ host, placement = "standalone-button", onVi
         color:var(--cc-entry-color, var(--color-token-text-primary, #1a1c1f));pointer-events:auto;-webkit-app-region:no-drag; }
       button:hover, button[aria-expanded="true"] { background:var(--color-token-list-hover-background, rgba(127,127,127,.12)); }
       button:focus-visible { outline:2px solid #4b91e2;outline-offset:1px; }
-      /* 线宽按 4 倍截图与原生填充图标对齐 */
-      svg { width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.3;stroke-linejoin:round; }
+      /* 线宽与透明度对齐原生顶栏线性图标 */
+      svg { width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.15;stroke-linecap:round;stroke-linejoin:round;opacity:var(--cc-entry-opacity, 1); }
     </style>
     <button type="button" aria-label="Companion 卡片" title="Companion" aria-expanded="false">${ENTRY_ICON}</button>
   `;
   const toolbarButton = toolbarShadow.querySelector("button");
   // 诊断：入口落在哪一级锚点上（summary / share / trailing / floating）。
   let entryAnchor = null;
-  // 图标颜色照抄同组的原生图标按钮（只含图标、无文字），不写死主题 token：
-  // Codex 换过顶栏图标的颜色档位，明暗主题也不同；找不到时用主文字色。
+  // 图标颜色与透明度照抄同组原生图标按钮里实际绘制的 SVG（避免按钮与 SVG 色档不同导致偏深）。
   const syncEntryColor = (group) => {
     const native = Array.from(group.querySelectorAll("button"))
       .find((button) => button.querySelector("svg") && !button.textContent.trim() && !button.disabled && button.getAttribute("aria-disabled") !== "true");
-    const color = native ? getComputedStyle(native).color : "";
+    let color = "";
+    let opacity = "";
+    if (native) {
+      const icon = native.querySelector("svg");
+      const shape = icon?.querySelector("path,rect,circle,line,polyline,polygon");
+      const buttonStyle = getComputedStyle(native);
+      const iconStyle = icon ? getComputedStyle(icon) : buttonStyle;
+      const shapeStyle = shape ? getComputedStyle(shape) : iconStyle;
+      const explicitFill = shape?.getAttribute("fill") || icon?.getAttribute("fill");
+      const paint = [
+        shapeStyle.stroke,
+        explicitFill && explicitFill !== "none" ? shapeStyle.fill : "",
+        iconStyle.color,
+        buttonStyle.color
+      ].find((value) => value && value !== "none" && value !== "transparent" && value !== "rgba(0, 0, 0, 0)");
+      color = paint ?? "";
+      const alpha = [buttonStyle.opacity, iconStyle.opacity, shapeStyle.opacity]
+        .map((value) => Number.parseFloat(value))
+        .filter((value) => Number.isFinite(value))
+        .reduce((product, value) => product * value, 1);
+      if (alpha < 0.999) opacity = String(Math.max(0.1, Number(alpha.toFixed(3))));
+    }
     if (color) {
       if (toolbarHost.style.getPropertyValue("--cc-entry-color") !== color) toolbarHost.style.setProperty("--cc-entry-color", color);
     } else toolbarHost.style.removeProperty("--cc-entry-color");
+    if (opacity) {
+      if (toolbarHost.style.getPropertyValue("--cc-entry-opacity") !== opacity) toolbarHost.style.setProperty("--cc-entry-opacity", opacity);
+    } else toolbarHost.style.removeProperty("--cc-entry-opacity");
   };
   const placeToolbarEntry = () => {
     // Summary 优先；按钮改名或移走时仍可放在 Share 后面。只借位置，不驱动原生按钮。

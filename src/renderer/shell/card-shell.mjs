@@ -13,7 +13,7 @@ export function createCardShell({ document: doc = document, hostId = "agent-comp
     .stack { display:flex;flex-direction:column;gap:24px;min-width:0;reading-flow:flex-visual; }
     .slot { display:block;flex:none;min-width:0;width:100%;box-sizing:border-box;
       border:0;border-radius:var(--hg-panel-radius,20px);
-      background:var(--cc-card-bg,Canvas);color:var(--cc-card-fg,CanvasText);
+      background:var(--hg-card-bg,var(--cc-card-bg,Canvas));color:var(--cc-card-fg,CanvasText);
       box-shadow:var(--hg-panel-shadow,var(--elevation-prominent,0 0 0 .5px rgba(26,28,31,.117),0 3px 7.5px #0000000a,0 0 20px #0000000d));
       overflow:clip;contain:layout style; }
     .slot[hidden] { display:none; }

@@ -16,8 +16,10 @@ export function createAntigravityAdapter({ host, placement = "standalone-button"
   // 标题栏按钮正常态与选中态的 class（Antigravity 的 HeaderButtonIcon：选中时换成 secondary 底色）。
   const NORMAL_CLASSES = ["bg-transparent", "text-secondary-foreground"];
   const SELECTED_CLASSES = ["bg-secondary", "text-foreground"];
-  const ICON = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
-    + '<rect x="3.5" y="4" width="4.5" height="12" rx="1.2"/><rect x="9.75" y="4" width="4.5" height="16" rx="1.2"/><rect x="16" y="4" width="4.5" height="8" rx="1.2"/></svg>';
+  // 与 Codex 共用同一枚 16px 线框图标，线宽对齐顶栏原生图标。
+  const ICON = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.15" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+    + '<rect x="2.25" y="2.25" width="4.75" height="4.75" rx="1.4"/><rect x="2.25" y="9" width="4.75" height="4.75" rx="1.4"/><rect x="9" y="9" width="4.75" height="4.75" rx="1.4"/>'
+    + '<path d="M11.4 1.9c.2 1.55.8 2.15 2.35 2.35-1.55.2-2.15.8-2.35 2.35-.2-1.55-.8-2.15-2.35-2.35 1.55-.2 2.15-.8 2.35-2.35Z"/></svg>';
   const document = host.ownerDocument;
   const window = document.defaultView;
   const { MutationObserver } = window;
@@ -35,7 +37,22 @@ export function createAntigravityAdapter({ host, placement = "standalone-button"
     try { onVisibilityChange?.({ ...lastVisibility }); } catch (error) { reportError(error); }
   };
 
-  // ---------- 弹层 ----------
+  // ---------- 弹层与羽化毛玻璃背板 ----------
+  // 背板作为独立兄弟层放在弹层下方，用渐变遮罩把左/上下边缘平滑羽化，避免毛玻璃切出一条生硬的竖线。
+  const backdrop = document.createElement("div");
+  backdrop.id = `${RAIL_ID}-backdrop`;
+  backdrop.hidden = true;
+  backdrop.setAttribute("aria-hidden", "true");
+  backdrop.style.cssText = [
+    "position:fixed", "z-index:2147483644", "pointer-events:none", "box-sizing:border-box",
+    "background:var(--hg-rail-bg, rgba(255,255,255,.48))",
+    "backdrop-filter:blur(14px) saturate(1.4)", "-webkit-backdrop-filter:blur(14px) saturate(1.4)",
+    "mask-image:linear-gradient(to right, transparent 0px, rgba(0,0,0,.4) 22px, #000 50px), linear-gradient(to bottom, transparent 0px, #000 18px, #000 calc(100% - 18px), transparent 100%)",
+    "-webkit-mask-image:linear-gradient(to right, transparent 0px, rgba(0,0,0,.4) 22px, #000 50px), linear-gradient(to bottom, transparent 0px, #000 18px, #000 calc(100% - 18px), transparent 100%)",
+    "mask-composite:intersect", "-webkit-mask-composite:source-in"
+  ].join(";");
+  document.documentElement.append(backdrop);
+
   const rail = document.createElement("div");
   rail.id = RAIL_ID;
   rail.hidden = true;
@@ -44,8 +61,7 @@ export function createAntigravityAdapter({ host, placement = "standalone-button"
   rail.style.cssText = [
     "position:fixed", "z-index:2147483646", "top:48px", "right:12px", "box-sizing:border-box",
     `width:min(${PANEL_WIDTH}px, calc(100vw - 16px))`, "max-height:calc(100vh - 64px)", "overflow:auto",
-    // 不画外层框：卡片各自带边框和阴影，直接叠在按钮下方；内边距给卡片阴影留位置（overflow 会裁掉阴影）。
-    "overscroll-behavior:contain", "scrollbar-width:none", "padding:2px 10px 14px", "background:transparent",
+    "overscroll-behavior:contain", "scrollbar-width:none", "padding:6px 10px 12px", "background:transparent",
     "color:var(--hg-panel-color, #1f1f1f)", "-webkit-app-region:no-drag"
   ].join(";");
   rail.append(host);
@@ -77,37 +93,85 @@ export function createAntigravityAdapter({ host, placement = "standalone-button"
     const dark = window.matchMedia?.("(prefers-color-scheme: dark)").matches
       || document.documentElement.classList.contains("dark");
     const bg = token("--card") || token("--background") || (dark ? "#1e1f22" : "#fff");
+    const surface = token("--background") || bg;
     const fg = token("--foreground") || (dark ? "#e8e8ea" : "#1f1f1f");
     const border = token("--border") || (dark ? "rgba(255,255,255,.12)" : "rgba(0,0,0,.1)");
     setHostVariable("--hg-panel-bg", bg);
     setHostVariable("--hg-panel-color", fg);
     setHostVariable("--hg-panel-radius", "14px");
-    // 透明浮层：卡片只要一圈细边，不要投影。
+    // 毛玻璃底板上的卡片只要一圈细边，避免多层投影显得脏。
     setHostVariable("--hg-panel-shadow", `0 0 0 1px ${border}`);
-    // 卡片区顶部「卡片配置」那一行没有外框托着，背景要透明。
+    // 卡片区顶部「卡片配置」直接落在毛玻璃底板上，本身保持透明。
     setHostVariable("--hg-header-bg", "transparent");
     setHostVariable("--hg-header-color", token("--muted-foreground") || (dark ? "#9aa0a6" : "#80868b"));
     setHostVariable("--hg-divider", border);
     setHostVariable("--hg-font-family", window.getComputedStyle(document.body).fontFamily || "system-ui, -apple-system, sans-serif");
     setHostVariable("--hg-font-weight", "400");
     setHostVariable("--cc-card-bg", bg);
+    setHostVariable("--hg-card-bg", `color-mix(in srgb, ${bg} ${dark ? "82%" : "82%"}, transparent)`);
     setHostVariable("--cc-card-fg", fg);
     setHostVariable("--cc-card-border", border);
-    // 弹层自己的外观也跟着变（它在 host 外面，读不到 host 上的变量）。
+    // 弹层与羽化背板的外观跟着主题变化（它们在 host 外面，读不到 host 上的变量）。
+    backdrop.style.setProperty("--hg-rail-bg", `color-mix(in srgb, ${surface} ${dark ? "54%" : "48%"}, transparent)`);
     for (const name of ["--hg-panel-bg", "--hg-panel-color", "--hg-panel-radius", "--hg-panel-shadow"]) {
       rail.style.setProperty(name, host.style.getPropertyValue(name));
       floating.style.setProperty(name, host.style.getPropertyValue(name));
     }
+    syncEntryColors();
   };
 
   // ---------- 标题栏入口 ----------
   const entries = () => [...document.querySelectorAll(`[${ENTRY_MARK}]`)];
+  // 图标颜色与透明度照抄同栏未选中的官方图标，避免比旁边按钮更深。
+  const readNativeIconStyle = (button) => {
+    const parent = button.parentElement;
+    const siblings = parent ? [...parent.querySelectorAll("button")].filter((node) => !node.hasAttribute(ENTRY_MARK) && node.querySelector("svg")) : [];
+    const unselected = siblings.find((node) => !node.classList.contains("bg-secondary")
+      && node.getAttribute("aria-expanded") !== "true" && node.getAttribute("aria-pressed") !== "true");
+    const target = unselected ?? siblings[0];
+    if (!target) return { color: "", opacity: "" };
+    const icon = target.querySelector("svg");
+    const shape = icon?.querySelector("path,rect,circle,line,polyline,polygon");
+    const buttonStyle = window.getComputedStyle(target);
+    const iconStyle = icon ? window.getComputedStyle(icon) : buttonStyle;
+    const shapeStyle = shape ? window.getComputedStyle(shape) : iconStyle;
+    const explicitFill = shape?.getAttribute("fill") || icon?.getAttribute("fill");
+    const color = [
+      shapeStyle.stroke,
+      explicitFill && explicitFill !== "none" ? shapeStyle.fill : "",
+      iconStyle.color,
+      buttonStyle.color
+    ].find((value) => value && value !== "none" && value !== "transparent" && value !== "rgba(0, 0, 0, 0)") ?? "";
+    const alpha = [buttonStyle.opacity, iconStyle.opacity, shapeStyle.opacity]
+      .map((value) => Number.parseFloat(value))
+      .filter((value) => Number.isFinite(value))
+      .reduce((product, value) => product * value, 1);
+    return { color, opacity: alpha < 0.999 ? String(Math.max(0.1, Number(alpha.toFixed(3)))) : "" };
+  };
+  const syncEntryColors = () => {
+    for (const button of entries()) {
+      const svg = button.querySelector("svg");
+      if (open) {
+        button.style.removeProperty("color");
+        svg?.style.removeProperty("opacity");
+        continue;
+      }
+      const { color, opacity } = readNativeIconStyle(button);
+      if (color) button.style.color = color;
+      else button.style.removeProperty("color");
+      if (svg) {
+        if (opacity) svg.style.opacity = opacity;
+        else svg.style.removeProperty("opacity");
+      }
+    }
+  };
   const setEntriesExpanded = () => {
     for (const button of entries()) {
       button.classList.remove(...(open ? NORMAL_CLASSES : SELECTED_CLASSES));
       button.classList.add(...(open ? SELECTED_CLASSES : NORMAL_CLASSES));
       button.setAttribute("aria-expanded", String(open));
     }
+    syncEntryColors();
     floatingButton.setAttribute("aria-expanded", String(open));
   };
   const makeEntry = (overview) => {
@@ -140,8 +204,23 @@ export function createAntigravityAdapter({ host, placement = "standalone-button"
     setEntriesExpanded();
   };
 
+  const syncBackdrop = () => {
+    backdrop.hidden = disposed || rail.hidden;
+    if (backdrop.hidden) return;
+    const rect = rail.getBoundingClientRect();
+    if (!rect.width || !rect.height) { backdrop.hidden = true; return; }
+    const left = Math.max(0, rect.left - 38);
+    const top = Math.max(0, rect.top - 14);
+    const right = Math.min(window.innerWidth, rect.right + 8);
+    const bottom = Math.min(window.innerHeight, rect.bottom + 14);
+    backdrop.style.left = `${left}px`;
+    backdrop.style.top = `${top}px`;
+    backdrop.style.width = `${Math.max(0, right - left)}px`;
+    backdrop.style.height = `${Math.max(0, bottom - top)}px`;
+  };
+
   const position = () => {
-    if (rail.hidden) return;
+    if (rail.hidden) { syncBackdrop(); return; }
     const target = anchor?.isConnected ? anchor : entries()[0] ?? null;
     const width = Math.min(PANEL_WIDTH, window.innerWidth - 16);
     if (target) {
@@ -164,6 +243,7 @@ export function createAntigravityAdapter({ host, placement = "standalone-button"
       rail.style.bottom = "72px";
       rail.style.maxHeight = "calc(100vh - 96px)";
     }
+    syncBackdrop();
   };
 
   const render = () => {
@@ -172,6 +252,7 @@ export function createAntigravityAdapter({ host, placement = "standalone-button"
     const visible = open && available;
     rail.hidden = !visible;
     if (visible) { syncStyles(); position(); }
+    else syncBackdrop();
     setEntriesExpanded();
     notifyVisibility(visible, visible ? "popover" : available ? "closed" : "no-cards");
   };
@@ -212,6 +293,8 @@ export function createAntigravityAdapter({ host, placement = "standalone-button"
   const onThemeChange = () => { if (!rail.hidden) syncStyles(); };
   const observer = new MutationObserver(schedule);
   observer.observe(document.documentElement, { childList: true, subtree: true });
+  const resizeObserver = window.ResizeObserver ? new window.ResizeObserver(syncBackdrop) : null;
+  resizeObserver?.observe(rail);
   const themeObserver = new MutationObserver(onThemeChange);
   themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ["class", "style", "data-theme"] });
   const colorScheme = window.matchMedia?.("(prefers-color-scheme: dark)");
@@ -248,6 +331,7 @@ export function createAntigravityAdapter({ host, placement = "standalone-button"
       disposed = true;
       if (frame) window.cancelAnimationFrame(frame);
       observer.disconnect();
+      resizeObserver?.disconnect();
       themeObserver.disconnect();
       colorScheme?.removeEventListener?.("change", onThemeChange);
       window.removeEventListener("keydown", onKeyDown, true);
@@ -261,6 +345,7 @@ export function createAntigravityAdapter({ host, placement = "standalone-button"
       hostStyles.clear();
       host.remove();
       rail.remove();
+      backdrop.remove();
       floating.remove();
       notifyVisibility(false, "disposed");
     }
