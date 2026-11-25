@@ -358,6 +358,8 @@ test("Antigravity 宿主只在显式开启时启动：拿到初始配置、跟�
   assert.equal(host.started, 1);
   assert.equal(host.options.intervalMs, 5000);
   assert.equal(host.options.initialConfig, f.config.value);
+  assert.equal(host.options.helperPath, "/fake/native");
+  assert.equal(host.options.hostPlatform, "darwin");
   assert.equal(typeof host.options.platform.getAgentStatus, "function");
   const next = { ...f.config.value, revision: 7 };
   await f.update(next);

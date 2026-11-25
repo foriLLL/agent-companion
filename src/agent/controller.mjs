@@ -2,13 +2,13 @@ import { isCompanionDebugInstance, parseCodexDebugArgs } from "./codex-args.mjs"
 
 const STOPPED = Symbol("stopped");
 
-function classify(snapshot) {
+function classify(snapshot, isOurs = isCompanionDebugInstance) {
   return snapshot.apps.map((app) => {
     const parsed = parseCodexDebugArgs(app.arguments);
     // 非法或缺值的调试端口标志也不能当作普通实例退出。
     const hasDebugFlag = parsed.known && app.arguments.some((arg) =>
       arg === "--remote-debugging-port" || arg.startsWith("--remote-debugging-port="));
-    const kind = !parsed.known ? "unknown" : isCompanionDebugInstance(parsed) ? "ours"
+    const kind = !parsed.known ? "unknown" : isOurs(parsed) ? "ours"
       : hasDebugFlag ? "foreign-debug" : "plain";
     return { ...app, parsed, kind };
   });
@@ -18,6 +18,7 @@ export class AgentController {
   #adapter;
   #now;
   #sleep;
+  #isOurs;
   #autoRelaunch;
   #notifyWhenManual;
   #freshWindowMs;
@@ -41,11 +42,13 @@ export class AgentController {
 
   constructor({ adapter, now = Date.now, sleep, lastAttemptAt = 0,
     freshWindowMs = 8000, cooldownMs = 120000, quitTimeoutMs = 10000,
-    userRestartMinIntervalMs = 10000, autoRelaunch = () => true, notifyWhenManual = false }) {
+    userRestartMinIntervalMs = 10000, autoRelaunch = () => true, notifyWhenManual = false,
+    isOurs = isCompanionDebugInstance }) {
     if (typeof sleep !== "function") throw new TypeError("必须注入 sleep");
     this.#adapter = adapter;
     this.#now = now;
     this.#sleep = sleep;
+    this.#isOurs = isOurs;
     this.#autoRelaunch = autoRelaunch;
     // 不能自动重开的平台（Linux）仍提示用户手动重开；macOS 关闭自动重开时保持安静。
     this.#notifyWhenManual = notifyWhenManual;
@@ -143,7 +146,7 @@ export class AgentController {
     }
   }
 
-  async #observe(snapshot, apps = classify(snapshot)) {
+  async #observe(snapshot, apps = classify(snapshot, this.#isOurs)) {
     this.#currentSnapshot = snapshot;
     if (apps.length <= 1) this.#multipleKeys = null;
     try {
@@ -198,7 +201,7 @@ export class AgentController {
 
   #canQuit(app, snapshot, mode) {
     const latest = this.#latestSnapshot(snapshot);
-    const apps = classify(latest);
+    const apps = classify(latest, this.#isOurs);
     if (apps.length !== 1 || apps[0].key !== app.key) return false;
     if (mode === "user") return apps[0].kind === "plain" || apps[0].kind === "ours";
     return apps[0].kind === "plain" && this.#fresh(apps[0], latest)
@@ -210,7 +213,7 @@ export class AgentController {
     // 退出轮询可能已看到更新的事实，不能再用排队的旧快照恢复过期会话。
     if (this.#currentSnapshot && snapshot.now < this.#currentSnapshot.now) return;
     this.#pendingLaunch = false;
-    const apps = classify(snapshot);
+    const apps = classify(snapshot, this.#isOurs);
     const baseline = !this.#hasBaseline;
     this.#hasBaseline = true;
     const protectedApps = baseline ? apps.filter((app) => app.kind === "plain"

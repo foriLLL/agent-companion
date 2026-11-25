@@ -404,8 +404,9 @@ export function createSettingsPanel({ document: doc, call, connection, onClose =
   restartRow.append(node("p", "修改代理后需重启 Codex 生效"), restartButton);
   proxySection.append(portForm, portError, restartRow, confirmation);
   const autoSection = section("自动加载");
-  const autoRelaunch = checkbox(autoSection, "打开 Codex 时自动加载", "auto-relaunch", value => ({ agent: { autoRelaunch: value } }),
-    "刚打开的 Codex 会自动重开一次以加载卡片");
+  const autoRelaunchHint = node("small", "刚打开的 Codex 会自动重开一次以加载卡片");
+  const autoRelaunch = checkbox(autoSection, "打开应用时自动加载", "auto-relaunch", value => ({ agent: { autoRelaunch: value } }),
+    autoRelaunchHint);
   // 更新：Homebrew 安装可以自动或一键更新；源码与其它安装方式只提醒，给出命令或 Release 地址。
   const updateSection = section("更新");
   const updateRow = node("div", null, "cc-status");
@@ -546,7 +547,8 @@ export function createSettingsPanel({ document: doc, call, connection, onClose =
     placementSection.parentNode.hidden = !codexHost;
     planHint.parentNode.hidden = !codexHost;
     proxySection.parentNode.hidden = !codexHost;
-    autoSection.parentElement.hidden = menuReopen || !codexHost;
+    autoSection.parentElement.hidden = menuReopen;
+    autoRelaunchHint.textContent = `刚打开的 ${hostName()} 会自动重开一次以加载卡片`;
     switcherAllHint.textContent = `切换面板里加上最近在 ${hostName()} 里打开过、但没加入看板的会话`;
     switcherKey.row.querySelector("small").textContent = codexHost ? "⌃Tab 会盖掉 Codex 的切换标签页" : "⌃Tab 可能和 Antigravity 自己的快捷键冲突";
     planHint.checked = config.cards?.tasks?.settings?.planHint === true;
@@ -620,7 +622,7 @@ export function createSettingsPanel({ document: doc, call, connection, onClose =
   function renderStatus(agent) {
     statusDetails.replaceChildren();
     menuReopen = agent?.reopen === "menu";
-    autoSection.parentElement.hidden = menuReopen || host !== "codex";
+    autoSection.parentElement.hidden = menuReopen;
     if (agent?.available !== true) {
       statusText.textContent = "后台服务未运行";
       statusRow.dataset.state = "bad";
@@ -630,7 +632,14 @@ export function createSettingsPanel({ document: doc, call, connection, onClose =
     statusRow.dataset.state = "ok";
     if (host === "antigravity") {
       const antigravity = agent.antigravity ?? {};
-      for (const [label, value] of [["版本", agent.version], ["Antigravity", antigravity.attached ? "已连接" : "未连接"], ["调试端口", antigravity.port]]) {
+      const details = [
+        ["版本", agent.version],
+        ["Antigravity", antigravity.attached ? "已连接" : "未连接"],
+        ["调试端口", antigravity.port],
+        ["原生助手", agent.nativeHelper ? (agent.nativeHelper === "ok" ? "正常" : "缺失") : null],
+        ["最近事件", antigravity.lastEvent ? `${antigravity.lastEvent.event} · ${new Date(antigravity.lastEvent.at).toLocaleTimeString()}` : null]
+      ];
+      for (const [label, value] of details) {
         if (value !== null && value !== undefined) statusDetails.append(node("dt", label), node("dd", String(value)));
       }
       return;

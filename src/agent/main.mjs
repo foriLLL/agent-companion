@@ -190,7 +190,7 @@ export async function runAgent(options = {}) {
     getAgentStatus: () => ({ ...getAgentStatus({ available: !stopped, pid: processRef.pid, config,
       snapshot: adapter.snapshotValue, attachment: adapter.attachment, lastEvent: adapter.state.lastEvent,
       nativeHelper: deps.nativeBridge ? "ok" : "missing", hostPlatform: deps.hostPlatform }),
-      ...(antigravity ? { antigravity: { attached: Boolean(antigravity.attachment), port: antigravity.attachment?.port ?? null } } : {}) }),
+      ...(antigravity ? { antigravity: { attached: Boolean(antigravity.attachment), port: antigravity.attachment?.port ?? null, lastEvent: antigravity.lastEvent ?? null } } : {}) }),
     requestCodexRestart: params => deps.nativeBridge ? controller.requestUserRestart(params)
       : Promise.resolve({ accepted: false, reason: "native-helper-missing" }),
     getUpdateStatus: () => updater?.status() ?? null,
@@ -353,8 +353,14 @@ export async function runAgent(options = {}) {
     // Antigravity 宿主只由真实进程入口开启（cli.mjs），测试里不去碰本机正在运行的 Antigravity。
     if (options.antigravity && !stopped) {
       try {
-        antigravity = (options.antigravityHostFactory ?? createAntigravityHost)({ configStore: deps.configStore, initialConfig: config, logger, platform,
-          ...(typeof options.antigravity === "object" ? options.antigravity : {}) });
+        antigravity = (options.antigravityHostFactory ?? createAntigravityHost)({
+          configStore: deps.configStore, initialConfig: config, logger, platform,
+          hostPlatform: deps.hostPlatform, helperPath: deps.helperPath, env: options.env,
+          execFileImpl: options.execFileImpl, spawnImpl: options.spawnImpl,
+          ...(options.notifyImpl ? { notifyImpl: options.notifyImpl } : {}),
+          now, setTimer, clearTimer,
+          ...(typeof options.antigravity === "object" ? options.antigravity : {})
+        });
         await antigravity.start();
       } catch (error) {
         report(error);

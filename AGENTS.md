@@ -6,9 +6,10 @@ Agent Companion — 在 Codex 桌面端（macOS；Linux 预览）中注入红果
 Linux 不自动重开：用户级 `chatgpt.desktop` 覆盖菜单入口（`open-codex` 带调试参数启动），
 systemd 用户服务常驻发现并注入；主进程 cmdline 被 Chromium setproctitle 改写成空格拼接的一行。
 官方插件（MCP Apps）链路已彻底放弃并删除，不要再加回来。
-Antigravity（预览，macOS）是第二个宿主：用户用 `agent-companion antigravity` 带 loopback 调试端口打开，
-agent 里的 `antigravity-host.mjs` 轮询主进程并注入；注入、卡片平台、设置页与 Codex 共用，按 `host` 区分页面适配器、
-会话定位与任务看板的数据源。
+Antigravity（预览，macOS）是第二个宿主：后台 agent 里的 `antigravity-host.mjs` 经原生助手监听 Antigravity 启动，
+刚打开且未带调试参数（含自动更新重启）的实例在安全条件下被正常退出、以 loopback 随机端口重开并注入，
+用户也可以随时用 `agent-companion antigravity [--restart]` 带调试端口打开；注入、卡片平台、设置页与 Codex 共用，
+按 `host` 区分页面适配器、会话定位与任务看板的数据源。
 
 ## 技术栈
 - JavaScript ESM (`.mjs`, `"type": "module"`)，Node.js >= 22
