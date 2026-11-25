@@ -3,7 +3,7 @@
 // 只调用 account/rateLimits/read，不调用会返回邮箱等身份信息的 account/read。
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { delimiter, join } from "node:path";
+import { searchPathCandidates } from "./platform/paths.mjs";
 
 const DEFAULT_TIMEOUT_MS = 45_000;
 
@@ -25,9 +25,7 @@ export function codexCliCandidates({ env = process.env, platform = process.platf
   } else if (platform === "linux") {
     candidates.push("/usr/lib/chatgpt/resources/codex-cli/bin/codex");
   }
-  for (const dir of (env.PATH ?? "").split(delimiter)) {
-    if (dir) candidates.push(join(dir, platform === "win32" ? "codex.exe" : "codex"));
-  }
+  candidates.push(...searchPathCandidates([platform === "win32" ? "codex.exe" : "codex"], { platform, env }));
   if (platform !== "win32") candidates.push("/opt/homebrew/bin/codex", "/usr/local/bin/codex");
   return [...new Set(candidates)];
 }

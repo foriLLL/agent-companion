@@ -262,5 +262,5 @@ test("原生助手模式：旧实例只提醒不退出；关闭 autoRelaunch 不
 
   assert.equal(isAntigravityDebugInstance({ known: true, debugPort: 9339, debugAddress: null }), true);
   assert.equal(isAntigravityDebugInstance({ known: true, debugPort: 9339, debugAddress: "0.0.0.0" }), false);
-  assert.equal(resolveAntigravityAppPath({ env: { AGENT_COMPANION_ANTIGRAVITY_APP: "/test/AGY.app" } }), "/test/AGY.app");
+  assert.equal(resolveAntigravityAppPath({ env: { AGENT_COMPANION_ANTIGRAVITY_APP: "/test/AGY.app" }, platform: "darwin" }), "/test/AGY.app");
 });

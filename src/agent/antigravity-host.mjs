@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { resolve } from "node:path";
+import path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { promisify } from "node:util";
 import { notifyDesktop } from "../daemon.mjs";
@@ -24,8 +24,9 @@ export const ANTIGRAVITY_NOTIFICATIONS = Object.freeze({
   "relaunch-failed": "Antigravity 自动重开失败，请手动打开 Antigravity。"
 });
 
-export function resolveAntigravityAppPath({ env = process.env } = {}) {
-  return resolve(env.AGENT_COMPANION_ANTIGRAVITY_APP || DEFAULT_ANTIGRAVITY_APP);
+export function resolveAntigravityAppPath({ env = process.env, platform = process.platform } = {}) {
+  const paths = platform === "win32" ? path.win32 : path.posix;
+  return paths.resolve(env.AGENT_COMPANION_ANTIGRAVITY_APP || DEFAULT_ANTIGRAVITY_APP);
 }
 
 /** 接受本机监听地址（含省略地址，Chromium 默认只监听 127.0.0.1）的调试实例。 */
@@ -69,7 +70,7 @@ export function createAntigravityHost({
   snapshot, sessionFactory = createCodexSession, waitForTargets = waitForCodexTargets,
   configStore, initialConfig, logger = console, platform,
   hostPlatform = process.platform, env = process.env,
-  appPath = resolveAntigravityAppPath({ env }),
+  appPath = resolveAntigravityAppPath({ env, platform: hostPlatform }),
   helperPath = null, nativeBridge,
   execFileImpl, spawnImpl, reservePort = reserveLoopbackPort,
   notifyImpl = (title, message) => notifyDesktop(title, message, { platform: hostPlatform, execFileImpl }),
