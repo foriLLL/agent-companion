@@ -1,6 +1,5 @@
 import { completeCardOrder } from "../../platform/config/runtime-config.mjs";
 import { PLAN_HINT_BODY, PLAN_TOOL_SNIPPET } from "../../codex-plan-hint-text.mjs";
-import { alertLevel } from "../../../cards/tasks/alerts.mjs";
 
 // agent 拒绝重启时返回机器原因码，这里只展示对用户有意义的说明。
 const RESTART_REFUSALS = {
@@ -14,6 +13,10 @@ const RESTART_REFUSALS = {
   error: "后台服务出错",
   "native-helper-missing": "缺少原生助手，请手动退出并重新打开 Codex"
 };
+
+// 宿主集成的说明文字，供卡片设置展示：「长任务先列计划」写进 Codex 的规则全文与 config.toml 片段，
+// 与后台 createPlanHint 写入的内容同源。
+const CODEX_INFO = Object.freeze({ planHint: Object.freeze({ body: PLAN_HINT_BODY, toolSnippet: PLAN_TOOL_SNIPPET }) });
 
 const DISCONNECTED_MESSAGE = "后台连接已断开，正在自动恢复…";
 // 这些错误表示请求根本没有得到后台回音，可能是连接断了。
@@ -29,7 +32,8 @@ const ICONS = {
 // 平台设置只读写 RPC；运行时配置仍由 watcher 推送，不能在这里直接改卡片。
 // platform 缺省取页面 navigator，测试显式传入。
 // connection 来自 rpc-client：断开时说明正在自动恢复，恢复后自动重新读取，不用手动点重试。
-export function createSettingsPanel({ document: doc, call, connection, onClose = () => {}, onUpdateStatus = () => {}, platform }) {
+// cardSettings：[{ id, title, settings }]，settings 是卡片 renderer 导出的 settings(kit)，见 cardSection。
+export function createSettingsPanel({ document: doc, call, connection, onClose = () => {}, onUpdateStatus = () => {}, platform, cardSettings = [] }) {
   const nav = doc.defaultView?.navigator;
   const mac = /mac|darwin/i.test(String(platform ?? nav?.userAgentData?.platform ?? nav?.platform ?? ""));
   const element = doc.createElement("section");
@@ -42,7 +46,8 @@ export function createSettingsPanel({ document: doc, call, connection, onClose =
   let busy = false;
   let destroyed = false;
   let confirming = false;
-  let planHintConfirming = false;
+  // 卡片设置里正开着的确认框（同一时间只有一个）。
+  let activeConfirmation = null;
   // Linux 由应用菜单入口加载卡片，不能自动重开或重启 Codex。
   let menuReopen = false;
   // 宿主（codex / antigravity）由后台在 settings.get 里告知；只对 Codex 有意义的设置在别的宿主里隐藏。
@@ -98,7 +103,7 @@ export function createSettingsPanel({ document: doc, call, connection, onClose =
     if (hint) text.append(typeof hint === "string" ? node("small", hint) : hint);
     label.append(text, input);
     parent.append(label);
-    listen(input, "change", () => { void save(patch(input.checked)); });
+    listen(input, "change", () => { const value = patch(input.checked); if (value) void save(value); });
     return input;
   }
 
@@ -106,7 +111,7 @@ export function createSettingsPanel({ document: doc, call, connection, onClose =
   function choice(parent, title, hint, key, options, patch, disabled) {
     const row = node("div", null, "cc-settings-row");
     const text = node("span", title);
-    if (hint) text.append(node("small", hint));
+    if (hint) text.append(typeof hint === "string" ? node("small", hint) : hint);
     const group = node("div", null, "cc-seg cc-seg-inline");
     group.setAttribute("role", "radiogroup");
     group.setAttribute("aria-label", title);
@@ -121,12 +126,88 @@ export function createSettingsPanel({ document: doc, call, connection, onClose =
       wrap.append(input, node("span", label));
       group.append(wrap);
       inputs.set(value, input);
-      listen(input, "change", () => { if (input.checked) void save(patch(value)); });
+      listen(input, "change", () => {
+        if (!input.checked) return;
+        const next = patch(value);
+        if (next) void save(next);
+      });
     }
     row.append(text, group);
     parent.append(row);
     inputs.row = row;
     return inputs;
+  }
+
+  // 需要用户确认才能保存的改动（例如改写宿主的全局文件）用的确认框。同一时间只开一个：
+  // 打开时收起其它确认框；Esc、关闭面板、任何一次保存或配置刷新都会取消它。
+  function confirmationBox({ label, className, onCancel = () => {} } = {}) {
+    const box = node("div", null, className ? `cc-settings-confirm ${className}` : "cc-settings-confirm");
+    box.hidden = true;
+    box.setAttribute("role", "group");
+    if (label) box.setAttribute("aria-label", label);
+    const handle = Object.freeze({
+      element: box,
+      isOpen: () => !box.hidden,
+      open(focusTarget) {
+        if (destroyed || element.hidden) return;
+        if (confirming) cancelConfirmation();
+        if (activeConfirmation && activeConfirmation !== handle) activeConfirmation.cancel(false);
+        activeConfirmation = handle;
+        box.hidden = false;
+        focusTarget?.focus();
+      },
+      cancel(restoreFocus = true) {
+        if (activeConfirmation === handle) activeConfirmation = null;
+        box.hidden = true;
+        onCancel(restoreFocus && !element.hidden && !destroyed);
+      }
+    });
+    return handle;
+  }
+
+  // 卡片自己的设置：renderer 导出 settings(kit) 的卡片各占一节，标题取 manifest，卡片不在目录里时整节隐藏。
+  // kit 只提供与面板一致的控件、本卡设置的读写（一律写进 cards.<id>.settings）和宿主信息；
+  // 控件的 data-setting 自动加上「<id>-」前缀；卡片未启用时由各控件的 disabled 判断禁用。
+  // settings(kit) 返回 { render() }，每次读到或保存配置后调用。卡片代码出错只影响它自己这一节。
+  function cardSection({ id, title, settings: contribute }) {
+    const group = section(title);
+    const fieldset = group.parentNode;
+    fieldset.dataset.cardSettings = id;
+    const failure = node("p", null, "cc-settings-note cc-settings-error");
+    failure.hidden = true;
+    const fail = (error) => {
+      failure.textContent = `设置加载失败：${error?.message || String(error)}`;
+      failure.hidden = false;
+      group.append(failure);
+    };
+    const ready = () => !busy && Boolean(config) && !destroyed && !element.hidden;
+    const scoped = (patch) => (patch ? { cards: { [id]: { settings: patch } } } : null);
+    // 先确认面板可写再让卡片算补丁：卡片可能借这一步弹确认框。
+    const guarded = (patch) => (value) => (busy || !config || destroyed ? null : scoped(patch(value)));
+    const kit = Object.freeze({
+      id, group, mac, node, codex: CODEX_INFO,
+      host: () => host,
+      hostName,
+      settings: () => config?.cards?.[id]?.settings ?? {},
+      enabled: () => Boolean(config) && (config.cards?.[id]?.enabled ?? catalog.find(card => card.id === id)?.defaultEnabled) !== false,
+      isOpen: () => !destroyed && !element.hidden,
+      ready,
+      save: (patch) => (ready() && patch ? save(scoped(patch)) : Promise.resolve()),
+      checkbox: (parent, label, key, patch, hint, disabled) => checkbox(parent, label, `${id}-${key}`, guarded(patch), hint, disabled),
+      choice: (parent, label, hint, key, options, patch, disabled) => choice(parent, label, hint, `${id}-${key}`, options, guarded(patch), disabled),
+      button: (text, callback, { label, className, disabled } = {}) => control(button(text, callback, label, className), disabled),
+      control,
+      confirmation: confirmationBox
+    });
+    let contribution = null;
+    try { contribution = contribute(kit) ?? null; } catch (error) { fail(error); }
+    return {
+      render() {
+        fieldset.hidden = !catalog.some(card => card.id === id);
+        if (fieldset.hidden || !contribution?.render) return;
+        try { contribution.render(); } catch (error) { fail(error); }
+      }
+    };
   }
 
   const style = node("style");
@@ -230,10 +311,10 @@ export function createSettingsPanel({ document: doc, call, connection, onClose =
       background:color-mix(in srgb,#f5a623 10%,transparent);border:1px solid color-mix(in srgb,#f5a623 30%,transparent); }
     .cc-settings-confirm p { color:var(--fg); }
     .cc-settings-confirm .cc-settings-actions { padding:8px 0 0; }
-    .cc-plan-hint-confirm p + p { margin-top:8px; }
-    .cc-plan-hint-confirm details { margin-top:8px; }
-    .cc-plan-hint-confirm summary { cursor:pointer;font-size:12px; }
-    .cc-plan-hint-confirm pre { margin:8px 0 0;padding:10px;border-radius:8px;background:var(--surface);
+    .cc-settings-confirm p + p { margin-top:8px; }
+    .cc-settings-confirm details { margin-top:8px; }
+    .cc-settings-confirm summary { cursor:pointer;font-size:12px; }
+    .cc-settings-confirm pre { margin:8px 0 0;padding:10px;border-radius:8px;background:var(--surface);
       white-space:pre-wrap;overflow-wrap:anywhere;font:11px/1.6 ui-monospace,SFMono-Regular,Consolas,monospace; }
     .cc-status { display:flex;align-items:center;gap:8px;padding:8px 8px 8px 12px;min-height:40px; }
     .cc-status p { flex:1;color:var(--fg);font-size:13px; }
@@ -289,61 +370,7 @@ export function createSettingsPanel({ document: doc, call, connection, onClose =
     placements.set(value, input);
     listen(input, "change", () => { if (input.checked) void save({ placement: value }); });
   }
-  // 任务看板的设置写在卡片 settings 里；没有任务看板卡片时整组隐藏。
-  // 「长任务先列计划」由后台写进 Codex 的全局指令文件（AGENTS.md），并在 config.toml 打开自带的 update_plan 工具；关闭即删除。
-  // 「新会话自动加入看板」由后台扫描 Codex 新生成的会话记录，各平台都有。
-  // 快捷键只在 macOS 显示（Linux 桌面环境自己占用 Alt+Tab，Ctrl+Tab 是 Codex 的切换标签页）。
-  const tasksSection = section("任务看板");
-  const tasksOff = () => config.cards?.tasks?.enabled === false;
-  const planHintHint = node("small");
-  const planHint = checkbox(tasksSection, "长任务先列计划", "tasks-plan-hint",
-    value => ({ cards: { tasks: { settings: { planHint: value } } } }), planHintHint, tasksOff);
-  const planHintConfirmation = node("div", null, "cc-settings-confirm cc-plan-hint-confirm");
-  planHintConfirmation.hidden = true;
-  planHintConfirmation.setAttribute("role", "group");
-  planHintConfirmation.setAttribute("aria-label", "确认修改 Codex 全局指令");
-  const planHintTitle = node("p");
-  planHintTitle.append(node("strong", "开启将修改 Codex 全局指令"));
-  const planHintPreview = node("details");
-  planHintPreview.append(node("summary", "查看将追加的完整规则与配置"), node("pre", PLAN_HINT_BODY), node("pre", PLAN_TOOL_SNIPPET));
-  const confirmPlanHint = control(button("同意修改并开启", () => {
-    if (!planHintConfirming || busy || !config || destroyed || tasksOff() || element.hidden) return;
-    planHint.focus({ preventScroll: true });
-    cancelPlanHintConfirmation(false);
-    void save({ cards: { tasks: { settings: { planHint: true } } } }, { planHintConfirmed: true });
-  }, null, "cc-primary"), tasksOff);
-  const cancelPlanHint = control(button("暂不开启", () => cancelPlanHintConfirmation()));
-  const planHintActions = node("div", null, "cc-settings-actions");
-  planHintActions.append(cancelPlanHint, confirmPlanHint);
-  planHintConfirmation.append(planHintTitle,
-    node("p", "将向 Codex 的全局 AGENTS.md 追加计划规则（若 AGENTS.override.md 非空，则写入它），并在 Codex 的 config.toml 里开启它自带的 update_plan 计划工具。规则会进入模型上下文，两处都影响所有新会话，而不只是看板中的任务。"),
-    node("p", "用途：要求长任务先列计划并同步步骤状态。Codex 用 update_plan 工具报告进度，不会出现在对话里；工具不可用时才通过专用进度消息报告，供看板显示进度。不会改写你的输入消息，也不保证任务完成正确。"),
-    node("p", "关闭后只删除这段规则和 Companion 写入的 update_plan 设置，保留原有指令与配置；你在 config.toml 里自己设置过 update_plan 的，以你的设置为准。已加载规则的会话不会自动撤回。"),
-    planHintPreview, planHintActions);
-  tasksSection.append(planHintConfirmation);
-  const autoAddHint = node("small");
-  const autoAdd = checkbox(tasksSection, "新会话自动加入看板", "tasks-auto-add",
-    value => ({ cards: { tasks: { settings: { autoAdd: value } } } }), autoAddHint, tasksOff);
-  const tasksSettings = () => config.cards?.tasks?.settings ?? {};
-  const switcherOff = () => tasksOff() || tasksSettings().switcher === false;
-  const switcherHint = node("small");
-  const switcher = checkbox(tasksSection, "快捷键切换看板会话", "tasks-switcher",
-    value => ({ cards: { tasks: { settings: { switcher: value } } } }), switcherHint, tasksOff);
-  const switcherKey = choice(tasksSection, "切换键", "⌃Tab 会盖掉 Codex 的切换标签页", "tasks-switcherKey", [["alt", "⌥ Tab"], ["ctrl", "⌃ Tab"]],
-    value => ({ cards: { tasks: { settings: { switcherKey: value } } } }), switcherOff);
-  const switcherAllHint = node("small");
-  const switcherAll = checkbox(tasksSection, "也列出看板外的会话", "tasks-switcher-all",
-    value => ({ cards: { tasks: { settings: { switcherAll: value } } } }), switcherAllHint, switcherOff);
-  const switcherRows = [switcher.parentNode, switcherKey.row, switcherAll.parentNode];
-  for (const row of switcherRows) row.hidden = !mac;
-  // 播放提醒：卡片里有视频在播时，任务需要你或完成就弹出提醒；「暂停」先暂停播放再提醒。
-  const alertNote = node("p", "卡片里有视频在播时，任务状态变化会弹出提醒", "cc-settings-note");
-  tasksSection.append(alertNote);
-  const alertChoices = new Map();
-  for (const [key, title, hint] of [["alertAttention", "任务需要你时", "提问、中断或长时间没有动静"], ["alertDone", "任务完成时", "回复结束"]]) {
-    alertChoices.set(key, choice(tasksSection, title, hint, `tasks-${key}`, [["off", "关"], ["notify", "提醒"], ["pause", "暂停"]],
-      value => ({ cards: { tasks: { settings: { [key]: value } } } }), tasksOff));
-  }
+  const cardSections = cardSettings.map(cardSection);
   const proxySection = section("启动");
   const proxyEnabled = checkbox(proxySection, "通过代理启动", "proxy-enabled", value => ({ launch: { proxy: { enabled: value } } }));
   const portForm = node("form", null, "cc-settings-row");
@@ -382,7 +409,7 @@ export function createSettingsPanel({ document: doc, call, connection, onClose =
   });
   const restartButton = control(button("立即重启 Codex", () => {
     if (busy || !config || destroyed) return;
-    cancelPlanHintConfirmation(false);
+    activeConfirmation?.cancel(false);
     if (menuReopen) {
       showMessage("请退出 ChatGPT 后从应用菜单重新打开，新的代理设置即可生效");
       return;
@@ -535,39 +562,19 @@ export function createSettingsPanel({ document: doc, call, connection, onClose =
     }
   }
   function renderConfig(resetPort = true) {
-    cancelPlanHintConfirmation(false);
+    activeConfirmation?.cancel(false);
     enabled.checked = config.enabled;
     if (config.enabled) cardList.removeAttribute("data-off");
     else cardList.setAttribute("data-off", "");
     for (const [value, input] of placements) input.checked = value === config.placement;
     proxyEnabled.checked = config.launch?.proxy?.enabled ?? false;
-    tasksSection.parentElement.hidden = !catalog.some(card => card.id === "tasks");
-    // 显示方式、长任务先列计划、启动代理、自动加载都只作用于 Codex。
+    // 显示方式、启动代理、自动加载都只作用于 Codex。
     const codexHost = host === "codex";
     placementSection.parentNode.hidden = !codexHost;
-    planHint.parentNode.hidden = !codexHost;
     proxySection.parentNode.hidden = !codexHost;
     autoSection.parentElement.hidden = menuReopen;
     autoRelaunchHint.textContent = `刚打开的 ${hostName()} 会自动重开一次以加载卡片`;
-    switcherAllHint.textContent = `切换面板里加上最近在 ${hostName()} 里打开过、但没加入看板的会话`;
-    switcherKey.row.querySelector("small").textContent = codexHost ? "⌃Tab 会盖掉 Codex 的切换标签页" : "⌃Tab 可能和 Antigravity 自己的快捷键冲突";
-    planHint.checked = config.cards?.tasks?.settings?.planHint === true;
-    planHintHint.textContent = tasksOff() ? "需先启用任务看板" : "会修改 Codex 全局 AGENTS.md 并开启 update_plan 工具，影响所有新会话；仅用于列计划和同步进度。开启前需确认，关闭即删除";
-    autoAdd.checked = tasksSettings().autoAdd === true;
-    autoAddHint.textContent = tasksOff() ? "需先启用任务看板" : codexHost
-      ? "打开后在 Codex 里新开的会话自动加入，移出后不再加回；终端里的 Codex 和子代理不算"
-      : "打开后在 Antigravity 里新开的会话自动加入，移出后不再加回；命令行（agy）里的会话不算";
-    switcher.checked = tasksSettings().switcher !== false;
-    const ctrl = tasksSettings().switcherKey === "ctrl";
-    const [held, symbol] = ctrl ? ["Control", "⌃"] : ["Option", "⌥"];
-    switcherHint.textContent = tasksOff() ? "需先启用任务看板" : `按住 ${held} 连按 Tab 选择，松开即切换；${symbol}J 跳到需要你处理的会话`;
-    for (const [value, input] of switcherKey) input.checked = value === (ctrl ? "ctrl" : "alt");
-    switcherAll.checked = tasksSettings().switcherAll === true;
-    alertNote.textContent = tasksOff() ? "需先启用任务看板" : "卡片里有视频在播时，任务状态变化会弹出提醒；「暂停」会先暂停播放";
-    for (const [key, inputs] of alertChoices) {
-      const level = alertLevel(config.cards?.tasks?.settings, key);
-      for (const [value, input] of inputs) input.checked = value === level;
-    }
+    for (const item of cardSections) item.render();
     autoRelaunch.checked = config.agent?.autoRelaunch ?? true;
     autoUpdate.checked = config.updates?.auto !== false;
     if (resetPort) {
@@ -814,23 +821,9 @@ export function createSettingsPanel({ document: doc, call, connection, onClose =
       }
     } finally { if (!destroyed) setBusy(false); }
   }
-  async function save(patch, { planHintConfirmed = false } = {}) {
+  async function save(patch) {
     if (busy || !config || destroyed) return;
-    const enablingPlanHint = patch.cards?.tasks?.settings?.planHint === true && config.cards?.tasks?.settings?.planHint !== true;
-    if (enablingPlanHint && (tasksOff() || element.hidden)) {
-      renderConfig(false);
-      return;
-    }
-    if (enablingPlanHint && !planHintConfirmed) {
-      cancelConfirmation();
-      planHint.checked = false;
-      planHintConfirming = true;
-      planHintPreview.open = false;
-      planHintConfirmation.hidden = false;
-      cancelPlanHint.focus();
-      return;
-    }
-    cancelPlanHintConfirmation(false);
+    activeConfirmation?.cancel(false);
     setBusy(true);
     showMessage("正在保存…");
     try {
@@ -853,11 +846,6 @@ export function createSettingsPanel({ document: doc, call, connection, onClose =
         await recoverAfter(error);
       }
     } finally { if (!destroyed) setBusy(false); }
-  }
-  function cancelPlanHintConfirmation(restoreFocus = true) {
-    planHintConfirming = false;
-    planHintConfirmation.hidden = true;
-    if (restoreFocus && !element.hidden && !destroyed) planHint.focus({ preventScroll: true });
   }
   function cancelConfirmation() {
     confirming = false;
@@ -886,7 +874,7 @@ export function createSettingsPanel({ document: doc, call, connection, onClose =
     element.hidden = true;
     clearTimeout(updatePoll);
     updatePoll = null;
-    cancelPlanHintConfirmation(false);
+    activeConfirmation?.cancel(false);
     confirming = false;
     confirmation.hidden = true;
     onClose();
@@ -896,7 +884,7 @@ export function createSettingsPanel({ document: doc, call, connection, onClose =
     event.preventDefault();
     event.stopPropagation();
     if (drag) endDrag(false);
-    else if (planHintConfirming && !busy) cancelPlanHintConfirmation();
+    else if (activeConfirmation && !busy) activeConfirmation.cancel();
     else if (confirming && !busy) cancelConfirmation();
     else close();
   });

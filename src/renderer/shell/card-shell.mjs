@@ -135,9 +135,9 @@ export function createCardShell({ document: doc = document, hostId = "agent-comp
 
   return {
     host, root, add, reorder,
-    configureSettings({ call, connection }) {
+    configureSettings({ call, connection, cardSettings }) {
       if (settings) return;
-      settings = createSettingsPanel({ document: doc, call, connection, onUpdateStatus: markUpdate, onClose() {
+      settings = createSettingsPanel({ document: doc, call, connection, cardSettings, onUpdateStatus: markUpdate, onClose() {
         settingsButton.setAttribute("aria-expanded", "false");
         settingsButton.focus({ preventScroll: true });
       } });

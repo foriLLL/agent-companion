@@ -5,6 +5,7 @@ import { createCardShell } from "../src/renderer/shell/card-shell.mjs";
 import { createCardRuntime } from "../src/renderer/runtime/card-runtime.mjs";
 import { createRpcClient } from "../src/renderer/platform/rpc-client.mjs";
 import { PLAN_HINT_BODY, PLAN_TOOL_SNIPPET } from "../src/codex-plan-hint-text.mjs";
+import { settings as tasksSettings } from "../cards/tasks/settings.mjs";
 
 // 只实现面板用到的 DOM；布局、原生输入行为与 Shadow DOM 另由 Chromium 冒烟验证。
 class Element extends EventTarget {
@@ -75,6 +76,8 @@ const initialConfig = () => ({
   cards: { alpha: { enabled: true, settings: { keep: true } }, beta: { enabled: false, settings: {} }, future: { enabled: true, settings: { unknown: true } } },
   launch: { proxy: { enabled: false, port: 7890 } }, agent: { autoRelaunch: true }
 });
+// 任务看板的设置由卡片自己提供；面板只按 catalog 决定显示与否。
+const TASK_SETTINGS = [{ id: "tasks", title: "任务看板", settings: tasksSettings }];
 // 更新相关 RPC 单独记录：默认回「不支持」，各用例的 calls 只含设置与状态读写。
 function fixture(handler, { updates, ...options } = {}) {
   const document = makeDocument();
@@ -92,7 +95,7 @@ function fixture(handler, { updates, ...options } = {}) {
     if (method === "companion.agent.status") return { available: false };
     throw Error(`unexpected ${method}`);
   };
-  const panel = createSettingsPanel({ document, call, onClose: () => { closed++; }, ...options });
+  const panel = createSettingsPanel({ document, call, onClose: () => { closed++; }, cardSettings: TASK_SETTINGS, ...options });
   document.body.append(panel.element);
   return { document, panel, calls, updateCalls, get closed() { return closed; } };
 }
@@ -1102,5 +1105,32 @@ test("Antigravity 宿主：隐藏只作用于 Codex 的设置，状态显示 Ant
   assert.ok(root.textContent.includes("9339"));
   assert.ok(root.textContent.includes("原生助手"));
   assert.ok(root.textContent.includes("reopened"));
+  f.panel.destroy();
+});
+
+test("卡片设置：控件只写本卡 settings、自动加 id 前缀；卡片代码出错只影响自己那一节", async () => {
+  const extra = [
+    { id: "alpha", title: "甲卡片", settings(kit) {
+      const input = kit.checkbox(kit.group, "甲开关", "flag", value => ({ flag: value }), "说明", () => !kit.enabled());
+      return { render() { input.checked = kit.settings().flag === true; } };
+    } },
+    { id: "beta", title: "乙卡片", settings() { throw new Error("坏了"); } }
+  ];
+  const f = fixture((method, params) => {
+    if (method === "companion.settings.get") return { config: initialConfig(), catalog };
+    if (method === "companion.agent.status") return { available: false };
+    return { config: { ...initialConfig(), revision: 5, cards: { ...initialConfig().cards, alpha: { enabled: true, settings: { keep: true, flag: true } } } } };
+  }, { cardSettings: extra });
+  await f.panel.open();
+  const root = f.panel.element;
+  const flag = bySetting(root, "alpha-flag");
+  assert.equal(flag.checked, false);
+  change(flag, true);
+  await turn();
+  assert.deepEqual(f.calls.at(-1).params, { expectedRevision: 4, patch: { cards: { alpha: { settings: { flag: true } } } } });
+  assert.equal(flag.checked, true);
+  const beta = descendants(root).find(item => item.dataset.cardSettings === "beta");
+  assert.ok(beta.textContent.includes("设置加载失败：坏了"));
+  assert.equal(bySetting(root, "enabled").disabled, false, "其余设置照常可用");
   f.panel.destroy();
 });

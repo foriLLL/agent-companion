@@ -2,6 +2,9 @@ import { TRACE_STYLE, createTraceView } from "./trace.mjs";
 import { createSwitcher, mergeRecent, modifierOf, orderByRecent, touchRecent } from "./switcher.mjs";
 import { ALERT_TEXT, alertLevel, taskAlerts } from "./alerts.mjs";
 
+// Companion 设置面板里本卡的一节。
+export { settings } from "./settings.mjs";
+
 // 长轮询：服务端在会话记录变化时立即返回，没变化最多挂 20 秒；出错后隔一会儿再连。
 const WATCH_WAIT_MS = 20_000;
 const WATCH_RETRY_MS = 3000;
