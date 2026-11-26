@@ -37,7 +37,13 @@ export function parseLiteral(source) {
         if (next === "u") {
           const braced = source.slice(cursor + 2).match(/^\{([0-9a-fA-F]{1,6})\}/);
           const plain = source.slice(cursor + 2, cursor + 6);
-          if (braced) { value += String.fromCodePoint(Number.parseInt(braced[1], 16)); cursor += 3 + braced[1].length + 1; continue; }
+          if (braced) {
+            const codePoint = Number.parseInt(braced[1], 16);
+            if (codePoint > 0x10ffff) return null;
+            value += String.fromCodePoint(codePoint);
+            cursor += 3 + braced[1].length + 1;
+            continue;
+          }
           if (!/^[0-9a-fA-F]{4}$/.test(plain)) return null;
           value += String.fromCharCode(Number.parseInt(plain, 16));
           cursor += 6;

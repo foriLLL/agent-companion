@@ -13,7 +13,8 @@ export { PLAN_HINT_START, PLAN_HINT_END, PLAN_HINT_BODY, PLAN_TOOL_MARKER, PLAN_
 
 // 连同前面的空行一起匹配；标记行的说明文字以后可能改，只认固定前缀。
 // 也认改名前写下的 codex-companion 标记：开启时换成新标记，关闭或卸载时一并删除。
-const BLOCK = /\n*<!-- (agent|codex)-companion:plan-hint\b[^\n]*-->\n[\s\S]*?<!-- \/\1-companion:plan-hint -->\n?/;
+// 用户的文件可能是 CRLF：换行一律按 \r?\n 认，否则认不出已有的提示段，每次都会再追加一段。
+const BLOCK = /(?:\r?\n)*<!-- (agent|codex)-companion:plan-hint\b[^\r\n]*-->\r?\n[\s\S]*?<!-- \/\1-companion:plan-hint -->(?:\r?\n)?/;
 const FILE_LIMIT = 1024 * 1024;
 // Codex 的全局指令：AGENTS.override.md 非空时只读它，否则读 AGENTS.md。
 const OVERRIDE = "AGENTS.override.md";
@@ -84,20 +85,25 @@ export function withPlanTool(text) {
   return `${base ? `${base}\n\n` : ""}${PLAN_TOOL_MARKER}\n${PLAN_TOOL_SNIPPET}\n`;
 }
 
+const eolOf = (text) => (text.includes("\r\n") ? "\r\n" : "\n");
+
 export function withoutHint(text) {
+  const eol = eolOf(text);
   let result = text;
   for (let match = BLOCK.exec(result); match; match = BLOCK.exec(result)) {
     // 在文件中间时留一个空行隔开前后文字；在开头或末尾时直接去掉。
     const edge = match.index === 0 || match.index + match[0].length >= result.length;
-    result = `${result.slice(0, match.index)}${edge ? "" : "\n\n"}${result.slice(match.index + match[0].length)}`;
+    result = `${result.slice(0, match.index)}${edge ? "" : eol + eol}${result.slice(match.index + match[0].length)}`;
   }
   if (result === text) return text;
-  return result && !result.endsWith("\n") ? `${result}\n` : result;
+  return result && !result.endsWith("\n") ? `${result}${eol}` : result;
 }
 
 export function withHint(text) {
-  const base = withoutHint(text).replace(/\n+$/, "");
-  return `${base ? `${base}\n\n` : ""}${PLAN_HINT_START}\n${PLAN_HINT_BODY}\n${PLAN_HINT_END}\n`;
+  const eol = eolOf(text);
+  const base = withoutHint(text).replace(/(?:\r?\n)+$/, "");
+  const block = `${PLAN_HINT_START}\n${PLAN_HINT_BODY}\n${PLAN_HINT_END}\n`;
+  return `${base ? `${base}${eol}${eol}` : ""}${eol === "\n" ? block : block.replaceAll("\n", eol)}`;
 }
 
 async function readTarget(path, newMode = 0o644) {
@@ -121,7 +127,8 @@ async function edit(path, transform, newMode) {
   const { real, text, mode } = await readTarget(path, newMode);
   const next = transform(text ?? "");
   if (next === (text ?? "")) return false;
-  if (!next) {
+  // 改完为空：普通文件直接删；符号链接（比如指向 dotfiles 仓库）只清空它指向的文件，不删用户的源文件。
+  if (!next && !(await lstat(path).catch(() => null))?.isSymbolicLink()) {
     await unlink(real).catch((error) => { if (error.code !== "ENOENT") throw error; });
     return true;
   }

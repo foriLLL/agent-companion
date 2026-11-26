@@ -106,8 +106,8 @@ export async function readCardPackage(dir, { source = "user", expectedId = basen
 async function rootFingerprint(root) {
   let entries;
   try { entries = await readdir(root.dir, { withFileTypes: true }); } catch (error) {
-    if (error?.code === "ENOENT") return `${root.dir}:-`;
-    throw error;
+    // 目录读不了（不存在、无权限）也给出确定的指纹，交给 load() 记成问题，不让整份目录加载失败。
+    return `${root.dir}:${error?.code === "ENOENT" ? "-" : `!${error?.code ?? "ERROR"}`}`;
   }
   const parts = [root.dir];
   for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name, "en"))) {
@@ -171,8 +171,8 @@ export class CardCatalog {
           const previous = cards.get(card.id);
           cards.set(card.id, { ...card, linked, overrides: previous ? previous.source : null });
         } catch (error) {
-          if (!(error instanceof CardProblem) && error?.code !== "ENOENT") throw error;
-          problems.push({ dir, source: root.source, id: entry.name, code: error.code ?? "UNREADABLE", message: error.message });
+          // 单张卡片的任何错误（符号链接成环、无权限……）都只记成这张卡片的问题，内置卡片照常加载。
+          problems.push({ dir, source: root.source, id: entry.name, code: error?.code ?? "UNREADABLE", message: error?.message ?? String(error) });
         }
       }
     }

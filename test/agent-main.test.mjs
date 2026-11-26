@@ -210,6 +210,7 @@ test("fallback 通过假 ps 核实可执行路径/启动时间，模糊 argv 不
   assert.equal(result.apps[1].arguments, null);
   assert.equal(result.inputIdleMs, 0);
   assert.equal(calls[0][0], "/bin/ps");
+  assert.equal(calls[0][2].env.LC_ALL, "C", "lstart 按 C locale 输出，中文系统下也能解析");
   assert.equal(resolveCodexAppPath({ env: { AGENT_COMPANION_CODEX_APP: "/test/Alternate.app" } }), "/test/Alternate.app");
   assert.equal(resolveCodexAppPath({ env: {} }), "/Applications/ChatGPT.app");
 });

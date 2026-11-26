@@ -75,6 +75,8 @@ test("只允许本机 CDP WebSocket", () => {
     assertLoopbackWebSocketUrl("ws://localhost:9222/devtools/page/main"),
     "ws://localhost:9222/devtools/page/main"
   );
+  assert.equal(assertLoopbackWebSocketUrl("ws://[::1]:9222/devtools/page/main"), "ws://[::1]:9222/devtools/page/main");
+  assert.throws(() => assertLoopbackWebSocketUrl("ws://[::2]:9222/devtools/page/main"), /拒绝连接非本机/);
   assert.throws(
     () => assertLoopbackWebSocketUrl("wss://example.com/devtools/page/main"),
     /拒绝连接非本机/

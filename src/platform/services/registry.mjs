@@ -189,6 +189,8 @@ export class ServiceRegistry {
   }
 
   async disposeTarget(targetId) {
+    // 关闭时先 dispose 全部服务、再停注入器；之后注入器断开目标页触发的清理不能再调到已 dispose 的服务上。
+    if (this.closed) return;
     const scopes = [...this.scopes.values()].filter(scope => scope.targetId === targetId);
     for (const scope of scopes) this.retire(scope);
     const operations = scopes.map(scope => () => this.cleanupScope(scope));

@@ -138,7 +138,11 @@ export function createAntigravityHost({
     const entry = current;
     current = null;
     entry.abort.abort();
-    work = work.then(() => entry.session?.stop(reason)).catch((error) => log(`断开失败：${error?.message ?? error}`));
+    // 和 Codex 侧一致：正在连接（注入等目标页最长 30 秒）时立即停掉会话，不排在 connect() 之后。
+    const stopping = entry.session
+      ? Promise.resolve(entry.session.stop(reason)).catch((error) => log(`断开失败：${error?.message ?? error}`))
+      : null;
+    work = work.then(() => stopping ?? entry.session?.stop(reason)).catch((error) => log(`断开失败：${error?.message ?? error}`));
     return work;
   }
 

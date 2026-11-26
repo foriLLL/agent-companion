@@ -81,7 +81,10 @@ export function createPollingSnapshot({ executable = DEFAULT_CODEX_EXECUTABLE, e
     });
   }
   return async () => {
-    const { stdout } = await execFileImpl("/bin/ps", ["-axo", "pid=,lstart=,command="], { timeout: 2000, encoding: "utf8" });
+    // lstart 按 locale 输出（中文系统是「四 11月/26 …」），固定 C locale 才能按英文格式解析。
+    const { stdout } = await execFileImpl("/bin/ps", ["-axo", "pid=,lstart=,command="], {
+      timeout: 2000, encoding: "utf8", env: { ...process.env, LC_ALL: "C" }
+    });
     const apps = [];
     for (const line of String(stdout).split("\n")) {
       const match = line.match(/^\s*(\d+)\s+(\w{3}\s+\w{3}\s+\d+\s+\d{2}:\d{2}:\d{2}\s+\d{4})\s+(.+)$/);
@@ -313,9 +316,12 @@ export async function runAgent(options = {}) {
   }
   function onSignal() { void stop().then(() => { processRef.exitCode = 0; }, error => { report(error); processRef.exitCode = 1; }); }
   // 新版本已装好：正常清理后以非零码退出，launchd 按 KeepAlive.SuccessfulExit=false 拉起新版本。
-  // 清理卡住时 5 秒后强制退出，避免旧版本一直占着单实例锁。
+  // 清理完成后仍有句柄残留时 5 秒后强制退出；stop() 本身卡住（例如某个插件的 dispose 不返回）时
+  // 30 秒后同样强制退出，避免旧版本一直占着单实例锁。退出码先设好，自然退出时也能被拉起。
   function restartForUpdate() {
     if (stopped) return;
+    processRef.exitCode = RESTART_EXIT_CODE;
+    if (!options.exitImpl) setTimeout(() => process.exit(RESTART_EXIT_CODE), 30_000).unref();
     void stop().catch(report).finally(() => {
       processRef.exitCode = RESTART_EXIT_CODE;
       (options.exitImpl ?? (code => { setTimeout(() => process.exit(code), 5000).unref(); }))(RESTART_EXIT_CODE);

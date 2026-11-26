@@ -2,7 +2,8 @@ const DEFAULT_TIMEOUT_MS = 10_000;
 
 export function assertLoopbackWebSocketUrl(rawUrl) {
   const url = new URL(rawUrl);
-  const isLoopback = url.hostname === "127.0.0.1" || url.hostname === "localhost" || url.hostname === "::1";
+  // WHATWG URL 的 IPv6 hostname 带方括号（[::1]）。
+  const isLoopback = url.hostname === "127.0.0.1" || url.hostname === "localhost" || url.hostname === "[::1]";
   if ((url.protocol !== "ws:" && url.protocol !== "wss:") || !isLoopback) {
     throw new Error(`拒绝连接非本机 CDP 地址：${rawUrl}`);
   }

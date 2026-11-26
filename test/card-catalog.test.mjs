@@ -146,6 +146,33 @@ test("用户卡片的后台服务只在启用后才加载；内置卡片随启�
   delete globalThis.__pluginDisposed;
 });
 
+test("卡片服务换代码时撤下与按需加载并发：迟到的撤下不能抹掉新登记的服务", async t => {
+  const root = await temporary(t);
+  const user = join(root, "user");
+  const dir = await writeCard(user, "plugin", { service: `export function createService() { return { methods: { ping: () => "v1" } }; }` });
+  const catalog = new CardCatalog({ roots: [{ dir: user, source: "user" }], logger: quiet });
+  await catalog.load();
+  const importService = catalog.importService.bind(catalog);
+  let release;
+  const gate = new Promise(resolve => { release = resolve; });
+  let imports = 0;
+  catalog.importService = async id => { if (++imports === 1) await gate; return importService(id); };
+  const config = { enabled: true, cards: { plugin: { enabled: true, settings: {} } } };
+  const service = new AgentCompanionService({ cards: catalog, configStore: { loadV2: async () => config }, logger: quiet });
+  t.after(() => service.dispose());
+  const context = { cardId: "plugin", generation: 1, targetId: "t", executionContextId: 1 };
+  const first = service.syncCards(config);
+  await writeFile(join(dir, "service.mjs"), `export function createService() { return { methods: { ping: () => "v2" } }; }\n// changed`);
+  await catalog.refresh();
+  const second = service.syncCards(config);
+  const onDemand = service.handleRpc("plugin.ping", {}, context);
+  await new Promise(resolve => setTimeout(resolve, 20));
+  release();
+  await Promise.all([first, second]);
+  assert.ok(["v1", "v2"].includes(await onDemand));
+  assert.ok(["v1", "v2"].includes(await service.handleRpc("plugin.ping", {}, context)), "撤下之后服务仍然登记着");
+});
+
 test("安装来源：owner/repo[@ref]、git 地址与本地目录", async t => {
   const root = await temporary(t);
   assert.deepEqual(await parseCardSource("someone/agent-companion-card-x"), { kind: "git", url: "https://github.com/someone/agent-companion-card-x.git", ref: null });
@@ -190,6 +217,20 @@ test("安装 / 覆盖 / 更新 / 卸载本地卡片；内置卡片不能卸载�
   let built = 0;
   await installCard({ source: broken, userDir, build: async ({ dir }) => { built++; await writeFile(join(dir, "renderer.js"), "__companionDefine({ mount() {} });"); } });
   assert.equal(built, 1, "只有源码时安装前先打包");
+});
+
+test("单张用户卡片读不了（符号链接成环）只记成问题，内置卡片照常加载", async t => {
+  const root = await temporary(t);
+  const builtin = join(root, "builtin"), user = join(root, "user");
+  await writeCard(builtin, "alpha");
+  await writeCard(user, "good");
+  await mkdir(user, { recursive: true });
+  await symlink(join(user, "loop-b"), join(user, "loop-a"));
+  await symlink(join(user, "loop-a"), join(user, "loop-b"));
+  const catalog = new CardCatalog({ roots: [{ dir: builtin, source: "builtin" }, { dir: user, source: "user" }], logger: quiet });
+  await catalog.load();
+  assert.deepEqual(catalog.list().map(card => card.id).sort(), ["alpha", "good"]);
+  assert.ok(catalog.problems.some(problem => problem.id === "loop-a"), JSON.stringify(catalog.problems));
 });
 
 test("卸载与更新只接受合法卡片 id：.. 之类的参数不能删到用户卡片目录之外", async t => {

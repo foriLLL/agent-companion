@@ -63,6 +63,8 @@ export class AgentCompanionService {
     this.loadConfig = loadConfig;
     // id → { key, loading }：已登记的卡片服务对应哪份代码；key 变化（更新、换目录）时重新登记。
     this.loaded = new Map();
+    // 正在撤下的卡片服务（id → Promise）；之后的加载先等它完成，免得迟到的撤下把新登记的服务抹掉。
+    this.unloading = new Map();
     this.registry = new ServiceRegistry({
       modules: cards ? {} : modules ?? {}, manifests: cards ? [] : this.manifests, loadConfig, logger,
       cardApi: (manifest) => createCardApi({
@@ -154,6 +156,7 @@ export class AgentCompanionService {
     if (current?.key === key) return current.loading;
     const loading = (async () => {
       await current?.loading.catch(() => {});
+      await this.unloading.get(id);
       if (this.registry.closed) return;
       await this.registry.unregister(id);
       const manifest = this.cards.get(id)?.manifest;
@@ -182,7 +185,13 @@ export class AgentCompanionService {
     for (const [id, current] of this.loaded) {
       if (ids.has(id) && current.key === this.#cardKey(id)) continue;
       this.loaded.delete(id);
-      jobs.push(current.loading.catch(() => {}).then(() => this.registry.unregister(id)));
+      const previous = this.unloading.get(id);
+      const unloading = Promise.all([previous, current.loading.catch(() => {})])
+        .then(() => this.registry.unregister(id))
+        .catch(() => {})
+        .finally(() => { if (this.unloading.get(id) === unloading) this.unloading.delete(id); });
+      this.unloading.set(id, unloading);
+      jobs.push(unloading);
     }
     await Promise.allSettled(jobs);
     await Promise.allSettled(this.manifests.filter(({ id }) => this.#wanted(id, config)).map(({ id }) => this.#load(id)));

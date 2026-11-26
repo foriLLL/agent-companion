@@ -126,6 +126,16 @@ async function fixture(rows, files = {}) {
   return { dir, sessions, queries: () => queries };
 }
 
+test("库文件还没建：直接当作没有会话，不启动 sqlite3", async (t) => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "ag-missing-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  let queries = 0;
+  const sessions = new AntigravitySessions({ dataDir: dir, now: () => T0, query: async () => { queries += 1; throw Object.assign(new Error("unable to open"), { code: 1 }); } });
+  assert.equal((await sessions.rows()).size, 0);
+  assert.equal((await sessions.rows()).size, 0);
+  assert.equal(queries, 0);
+});
+
 const row = (id, raw, extra = {}) => ({ id, title: "", status: "CASCADE_RUN_STATUS_IDLE", source: "", workspaces: "[\"file:///Users/me/pi-src\"]", modifiedAt: "2026-11-24 08:00:30.5+00:00", raw: raw?.toString("hex") ?? null, ...extra });
 
 test("会话状态：等你处理、进行中、卡住、已结束（回复摘要/提问）、终止、归档、找不到", async () => {

@@ -123,7 +123,7 @@ test("打开 Antigravity：已就绪不动、运行中没端口要 --restart、�
     return now;
   } });
   assert.deepEqual(result, { launched: true, port: 9555, restarted: true });
-  assert.deepEqual(calls[0], ["/usr/bin/osascript", "-e", 'tell application "/Applications/Antigravity.app" to quit']);
+  assert.deepEqual(calls[0], ["/usr/bin/osascript", "-e", "on run argv\ntell application (item 1 of argv) to quit\nend run", "/Applications/Antigravity.app"]);
   assert.deepEqual(calls.at(-1), ["/usr/bin/open", "-a", "/Applications/Antigravity.app", "--args", "--remote-debugging-port=9555", "--remote-debugging-address=127.0.0.1"]);
 
   await assert.rejects(openAntigravity({ ...base, restart: true, quitTimeoutMs: 0, snapshot: async () => [{ pid: 1, port: null, loopback: true }] }), (error) => error.code === "QUIT_TIMEOUT");

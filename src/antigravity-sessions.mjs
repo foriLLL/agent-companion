@@ -366,6 +366,8 @@ export class AntigravitySessions {
   async rows() {
     const stamp = await this.dbStamp();
     if (stamp === this.cache.stamp) return this.cache.rows;
+    // 库文件还没建（没用过 Antigravity 的会话）：直接当作没有会话，不去起 sqlite3（它找不到文件时退出码是 1，不是 ENOENT）。
+    if (stamp.startsWith("-|")) return new Map();
     this.loading ??= (async () => {
       try {
         const rows = new Map();

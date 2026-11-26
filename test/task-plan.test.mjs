@@ -55,6 +55,7 @@ test("JS 字面量：单双引号、模板字符串、未加引号的键、尾�
   assert.deepEqual(parseLiteral(`{ plan: [ { step: '它\\'s "ok"', status: \`pending\` }, ], // 注释\n explanation: "a\\nb\\u4e2d\\u{1F600}" }`),
     { plan: [{ step: "它's \"ok\"", status: "pending" }], explanation: "a\nb中😀" });
   assert.equal(parseLiteral("{ plan: steps }"), null);
+  assert.equal(parseLiteral('{ a: "\\u{110000}" }'), null, "超出 Unicode 范围的转义不抛 RangeError");
   assert.equal(parseLiteral("{ plan: [{ step: `第 ${n} 步`, status: \"pending\" }] }"), null);
   assert.equal(parseLiteral("{ ...base }"), null);
 });
@@ -311,6 +312,13 @@ test("提示块：加上与删除都保留原有文字，重复加入不叠加�
   assert.equal(withoutHint(middle), "前面\n\n后面\n");
   const older = "前面\n\n<!-- agent-companion:plan-hint 旧说明 -->\n旧内容\n<!-- /agent-companion:plan-hint -->\n";
   assert.equal(withoutHint(older), "前面\n");
+  // CRLF 文件：认得出已有的提示段，不重复追加，删除后原样保留 CRLF。
+  const crlf = "# 规则\r\n\r\n- 用中文\r\n";
+  const crlfAdded = withHint(crlf);
+  assert.ok(hasHint(crlfAdded));
+  assert.equal(withHint(crlfAdded), crlfAdded);
+  assert.doesNotMatch(crlfAdded, /[^\r]\n/, "整份文件保持 CRLF");
+  assert.equal(withoutHint(crlfAdded), crlf);
 });
 
 test("提示开关：写进 Codex 实际读取的文件，跟随符号链接、保留权限；关掉后删掉自己新建的文件", async (t) => {
@@ -334,6 +342,13 @@ test("提示开关：写进 Codex 实际读取的文件，跟随符号链接、�
   assertMode(await stat(real), 0o600);
   await hint.set(false);
   assert.equal(await readFile(real, "utf8"), "我的规则\n");
+
+  // 链接指向的文件只有提示段：关掉后清空它，不删除用户的源文件、不留下断开的链接。
+  await writeFile(real, "");
+  await hint.set(true);
+  await hint.set(false);
+  assert.equal(await readFile(join(codexHome, "AGENTS.md"), "utf8"), "");
+  await writeFile(real, "我的规则\n");
 
   // AGENTS.override.md 非空时 Codex 只读它。
   await writeFile(join(codexHome, "AGENTS.override.md"), "覆盖\n");

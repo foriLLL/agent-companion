@@ -24,7 +24,8 @@ export async function openAntigravity({
   if (ready) return { launched: false, reason: "already-running", pid: ready.pid, port: ready.port };
   if (apps.length) {
     if (!restart) return { launched: false, reason: "needs-restart", pid: apps[0].pid };
-    await execFileImpl("/usr/bin/osascript", ["-e", `tell application "${appPath}" to quit`], { timeout: 10_000 });
+    // 应用路径作为参数传给脚本，不拼进 AppleScript 源码。
+    await execFileImpl("/usr/bin/osascript", ["-e", "on run argv\ntell application (item 1 of argv) to quit\nend run", appPath], { timeout: 10_000 });
     const deadline = Date.now() + quitTimeoutMs;
     while ((await snapshot()).length) {
       if (Date.now() >= deadline) throw Object.assign(new Error("Antigravity 没有退出，请手动退出后再试"), { code: "QUIT_TIMEOUT" });
