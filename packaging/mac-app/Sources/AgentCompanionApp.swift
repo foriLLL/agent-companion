@@ -51,6 +51,12 @@ struct CompanionConfigFile: Decodable {
     var launch: Launch
 }
 
+/// 跨线程传递子进程输出与超时标记；写入总在对应信号量 / waitUntilExit 之前完成。
+final class DataBox: @unchecked Sendable {
+    var data = Data()
+    var flag = false
+}
+
 struct BackendFailure: Decodable {
     struct Detail: Decodable { let code: String; let message: String }
     let error: Detail
@@ -123,8 +129,9 @@ final class CompanionBackend {
         return environment
     }
 
-    /// 所有短命令在后台队列执行；共享输出管道避免 stdout/stderr 相互阻塞。
-    private func run(_ arguments: [String], input: Data? = nil) async throws -> Data {
+    /// 所有短命令在后台队列执行。stdout 只放结果 JSON；stderr（迁移提示、坏插件警告、失败时的
+    /// {"error":…}）单独在另一个线程读完，两边都不会因为管道写满而互相阻塞。
+    private func run(_ arguments: [String], input: Data? = nil, timeout: TimeInterval = 120) async throws -> Data {
         guard let binary = binaryURL else { throw BackendError.binaryMissing }
         let environment = backendEnvironment()
         return try await withCheckedThrowingContinuation { continuation in
@@ -135,26 +142,55 @@ final class CompanionBackend {
                     process.arguments = arguments
                     process.environment = environment
                     let output = Pipe()
+                    let errors = Pipe()
                     let stdinPipe = Pipe()
                     process.standardOutput = output
-                    process.standardError = output
+                    process.standardError = errors
                     process.standardInput = stdinPipe
                     try process.run()
+                    let stderrBox = DataBox()
+                    let stderrDone = DispatchSemaphore(value: 0)
+                    DispatchQueue.global(qos: .utility).async {
+                        stderrBox.data = errors.fileHandleForReading.readDataToEndOfFile()
+                        stderrDone.signal()
+                    }
+                    // 后端卡住时有界结束：只终止我们自己启动的这个短命令进程。
+                    let timedOut = DataBox()
+                    let watchdog = DispatchWorkItem {
+                        guard process.isRunning else { return }
+                        timedOut.flag = true
+                        process.terminate()
+                    }
+                    DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + timeout, execute: watchdog)
                     if let input { try stdinPipe.fileHandleForWriting.write(contentsOf: input) }
                     try stdinPipe.fileHandleForWriting.close()
                     let data = output.fileHandleForReading.readDataToEndOfFile()
                     process.waitUntilExit()
+                    watchdog.cancel()
+                    stderrDone.wait()
+                    if timedOut.flag { throw BackendError.commandFailed("后端命令超时：\(arguments.joined(separator: " "))") }
                     guard process.terminationStatus == 0 else {
-                        if let failure = try? JSONDecoder().decode(BackendFailure.self, from: data) {
+                        if let failure = Self.backendFailure(in: stderrBox.data) {
                             if failure.error.code == "CONFIG_CONFLICT" { throw BackendError.conflict }
                             throw BackendError.commandFailed(failure.error.message)
                         }
-                        throw BackendError.commandFailed(String(data: data, encoding: .utf8) ?? "后端命令失败")
+                        let text = String(decoding: stderrBox.data.isEmpty ? data : stderrBox.data, as: UTF8.self)
+                            .trimmingCharacters(in: .whitespacesAndNewlines)
+                        throw BackendError.commandFailed(text.isEmpty ? "后端命令失败" : text)
                     }
                     continuation.resume(returning: data)
                 } catch { continuation.resume(throwing: error) }
             }
         }
+    }
+
+    /// CLI 失败时把 {"error":…} 写在 stderr 的最后一行，前面可能还有提示文本。
+    static func backendFailure(in data: Data) -> BackendFailure? {
+        let lines = String(decoding: data, as: UTF8.self).split(whereSeparator: \.isNewline)
+        for line in lines.reversed() {
+            if let failure = try? JSONDecoder().decode(BackendFailure.self, from: Data(line.utf8)) { return failure }
+        }
+        return nil
     }
 
     func status() async throws -> AgentStatus {

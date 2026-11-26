@@ -71,6 +71,9 @@ struct AgentSettingsTests {
         check(!statuses[5].shouldOfferRestart && statuses[5].nativeHelper == "missing", "缺助手不能重启")
         check(!statuses[6].shouldOfferRestart, "后台尚未运行时不建议重启")
         check(statuses[1].lastEvent?.event == "attached" && statuses[1].lastEvent?.at == 1234, "事件解码")
+        let stderr = Data("[agent-companion] 旧数据目录里这些项与新目录不同\n{\"error\":{\"code\":\"CONFIG_CONFLICT\",\"message\":\"冲突\"}}\n".utf8)
+        check(CompanionBackend.backendFailure(in: stderr)?.error.code == "CONFIG_CONFLICT", "stderr 前有提示文本时仍识别失败 JSON")
+        check(CompanionBackend.backendFailure(in: Data("plain warning\n".utf8)) == nil, "没有失败 JSON 时返回 nil")
         await expectFailure { _ = try JSONDecoder().decode(AgentStatus.self, from: Data("{}".utf8)) }
         await expectFailure { _ = try JSONDecoder().decode(AgentStatus.self, from: Data("log\n{}\n".utf8)) }
         let refusal = try JSONDecoder().decode(AgentRestartResult.self, from: Data("{\"stopped\":false,\"launched\":false,\"reason\":\"multiple-instances\"}".utf8))

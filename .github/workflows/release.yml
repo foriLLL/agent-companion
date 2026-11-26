@@ -33,6 +33,20 @@ jobs:
         with:
           node-version: 22
 
+      - name: Install dependencies
+        run: npm ci --no-audit
+
+      - name: Ensure system FFmpeg for integration tests
+        run: |
+          if ! command -v ffmpeg >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y ffmpeg
+          fi
+
+      # 源码 Release 与 Formula 推送之前先跑一遍测试，失败就不发布。
+      - name: Run tests
+        run: npm test
+
       - name: Verify tag matches package version
         run: |
           PACKAGE_VERSION="$(node -p 'require("./package.json").version')"
@@ -165,12 +179,10 @@ jobs:
           security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
           security import "$CERTIFICATE_PATH" -k "$KEYCHAIN_PATH" -P "$MACOS_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          rm -f "$CERTIFICATE_PATH"
           security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
           security list-keychains -d user -s "$KEYCHAIN_PATH"
-          {
-            echo "KEYCHAIN_PATH=$KEYCHAIN_PATH"
-            echo "KEYCHAIN_PASSWORD=$KEYCHAIN_PASSWORD"
-          } >> "$GITHUB_ENV"
+          echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
 
       - name: Sign, notarize and staple
         if: startsWith(github.ref, 'refs/tags/')
@@ -185,6 +197,7 @@ jobs:
           codesign --force --options runtime --timestamp --sign "$MACOS_SIGNING_IDENTITY" \
             "$APP/Contents/Helpers/companion-native"
           codesign --force --options runtime --timestamp --sign "$MACOS_SIGNING_IDENTITY" \
+            --entitlements packaging/mac-app/entitlements-backend.plist \
             "$APP/Contents/Resources/agent-companion"
           codesign --force --options runtime --timestamp --sign "$MACOS_SIGNING_IDENTITY" "$APP"
           codesign --verify --deep --strict --verbose=2 "$APP"
@@ -207,7 +220,11 @@ jobs:
       - name: Package tarball and checksum
         working-directory: dist
         run: |
-          tar -czf "${{ matrix.asset }}" "Agent Companion.app"
+          COPYFILE_DISABLE=1 tar --no-xattrs -czf "${{ matrix.asset }}" "Agent Companion.app"
+          if tar -tzf "${{ matrix.asset }}" | grep -q '\(^\|/\)\._'; then
+            echo "归档里出现了 AppleDouble（._）文件" >&2
+            exit 1
+          fi
           shasum -a 256 "${{ matrix.asset }}" > "${{ matrix.asset }}.sha256"
 
       - name: Upload workflow artifact
@@ -232,6 +249,7 @@ jobs:
           if test -n "${KEYCHAIN_PATH:-}" && test -f "$KEYCHAIN_PATH"; then
             security delete-keychain "$KEYCHAIN_PATH"
           fi
+          rm -f "$RUNNER_TEMP/agent-companion.p12"
 
   build-linux:
     name: Build Linux
