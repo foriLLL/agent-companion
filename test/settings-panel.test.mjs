@@ -1177,7 +1177,8 @@ const pluginCatalog = () => [
   ...catalog,
   { id: "gamma", title: "丙插件", defaultEnabled: false, defaultOrder: 10, source: "user", plugin: { kind: "git", from: "someone/agent-companion-card-gamma@v1.0.0", overridesBuiltin: false } },
   { id: "delta", title: "丁插件", defaultEnabled: false, defaultOrder: 11, source: "user", plugin: { kind: "link", from: "~/dev/delta", overridesBuiltin: false } },
-  { id: "alpha2", title: "改过的甲", defaultEnabled: false, defaultOrder: 12, source: "user", plugin: { kind: "manual", from: null, overridesBuiltin: true } }
+  { id: "deep", title: "深路径插件", defaultEnabled: false, defaultOrder: 12, source: "user", plugin: { kind: "path", from: "/private/tmp/claude-501/scratchpad/plugin-demo/demo", overridesBuiltin: false } },
+  { id: "alpha2", title: "改过的甲", defaultEnabled: false, defaultOrder: 13, source: "user", plugin: { kind: "manual", from: null, overridesBuiltin: true } }
 ];
 const pluginRow = (root, id) => descendants(root).find(child => child.dataset.plugin === id);
 const message = root => descendants(root).find(child => child.className === "cc-settings-message");
@@ -1198,6 +1199,8 @@ test("插件：只列自己安装的卡片与来源；卸载要在面板内确�
   assert.equal(pluginRow(root, "alpha"), undefined, "内置卡片不能卸载，不出现在这一节");
   assert.ok(pluginRow(root, "gamma").textContent.includes("安装自 someone/agent-companion-card-gamma@v1.0.0"));
   assert.ok(pluginRow(root, "delta").textContent.includes("开发链接 → ~/dev/delta"));
+  assert.ok(pluginRow(root, "deep").textContent.includes("安装自 …/plugin-demo/demo"), "深层本机路径压缩显示");
+  assert.equal(pluginRow(root, "deep").querySelector("small").title, "安装自 /private/tmp/claude-501/scratchpad/plugin-demo/demo", "悬停保留完整路径");
   assert.ok(pluginRow(root, "alpha2").textContent.includes("手动放进卡片目录 · 覆盖内置版本"));
   assert.ok(byLabel(root, "恢复内置版本 改过的甲"));
   const confirmBox = byLabel(root, "确认卸载插件");
@@ -1205,10 +1208,12 @@ test("插件：只列自己安装的卡片与来源；卸载要在面板内确�
 
   byLabel(root, "卸载 丙插件").click();
   assert.equal(confirmBox.hidden, false);
+  assert.equal(pluginRow(root, "gamma").getAttribute("data-confirming"), "", "确认中隐藏该行重复按钮");
   assert.ok(confirmBox.textContent.includes("卸载「丙插件」？会删除它的插件目录"));
   assert.equal(f.document.activeElement, byText(confirmBox, "取消"));
   assert.equal(escape(root).defaultPrevented, true);
   assert.equal(confirmBox.hidden, true, "Esc 先取消确认");
+  assert.equal(pluginRow(root, "gamma").getAttribute("data-confirming"), null, "取消后恢复该行按钮");
   assert.equal(f.document.activeElement, byLabel(root, "卸载 丙插件"));
   assert.equal(f.panel.element.hidden, false);
 

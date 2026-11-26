@@ -333,8 +333,29 @@ export function createSettingsPanel({ document: doc, call, connection, onClose =
     .cc-settings-confirm summary { cursor:pointer;font-size:12px; }
     .cc-settings-confirm pre { margin:8px 0 0;padding:10px;border-radius:8px;background:var(--surface);
       white-space:pre-wrap;overflow-wrap:anywhere;font:11px/1.6 ui-monospace,SFMono-Regular,Consolas,monospace; }
-    .cc-settings-purge { display:flex;align-items:center;gap:6px;margin-top:8px;font-size:12px;color:var(--fg2);cursor:pointer; }
-    .cc-settings-purge input { margin:0; }
+    .cc-plugin-row { min-height:36px;padding:7px 12px;gap:10px; }
+    .cc-plugin-row > span { display:flex;flex-direction:column;min-width:0; }
+    .cc-plugin-row > span > span { font-size:13px;line-height:1.35;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
+    .cc-plugin-row small { margin-top:1px;font-size:11px;line-height:1.35;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
+    .cc-plugin-row button { height:24px;padding:0 9px;border-radius:7px;font-size:12px;color:var(--fg2); }
+    .cc-plugin-row button[data-danger]:hover:not(:disabled) { color:#cf222e;border-color:color-mix(in srgb,#cf222e 32%,transparent);
+      background:color-mix(in srgb,#cf222e 7%,transparent); }
+    .cc-plugin-row[data-confirming] button { opacity:0;pointer-events:none; }
+    .cc-plugin-confirm { margin:0;padding:8px 12px 9px;border:0;border-top:1px solid var(--line);border-radius:0;
+      background:color-mix(in srgb,currentColor 3%,transparent); }
+    .cc-plugin-confirm p { font-size:12px;line-height:1.45;color:var(--fg2); }
+    .cc-plugin-confirm-bar { display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px 8px;margin-top:7px; }
+    .cc-plugin-confirm-actions { display:flex;align-items:center;gap:6px;margin-left:auto; }
+    .cc-plugin-confirm button { height:24px;padding:0 9px;border-radius:7px;font-size:12px; }
+    .cc-plugin-confirm button.cc-primary[data-danger] { background:#cf222e;color:#fff; }
+    .cc-plugin-confirm button.cc-primary[data-danger]:hover:not(:disabled) { background:#cf222e;opacity:.88; }
+    .cc-settings-purge { display:inline-flex;align-items:center;gap:5px;margin:0;font-size:11.5px;color:var(--fg3);cursor:pointer;user-select:none; }
+    .cc-settings-purge:hover { color:var(--fg2); }
+    .cc-settings-purge input { appearance:none;-webkit-appearance:none;position:relative;flex:none;width:13px;height:13px;margin:0;
+      border:1px solid var(--line2);border-radius:3.5px;background:var(--surface);cursor:pointer;transition:background-color .12s,border-color .12s; }
+    .cc-settings-purge input:checked { background:var(--fg);border-color:var(--fg); }
+    .cc-settings-purge input:checked::after { content:"";position:absolute;left:3.5px;top:1px;width:3.5px;height:6.5px;
+      border:solid var(--surface);border-width:0 1.5px 1.5px 0;transform:rotate(45deg); }
     .cc-status { display:flex;align-items:center;gap:8px;padding:8px 8px 8px 12px;min-height:40px; }
     .cc-status p { flex:1;color:var(--fg);font-size:13px; }
     .cc-status p::before { content:"";display:inline-block;width:7px;height:7px;margin:0 8px 1px 0;border-radius:50%;
@@ -379,9 +400,10 @@ export function createSettingsPanel({ document: doc, call, connection, onClose =
   pluginSection.append(pluginList);
   const pluginRows = new Map();
   let removalTarget = null;
-  const removal = confirmationBox({ label: "确认卸载插件", onCancel(restoreFocus) {
+  const removal = confirmationBox({ label: "确认卸载插件", className: "cc-plugin-confirm", onCancel(restoreFocus) {
     const target = removalTarget;
     removalTarget = null;
+    if (target) pluginRows.get(target.id)?.element.removeAttribute("data-confirming");
     if (restoreFocus) pluginRows.get(target?.id)?.button.focus();
   } });
   const removalText = node("p");
@@ -389,12 +411,14 @@ export function createSettingsPanel({ document: doc, call, connection, onClose =
   const purgeInput = control(node("input"));
   purgeInput.type = "checkbox";
   purgeInput.dataset.setting = "plugin-purge";
-  purgeLabel.append(purgeInput, node("span", "同时删除它保存的数据"));
+  purgeLabel.append(purgeInput, node("span", "同时删除数据"));
   const cancelRemoval = control(button("取消", () => removal.cancel()));
   const confirmRemoval = control(button("卸载", () => { void uninstall(); }, null, "cc-primary"));
-  const removalActions = node("div", null, "cc-settings-actions");
+  const removalBar = node("div", null, "cc-plugin-confirm-bar");
+  const removalActions = node("div", null, "cc-plugin-confirm-actions");
   removalActions.append(cancelRemoval, confirmRemoval);
-  removal.element.append(removalText, purgeLabel, removalActions);
+  removalBar.append(purgeLabel, removalActions);
+  removal.element.append(removalText, removalBar);
   pluginSection.append(removal.element);
   const placementSection = section("显示方式");
   placementSection.parentNode.className = "cc-fieldset-seg";
@@ -671,8 +695,16 @@ export function createSettingsPanel({ document: doc, call, connection, onClose =
     }
     renderPlugins();
   }
-  function pluginOrigin(plugin = {}) {
-    const from = typeof plugin.from === "string" && plugin.from ? plugin.from : "";
+  // 深层本机路径只保留最后两段，悬停 title 看完整来源，避免窄面板里折成多行。
+  function compactOriginPath(from) {
+    if (!from || (!from.startsWith("/") && !from.startsWith("~/"))) return from;
+    const parts = from.split("/").filter(Boolean);
+    if (parts.length <= 3) return from;
+    return `…/${parts.slice(-2).join("/")}`;
+  }
+  function pluginOrigin(plugin = {}, { compact = false } = {}) {
+    const raw = typeof plugin.from === "string" && plugin.from ? plugin.from : "";
+    const from = compact ? compactOriginPath(raw) : raw;
     const text = plugin.kind === "link" ? `开发链接 → ${from}` : from ? `安装自 ${from}` : "手动放进卡片目录";
     return plugin.overridesBuiltin ? `${text} · 覆盖内置版本` : text;
   }
@@ -689,7 +721,7 @@ export function createSettingsPanel({ document: doc, call, connection, onClose =
     for (const [index, card] of plugins.entries()) {
       let row = pluginRows.get(card.id);
       if (!row) {
-        const rowElement = node("div", null, "cc-settings-row");
+        const rowElement = node("div", null, "cc-settings-row cc-plugin-row");
         rowElement.dataset.plugin = card.id;
         const text = node("span");
         const name = node("span");
@@ -701,10 +733,14 @@ export function createSettingsPanel({ document: doc, call, connection, onClose =
         pluginRows.set(card.id, row);
       }
       const restores = card.plugin?.overridesBuiltin === true;
+      const fullOrigin = pluginOrigin(card.plugin);
       row.name.textContent = card.title;
-      row.origin.textContent = pluginOrigin(card.plugin);
+      row.origin.textContent = pluginOrigin(card.plugin, { compact: true });
+      row.origin.title = fullOrigin;
       row.button.textContent = restores ? "恢复内置版本" : "卸载";
       row.button.setAttribute("aria-label", `${restores ? "恢复内置版本" : "卸载"} ${card.title}`);
+      if (restores) row.button.removeAttribute("data-danger");
+      else row.button.setAttribute("data-danger", "");
       if (pluginList.children[index] !== row.element) pluginList.insertBefore(row.element, pluginList.children[index] ?? null);
     }
   }
@@ -712,14 +748,18 @@ export function createSettingsPanel({ document: doc, call, connection, onClose =
     if (busy || !config || destroyed) return;
     const card = catalog.find(item => item.id === id && item.source === "user");
     if (!card) return;
+    if (removalTarget) pluginRows.get(removalTarget.id)?.element.removeAttribute("data-confirming");
     removalTarget = card;
     const restores = card.plugin?.overridesBuiltin === true;
     const linked = card.plugin?.kind === "link";
     removalText.textContent = restores ? `删除你安装的「${card.title}」，恢复使用内置版本？`
       : linked ? `删除「${card.title}」的开发链接？源码目录不会被删除。`
-        : `卸载「${card.title}」？会删除它的插件目录，卡片随即从抽屉里移除。`;
+        : `卸载「${card.title}」？会删除它的插件目录。`;
     confirmRemoval.textContent = restores ? "恢复内置版本" : linked ? "删除链接" : "卸载";
+    if (restores) confirmRemoval.removeAttribute("data-danger");
+    else confirmRemoval.setAttribute("data-danger", "");
     purgeInput.checked = false;
+    pluginRows.get(card.id)?.element.setAttribute("data-confirming", "");
     removal.open(cancelRemoval);
   }
   // 卸载后重新读取设置；后台随即换上不含这张卡片的页面，抽屉与设置页保持打开。
