@@ -268,7 +268,7 @@ test("FFmpeg 会话串行处理初始化窗口内的并发 seek", async (t) => {
     child.kill = (signal = "SIGTERM") => {
       if (child.exitCode !== null || child.signalCode !== null) return false;
       child.signalCode = signal;
-      queueMicrotask(() => child.emit("exit", null, signal));
+      queueMicrotask(() => { child.emit("exit", null, signal); child.emit("close", null, signal); });
       return true;
     };
     setTimeout(() => {
@@ -676,6 +676,75 @@ test("seek 后旧 FFmpeg 的迟到 error 不得终止新进程", async (t) => {
   assert.equal((await session.next()).segments.length, 1);
 });
 
+test("stdout 因队列满暂停时 FFmpeg 先退出：等 stdout 读完（close）才结束，尾部分片不丢", async (t) => {
+  const session = new FfmpegFmp4Session({
+    mediaSource: { MediaStreams: [{ Type: "Video", Codec: "h264" }] },
+    readRange: async () => ({ bytes: Buffer.alloc(0), total: 1 }),
+    ffmpegPathImpl: "/mock/fast-exit",
+    platform: "linux",
+    maxBatchBytes: 300,
+    maxQueueBytes: 500,
+    resumeQueueBytes: 100,
+    spawnImpl: () => {
+      const child = new EventEmitter();
+      child.stdout = new PassThrough();
+      child.stderr = new PassThrough();
+      child.exitCode = child.signalCode = null;
+      child.kill = () => true;
+      // 和真实子进程一样：exit 可以早于 stdout 读完，close 要等 stdout 结束。
+      child.stdout.once("end", () => queueMicrotask(() => child.emit("close", 0, null)));
+      queueMicrotask(() => {
+        child.stdout.write(Buffer.concat([mp4Box("ftyp"), mp4Box("moov")]));
+        for (let index = 0; index < 10; index += 1) {
+          child.stdout.write(Buffer.concat([mp4Box("moof", Buffer.alloc(100, index)), mp4Box("mdat", Buffer.alloc(100, index))]));
+        }
+        child.stdout.end();
+        child.exitCode = 0;
+        child.emit("exit", 0, null);
+      });
+      return child;
+    }
+  });
+  t.after(() => session.destroy());
+  await session.initialize();
+  let complete = 0;
+  for (let round = 0; round < 50; round += 1) {
+    const { segments, end } = await session.next();
+    complete += segments.filter((segment) => segment.segmentEnd).length;
+    if (end) break;
+  }
+  assert.equal(complete, 10);
+});
+
+test("FFmpeg 失败信息去掉签名地址与本机路径", async (t) => {
+  const session = new FfmpegFmp4Session({
+    mediaSource: { MediaStreams: [{ Type: "Video", Codec: "h264" }] },
+    inputUrl: "https://cdn.example.com/v.mp4?sign=secret",
+    ffmpegPathImpl: "/mock/fails",
+    platform: "linux",
+    spawnImpl: () => {
+      const child = new EventEmitter();
+      child.stdout = new PassThrough();
+      child.stderr = new PassThrough();
+      child.exitCode = child.signalCode = null;
+      child.kill = () => true;
+      queueMicrotask(() => {
+        child.stderr.end("https://cdn.example.com/v.mp4?sign=secret: Server returned 403 Forbidden (access denied) from /tmp/agent/sub.ass\n");
+        child.stdout.end();
+        child.exitCode = 1;
+        child.emit("exit", 1, null);
+        setTimeout(() => child.emit("close", 1, null), 5);
+      });
+      return child;
+    }
+  });
+  t.after(() => session.destroy());
+  const error = await session.initialize().then(() => null, (failure) => failure);
+  assert.ok(error);
+  assert.match(error.message, /Server returned 403/);
+  assert.doesNotMatch(error.message, /sign=secret|cdn\.example|\/tmp\/agent/);
+});
+
 test("FFmpeg 正常退出却没有初始化数据时立即失败，不等 40 秒超时", { timeout: 3000 }, async (t) => {
   const session = new FfmpegFmp4Session({
     mediaSource: { MediaStreams: [{ Type: "Video", Codec: "h264" }] },
@@ -688,7 +757,7 @@ test("FFmpeg 正常退出却没有初始化数据时立即失败，不等 40 秒
       child.stderr = new PassThrough();
       child.exitCode = child.signalCode = null;
       child.kill = () => true;
-      queueMicrotask(() => { child.exitCode = 0; child.emit("exit", 0, null); });
+      queueMicrotask(() => { child.exitCode = 0; child.emit("exit", 0, null); child.emit("close", 0, null); });
       return child;
     }
   });
@@ -724,7 +793,7 @@ test("解密密钥与直连 URL 作为输入选项出现在 -i 之前，不启�
       child.stderr = new PassThrough();
       child.exitCode = child.signalCode = null;
       child.kill = () => true;
-      queueMicrotask(() => { child.exitCode = 1; child.emit("exit", 1, null); });
+      queueMicrotask(() => { child.exitCode = 1; child.emit("exit", 1, null); child.emit("close", 1, null); });
       return child;
     }
   });

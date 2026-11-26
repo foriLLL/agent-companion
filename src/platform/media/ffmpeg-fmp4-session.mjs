@@ -294,7 +294,8 @@ export class RangeProxy {
       while (!controller.signal.aborted) {
         const bytes = result.bytes;
         if (!(bytes instanceof Uint8Array) || bytes.byteLength === 0) break;
-        if (!response.write(Buffer.from(bytes))) await once(response, "drain");
+        // FFmpeg 断开时 drain 永远不会来；带上 signal，连接关闭（controller 被 abort）就结束等待。
+        if (!response.write(Buffer.from(bytes))) await once(response, "drain", { signal: controller.signal });
         offset = result.end + 1;
         if (finalEnd !== null && offset > finalEnd) break;
         const nextEnd = finalEnd === null
@@ -551,7 +552,7 @@ export class RangeProxy {
               if (chunk.length > remaining) chunk = chunk.subarray(0, remaining);
             }
             if (chunk.length === 0) continue;
-            if (!response.write(chunk)) await once(response, "drain");
+            if (!response.write(chunk)) await once(response, "drain", { signal });
             offset += chunk.length;
             received += chunk.length;
             if (finalEnd !== null && offset > finalEnd) break;
@@ -649,6 +650,14 @@ function subtitleExtension(codec) {
   if (["dvd_subtitle", "dvdsub", "vobsub"].includes(normalized)) return "sub";
   if (["dvb_subtitle", "dvbsub"].includes(normalized)) return "sub";
   return "sub";
+}
+
+function redactFfmpegDetail(line) {
+  if (!line) return line;
+  return line
+    .replace(/[a-z][a-z0-9+.-]*:\/\/[^\s'"]+/gi, "<url>")
+    .replace(/(^|[\s'"(])\/[^\s'"():]+/g, "$1<path>")
+    .slice(0, 300);
 }
 
 // 滤镜参数要过 FFmpeg 的两层解析：先按选项值转义（\ ' :），再按滤镜图转义（\ ' [ ] , ;）。
@@ -1009,7 +1018,9 @@ export class FfmpegFmp4Session {
       rejectStart(error);
       this.#fail(error);
     });
-    child.once("exit", (code, exitSignal) => {
+    // 等 close 而不是 exit：exit 时 stdout/stderr 里可能还有没读完的数据（stdout 因为队列满被暂停时尤其如此），
+    // 过早清掉 this.child 会让 next() 再也恢复不了 stdout，尾部分片和最后一行错误信息都会丢。
+    child.once("close", (code, exitSignal) => {
       if (generation !== this.generation || this.destroyed) return;
       this.child = null;
       if (code === 0) {
@@ -1018,7 +1029,8 @@ export class FfmpegFmp4Session {
         this.#resolveWaiters();
         return;
       }
-      const detail = this.stderr.trim().split(/\r?\n/).slice(-1)[0];
+      // 最后一行可能带着签名播放地址或本机临时路径，只把去掉这些之后的说明交给页面。
+      const detail = redactFfmpegDetail(this.stderr.trim().split(/\r?\n/).slice(-1)[0]);
       const suffix = detail ? `：${detail}` : "";
       const error = this.failure ?? new MediaError(
         "FFMPEG_FAILED",
@@ -1042,7 +1054,8 @@ export class FfmpegFmp4Session {
     // 接手下一次重启后，其余等待者必须继续排队，禁止再次并发进入 #restart。
     while (this.restartPromise) {
       const pendingRestart = this.restartPromise;
-      await pendingRestart;
+      // 前一次重启失败或被取消由它自己的调用方处理，排队的这一次照常进行。
+      await pendingRestart.catch(() => {});
       // 正常由持有者的 finally 清空；这里也负责交接，避免一个已完成 Promise
       // 在极端微任务顺序下仍占着槽位，导致等待者空转。
       if (this.restartPromise === pendingRestart) this.restartPromise = null;

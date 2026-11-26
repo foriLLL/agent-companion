@@ -53,7 +53,8 @@ function stripAssOverrides(value) {
   let output = "";
   let cursor = 0;
   let drawing = false;
-  for (const match of value.matchAll(/\{([^}]*)\}/g)) {
+  // \{ 是字面的花括号，不是覆盖标签的开头。
+  for (const match of value.matchAll(/(?<!\\)\{([^}]*)\}/g)) {
     if (!drawing) output += value.slice(cursor, match.index);
     for (const drawingTag of match[1].matchAll(/\\p(\d+)/gi)) {
       drawing = Number(drawingTag[1]) > 0;
@@ -67,8 +68,12 @@ function stripAssOverrides(value) {
 function cueText(value) {
   const plain = stripAssOverrides(String(value))
     .replace(/\\[Nn]/g, "\n")
-    .replace(/\\h/gi, "\u00a0")
+    .replace(/\\h/g, "\u00a0")
     .replace(/\\([{}])/g, "$1")
+    // WebVTT 里空行就是 cue 的结束：连续换行（\N\N）产生的空行要去掉，否则后面的文字会丢。
+    .split("\n")
+    .filter((line) => !/^[ \t]*$/.test(line))
+    .join("\n")
     .trim();
   return plain
     .replace(/&/g, "&amp;")

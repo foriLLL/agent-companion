@@ -184,7 +184,14 @@ export class HlsProxy {
     });
     try {
       const method = request.method ?? "GET";
-      // 渲染页面（app:// origin）fetch 127.0.0.1 是跨域，必须应答 CORS 预检。
+      const requestUrl = new URL(request.url ?? "/", "http://127.0.0.1");
+      const match = /^\/hls\/([^/]+)(\/.*)?$/.exec(requestUrl.pathname);
+      const session = match ? this.sessions.get(match[1]) : null;
+      if (!session || !match[2]) {
+        this.#sendError(response, 404, "not found");
+        return;
+      }
+      // 渲染页面（app:// origin）fetch 127.0.0.1 是跨域，必须应答 CORS 预检；只对已登记的会话路径应答。
       if (method === "OPTIONS") {
         this.#sendPreflight(request, response);
         return;
@@ -193,17 +200,12 @@ export class HlsProxy {
         this.#sendError(response, 405, "method not allowed");
         return;
       }
-      const requestUrl = new URL(request.url ?? "/", "http://127.0.0.1");
-      const match = /^\/hls\/([^/]+)(\/.*)?$/.exec(requestUrl.pathname);
-      const session = match ? this.sessions.get(match[1]) : null;
-      if (!session || !match[2]) {
-        this.#sendError(response, 404, "not found");
-        return;
-      }
       const remainder = match[2];
       // URL 解析会归并点段，单独立即拒绝原始路径里的 ..（含 %2e 变体），明确防御意图。
       const rawPath = String(request.url ?? "").split("?", 1)[0];
-      const hasDotSegment = rawPath.split("/").some((segment) => {
+      // 编码过的 / 与 \（%2f、%5c）不在这里解码，前缀检查看到的是编码形式；上游若解码就能跳出本视频目录。
+      const hasEncodedSeparator = /%2f|%5c/i.test(rawPath.split("/@ext/", 1)[0]);
+      const hasDotSegment = hasEncodedSeparator || rawPath.split("/").some((segment) => {
         try {
           return decodeURIComponent(segment) === "..";
         } catch {
@@ -296,6 +298,7 @@ export class HlsProxy {
       let size = firstChunk?.length ?? 0;
       for (;;) {
         if (size > MAX_PLAYLIST_BYTES) {
+          await iterator.return?.().catch(() => {});
           throw new MediaError("HLS_PLAYLIST_TOO_LARGE", "HLS 清单超过本地代理的缓冲上限");
         }
         const next = await iterator.next();

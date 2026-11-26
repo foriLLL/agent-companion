@@ -93,12 +93,20 @@ test("路径前缀收口与 .. 拒绝：越界路径 403 且不触达上游", as
   // 原始路径里的点段（含 %2e 变体）：显式 403，不依赖 URL 归一化兜底。
   for (const path of [
     "/hls/secret-1/emby/Videos/movie/%2e%2e/System/Info",
-    "/hls/secret-1/emby/Videos/movie/%2E%2e/%2e%2E/System/Info"
+    "/hls/secret-1/emby/Videos/movie/%2E%2e/%2e%2E/System/Info",
+    // 编码过的分隔符：上游若解码就能跳出本视频目录。
+    "/hls/secret-1/emby/Videos/movie/..%2f..%2fUsers",
+    "/hls/secret-1/emby/Videos/movie/..%5C..%5CUsers"
   ]) {
     const response = await rawGet(origin, path);
     assert.equal(response.status, 403, path);
   }
   assert.equal(calls.length, 1, "越界请求不得触达上游");
+  // 预检只对已登记的会话路径应答。
+  const preflight = await fetch(`${origin}/hls/unknown/emby/Videos/movie/master.m3u8`, { method: "OPTIONS" });
+  assert.equal(preflight.status, 404);
+  assert.equal(preflight.headers.get("access-control-allow-private-network"), null);
+  await preflight.body?.cancel();
 });
 
 test("同源请求注入 X-Emby-Token，且 token 绝不出现在 URL", async (t) => {

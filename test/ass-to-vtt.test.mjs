@@ -40,3 +40,15 @@ test("ASS 转 WebVTT 拒绝没有可显示文字的响应", () => {
     { code: "INVALID_SUBTITLE_RESPONSE" }
   );
 });
+
+test("ASS 转 WebVTT：连续 \\N 不产生空行截断 cue，\\{ \\} 是字面花括号，只有小写 \\h 是不换行空格", () => {
+  const result = assToWebVtt(`[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+Dialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,第一行\\N\\N第三行
+Dialogue: 0,0:00:03.00,0:00:04.00,Default,,0,0,0,,a \\{not a tag\\} b {\\i1}x
+Dialogue: 0,0:00:05.00,0:00:06.00,Default,,0,0,0,,A\\HB C\\hD
+`);
+  assert.match(result, /00:00:01\.000 --> 00:00:02\.000\n第一行\n第三行\n\n/);
+  assert.match(result, /\na \{not a tag\} b x\n/);
+  assert.match(result, /\nA\\HB C D\n/);
+});
