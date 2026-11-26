@@ -572,6 +572,30 @@ try {
   await evaluate(`unknownAdapter.dispose()`);
   assert.deepEqual(await evaluate(`errors`), []);
 
+  // 收起动画还没走完就重新打开：上一次 clamp 的限宽和平移动画还留在面板上，pad 的实测不能因此误判为生效。
+  // 夹具：输入框相对面板绝对定位，留白挪不动它、限宽可以，正常打开时 pad 实测不生效、改用 clamp；
+  // 面板按 Tailwind 的默认 border-box 计算宽度，残留的限宽会把实测 pad 时的面板一起收窄。
+  await evaluate(`(() => {
+    document.querySelector('main').style.boxSizing='border-box';
+    document.querySelector('[contenteditable]').style.cssText='position:absolute;right:16px;bottom:16px;width:600px;height:40px';
+    globalThis.reopenAdapter=createCodexAdapter({host,onError:error=>errors.push(error.message)});
+  })()`);
+  const pane = `document.querySelector('main')`;
+  await evaluate(`reopenAdapter.setOpen(true)`);
+  await waitFor(`reopenAdapter.isOpen() && drawerOf().dataset.state === 'open' && reopenAdapter.getDiagnostics().room === 'clamp' && ${pane}.getAnimations().length === 0`, "夹具：留白不生效时改用限宽");
+  await evaluate(`reopenAdapter.setOpen(false)`);
+  await waitFor(`${pane}.getAnimations().length === 1`, "夹具：会话收起动画开始");
+  // 定格在收起动画的第一帧：残留的限宽仍按满额收窄面板。
+  await evaluate(`(() => { const [animation] = ${pane}.getAnimations(); animation.pause(); animation.currentTime = 0; })()`);
+  await evaluate(`reopenAdapter.setOpen(true)`);
+  await waitFor(`reopenAdapter.isOpen() && drawerOf().dataset.state === 'open' && ${pane}.getAnimations().length === 0`, "收起途中重新打开");
+  assert.deepEqual(await evaluate(`(() => { const {room, dockShift}=reopenAdapter.getDiagnostics(); return {room, dockShift, inputClear:document.querySelector('[contenteditable]').getBoundingClientRect().right <= drawerOf().getBoundingClientRect().left + 1}; })()`),
+    { room: "clamp", dockShift: 324, inputClear: true }, "收起途中重新打开仍用实测生效的让位方式");
+  await evaluate(`reopenAdapter.setOpen(false)`);
+  await waitFor(`drawerOf().dataset.state === 'closed' && !document.querySelector('[data-companion-dock]') && ${pane}.style.maxWidth === ''`, "关闭后撤销限宽");
+  await evaluate(`reopenAdapter.dispose()`);
+  assert.deepEqual(await evaluate(`errors`), []);
+
   await evaluate(`clearInterval(frameTimer);video.srcObject.getTracks().forEach(track=>track.stop())`);
   console.log("Codex adapter smoke passed:", JSON.stringify(evidence));
 } finally {

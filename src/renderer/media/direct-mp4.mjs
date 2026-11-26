@@ -114,9 +114,12 @@ export function createDirectMp4Stream(scope, ui) {
       || /SourceBuffer is full|QuotaExceededError/i.test(String(errorValue?.message || errorValue || ""))
     );
 
-    const appendOnce = async (sourceBuffer, bytes) => {
+    // superseded：写入前最后一次检查（等 updateend 之后、appendBuffer 之前）；为 true 时不写，返回 false。
+    const appendOnce = async (sourceBuffer, bytes, superseded = () => false) => {
       if (sourceBuffer.updating) await waitForUpdateEnd(sourceBuffer, () => {});
+      if (superseded()) return false;
       await waitForUpdateEnd(sourceBuffer, () => sourceBuffer.appendBuffer(bytes));
+      return true;
     };
 
     const bufferAhead = () => {
@@ -230,7 +233,7 @@ export function createDirectMp4Stream(scope, ui) {
       return true;
     };
 
-    const recoverQuotaAtKeyframe = async () => {
+    const recoverQuotaAtKeyframe = async (superseded = () => false) => {
       if (player.keyframeTimes.length === 0) {
         player.lastQuotaRecovery = "no-keyframes";
         return false;
@@ -273,7 +276,7 @@ export function createDirectMp4Stream(scope, ui) {
 
       // 若安全边界还在播放头前方，让现有缓冲继续播放到该关键帧；到达后精确
       // 删除它之前的 coded frames。比“再等固定 N 秒”可靠，也不会删进当前 GOP。
-      while (!player.destroyed && (Number(embyVideo.currentTime) || 0) < cutoff + 0.05) {
+      while (!player.destroyed && !superseded() && (Number(embyVideo.currentTime) || 0) < cutoff + 0.05) {
         if (bufferAhead() <= 0.1) {
           player.lastQuotaRecovery = `buffer-ended-before:${cutoff.toFixed(2)}`;
           return false;
@@ -281,6 +284,8 @@ export function createDirectMp4Stream(scope, ui) {
         await waitForDemand(-1);
       }
       if (player.destroyed) throw rpcError("ABORTED", "播放器已经关闭");
+      // 等待期间已经 seek：这段数据作废，不再为它清理缓冲、轻推解码器。
+      if (superseded()) return false;
       await evictBefore(Math.max(0, cutoff - 0.001));
       const decoderFlushed = await flushDecoderReferences();
       player.quotaKeyframeRecoveries += 1;
@@ -288,9 +293,13 @@ export function createDirectMp4Stream(scope, ui) {
       return true;
     };
 
-    const append = async (trackId, sourceBuffer, bytes, segmentEnd = true) => {
+    // generation：这段数据所属的拉流轮次。seek 提交后轮次加一，旧位置的数据一律丢弃（新位置由新一轮 pump
+    // 重新拉取），也不能在 seek 改 timestampOffset 的同时再往 SourceBuffer 里写。
+    const append = async (trackId, sourceBuffer, bytes, segmentEnd = true, generation = player.generation) => {
+      // 销毁不算「被取代」：照旧由 waitForUpdateEnd 以 ABORTED 结束。
+      const superseded = () => !player.destroyed && generation !== player.generation;
       try {
-        await appendOnce(sourceBuffer, bytes);
+        if (!await appendOnce(sourceBuffer, bytes, superseded)) return;
         player.parserComplete.set(trackId, segmentEnd);
         return;
       } catch (errorValue) {
@@ -303,17 +312,25 @@ export function createDirectMp4Stream(scope, ui) {
       // SourceBuffer 把依赖帧一并删到下一关键帧、制造微小空洞后再次错误预取。
       // 这样不需要
       // 重启 FFmpeg/Range 流；暂停状态则等用户继续播放后自然恢复。
+      // 等待中用户拖了进度条：seeking 会先唤醒这里，但后端 seek 要防抖 / 等松手后才提交（轮次才变），
+      // 这期间接着等，等它提交后按轮次丢弃，不能抢在前面把旧位置的分片写进去。
       const retryAheadSeconds = Math.max(2, Math.min(4, initialBufferTarget));
-      while (!player.destroyed && bufferAhead() >= retryAheadSeconds) {
-        await waitForDemand(retryAheadSeconds);
+      while (!player.destroyed && !superseded()) {
+        const seekPending = Number.isFinite(player.pendingSeekTime);
+        if (!seekPending && bufferAhead() < retryAheadSeconds) break;
+        await waitForDemand(seekPending ? -1 : retryAheadSeconds);
       }
       if (player.destroyed) throw rpcError("ABORTED", "播放器已经关闭");
+      if (superseded()) return;
       await evictBackBuffer();
       try {
-        await appendOnce(sourceBuffer, bytes);
+        if (!await appendOnce(sourceBuffer, bytes, superseded)) return;
       } catch (retryError) {
-        if (!isQuotaExceeded(retryError) || !await recoverQuotaAtKeyframe()) throw retryError;
-        await appendOnce(sourceBuffer, bytes);
+        if (!isQuotaExceeded(retryError)) throw retryError;
+        const recovered = await recoverQuotaAtKeyframe(superseded);
+        if (superseded()) return;
+        if (!recovered) throw retryError;
+        if (!await appendOnce(sourceBuffer, bytes, superseded)) return;
       }
       player.parserComplete.set(trackId, segmentEnd);
     };
@@ -379,7 +396,7 @@ export function createDirectMp4Stream(scope, ui) {
           if (!sourceBuffer) throw rpcError("MSE_TRACK_MISSING", `找不到媒体轨道 ${trackId}`);
           for (const segment of segments) {
             if (player.destroyed || generation !== player.generation) return;
-            await append(trackId, sourceBuffer, segment.bytes, segment.segmentEnd);
+            await append(trackId, sourceBuffer, segment.bytes, segment.segmentEnd, generation);
           }
         }));
         if (player.destroyed || generation !== player.generation) return;
@@ -428,11 +445,17 @@ export function createDirectMp4Stream(scope, ui) {
             // finally 会在指针松开/防抖结束后串行提交最后一个目标。
             if (Number.isFinite(player.pendingSeekTime)) return;
             const timestampOffset = Number(result?.timestampOffsetSeconds);
-            if (Number.isFinite(timestampOffset)) {
-              for (const sourceBuffer of player.sourceBuffers.values()) {
-                if (sourceBuffer.updating) await waitForUpdateEnd(sourceBuffer, () => {});
-                sourceBuffer.timestampOffset = timestampOffset;
+            for (const [trackId, sourceBuffer] of player.sourceBuffers) {
+              if (sourceBuffer.updating) await waitForUpdateEnd(sourceBuffer, () => {});
+              if (player.destroyed || generation !== player.generation) return;
+              // 大分片拆成多次写入时，seek 可能落在两次写入之间，解析器还停在媒体段中途：此时改
+              // timestampOffset 会抛 InvalidStateError，新位置的数据也会被当成旧分片的剩余字节。
+              // 先 abort 重置解析器，只丢掉没写完的半个分片，已缓冲的帧不受影响。
+              if (mediaSource.readyState === "open") {
+                try { sourceBuffer.abort(); } catch {}
+                player.parserComplete.set(trackId, true);
               }
+              if (Number.isFinite(timestampOffset)) sourceBuffer.timestampOffset = timestampOffset;
             }
             if (player.destroyed || generation !== player.generation || Number.isFinite(player.pendingSeekTime)) return;
             void pump(generation).catch((errorValue) => {

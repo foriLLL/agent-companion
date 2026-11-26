@@ -966,12 +966,19 @@ export function createCodexAdapter({ host, placement = "standalone-button", onVi
   const probeStyle = document.createElement("style");
   probeStyle.id = `${hostId}-dock-probe`;
   const probeRoom = (plan) => {
+    // 收起动画还没走完就重新打开时，上一种让位方式的样式（如 clamp 的 max-width）和平移动画还留在节点上，
+    // 会把它的效果算到这次实测的方式头上（例如 pad 实际不生效却被判为生效）。实测期间先撤下残留的让位样式，
+    // 平移量直接写成数值、不读可能正被动画改写的变量；结束后原样放回，同一帧内完成，不会闪。
+    const residual = dockStyle.isConnected;
+    if (residual) dockStyle.remove();
     markNative(plan.root, "data-companion-dock-probe", "root");
-    probeStyle.textContent = `[data-companion-dock-probe="root"] { ${DOCK_SHIFT}:${plan.shift}px; ${ROOM_DECLARATIONS[plan.kind](plan.base, plan.root)} }`;
+    const declarations = ROOM_DECLARATIONS[plan.kind](plan.base, plan.root).replaceAll(`var(${DOCK_SHIFT})`, `${plan.shift}px`);
+    probeStyle.textContent = `[data-companion-dock-probe="root"] { ${declarations} }`;
     document.documentElement.append(probeStyle);
     try { return plan.works(); } catch { return false; } finally {
       probeStyle.remove();
       restoreNativeAttribute(plan.root, "data-companion-dock-probe");
+      if (residual) document.documentElement.append(dockStyle);
     }
   };
   // limit：让位后会话内容右缘不得超过的位置（抽屉左缘）。

@@ -232,7 +232,9 @@ export function createAttentionLayer({ document: doc, onError = () => {}, autoDi
     const { key, tone = "info", title, text = "", detail = "", color = "", pause = false, sticky = false, whilePlaying = true, action = null } = options;
     if (typeof key !== "string" || !key) throw new TypeError("提醒必须提供 key");
     const media = playingMedia();
-    if (whilePlaying && !media.length) return false;
+    // 被平台暂停、面板还显示「已暂停播放」的媒体仍算在看：同一轮里先到的提醒刚把视频暂停，
+    // 后到的提醒不能因此被丢掉。
+    if (whilePlaying && !media.length && !pausedMedia().length) return false;
     if (media.length) anchor = media.find((element) => element.getBoundingClientRect().width > 0) ?? media[0];
     if (pause) {
       for (const element of media) {

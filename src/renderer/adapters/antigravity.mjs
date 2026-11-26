@@ -312,14 +312,22 @@ export function createAntigravityAdapter({ host, placement = "standalone-button"
   // Esc 只在焦点落在卡片里时收起：输入框里的 Esc 是 Antigravity 自己的（例如停止生成）。
   const ownsEvent = (event) => event.composedPath().some((node) => node === rail || node === floating
     || node?.hasAttribute?.(ENTRY_MARK) || (typeof node?.id === "string" && node.id.startsWith("agent-companion")));
-  const onKeyDown = (event) => {
-    if (event.code === "KeyJ" && event.metaKey && event.altKey && !event.shiftKey && !event.ctrlKey) {
-      event.preventDefault();
-      event.stopPropagation();
-      setOpen(!open);
-    } else if (event.key === "Escape" && open && !document.fullscreenElement && ownsEvent(event)) {
-      setOpen(false);
-    }
+  // ⌥⌘J 在 window 捕获阶段处理，先于页面里的任何快捷键。
+  const onToggleKeyDown = (event) => {
+    if (event.code !== "KeyJ" || !event.metaKey || !event.altKey || event.shiftKey || event.ctrlKey) return;
+    event.preventDefault();
+    event.stopPropagation();
+    setOpen(!open);
+  };
+  // Esc 在冒泡阶段处理（同 Codex 适配器）：设置页的确认框、卡片里的播放器、重命名输入框自己消费 Esc 时会
+  // preventDefault（或停止传播），这里不再连带收起整个弹层，一次 Esc 只做一件事。
+  // 挂在根元素上：在卡片自己的处理之后、宿主挂在 document / window 上的快捷键之前。
+  const keyRoot = document.documentElement;
+  const onEscapeKeyDown = (event) => {
+    if (event.key !== "Escape" || event.defaultPrevented || !open || document.fullscreenElement || !ownsEvent(event)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    setOpen(false);
   };
   const schedule = () => {
     if (frame || disposed) return;
@@ -337,7 +345,8 @@ export function createAntigravityAdapter({ host, placement = "standalone-button"
   themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ["class", "style", "data-theme"] });
   const colorScheme = window.matchMedia?.("(prefers-color-scheme: dark)");
   colorScheme?.addEventListener?.("change", onThemeChange);
-  window.addEventListener("keydown", onKeyDown, true);
+  window.addEventListener("keydown", onToggleKeyDown, true);
+  keyRoot.addEventListener("keydown", onEscapeKeyDown);
   window.addEventListener("resize", schedule);
 
   syncStyles();
@@ -372,7 +381,8 @@ export function createAntigravityAdapter({ host, placement = "standalone-button"
       resizeObserver?.disconnect();
       themeObserver.disconnect();
       colorScheme?.removeEventListener?.("change", onThemeChange);
-      window.removeEventListener("keydown", onKeyDown, true);
+      window.removeEventListener("keydown", onToggleKeyDown, true);
+      keyRoot.removeEventListener("keydown", onEscapeKeyDown);
       window.removeEventListener("resize", schedule);
       floatingButton.removeEventListener("click", onEntryClick);
       for (const entry of entries()) entry.remove();

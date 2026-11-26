@@ -838,12 +838,18 @@ ${TRACE_STYLE}
     picking = null;
     render();
   });
+  // 捕获阶段处理并 preventDefault：这次 Esc 只关掉调色板 / 预览浮窗，宿主适配器看到 defaultPrevented 就不再收起整个弹层。
   effects.listen(doc, "keydown", (event) => {
     if (event.key !== "Escape" || !picking) return;
+    event.preventDefault();
     picking = null;
     render();
-  });
-  effects.listen(doc, "keydown", (event) => { if (event.key === "Escape") closePeek(); });
+  }, true);
+  effects.listen(doc, "keydown", (event) => {
+    if (event.key !== "Escape") return;
+    if (peek.matches(":popover-open")) event.preventDefault();
+    closePeek();
+  }, true);
   effects.listen(peek, "pointerenter", () => cancelPeek());
   effects.listen(peek, "pointerleave", () => schedulePeekClose());
   if (threads) effects.add(threads.subscribe(render));

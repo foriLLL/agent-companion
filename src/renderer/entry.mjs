@@ -58,6 +58,11 @@ function bootstrap({ action = "mount", config = {}, host = "codex", artifactHash
   cleanupLegacy();
   if (previous?.artifactHash === artifactHash && previous?.runtime?.isMounted()) {
     void previous.runtime.applyConfig(config);
+    // 本轮随整页注入登记（register）的卡片也交给正在运行的运行时：它还没有的就地挂载，
+    // 已有且哈希相同的由 defineCard 自行忽略。不能等注入器下一轮补送。
+    for (const [id, { hash, module }] of cards) {
+      try { previous.runtime.defineCard?.(id, module, hash); } catch {}
+    }
     return { status: "already-mounted", version };
   }
   // 换注入产物（安装、卸载卡片等）时整体重建：先记下抽屉和设置是否开着，新运行时接着打开。

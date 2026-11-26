@@ -100,6 +100,15 @@ try {
     assert.equal(await evaluate("events.at(-1).visible"), false);
     await key("rawKeyDown");
     assert.equal(await evaluate("adapter.isOpen()"), true, "⌥⌘J 打开");
+    // 卡片自己消费的 Esc（设置页确认框、播放器返回、取消重命名）会 preventDefault：只做卡片里的事，不连带收起弹层
+    await evaluate(`(() => {
+      const box = document.createElement('input'); box.id = 'consumer'; globalThis.consumed = 0;
+      box.addEventListener('keydown', (event) => { if (event.key === 'Escape') { event.preventDefault(); consumed += 1; } });
+      host.shadowRoot.append(box); box.focus();
+    })()`);
+    await connection.send("Input.dispatchKeyEvent", { type: "rawKeyDown", code: "Escape", key: "Escape", windowsVirtualKeyCode: 27 });
+    assert.deepEqual(await evaluate("[adapter.isOpen(), consumed]"), [true, 1], "卡片消费的 Esc 不收起弹层");
+    await evaluate("host.shadowRoot.getElementById('consumer').remove()");
     await evaluate("document.getElementById('composer').remove(); host.shadowRoot.getElementById('cards').tabIndex = 0; host.shadowRoot.getElementById('cards').focus()");
     await connection.send("Input.dispatchKeyEvent", { type: "rawKeyDown", code: "Escape", key: "Escape", windowsVirtualKeyCode: 27 });
     assert.equal(await evaluate("adapter.isOpen()"), false, "焦点在卡片里时 Esc 收起");
