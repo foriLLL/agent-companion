@@ -838,16 +838,18 @@ ${TRACE_STYLE}
     picking = null;
     render();
   });
-  // 捕获阶段处理并 preventDefault：这次 Esc 只关掉调色板 / 预览浮窗，宿主适配器看到 defaultPrevented 就不再收起整个弹层。
+  // 捕获阶段处理：Esc 在卡片或预览浮窗里按下时 preventDefault，这次 Esc 只关掉调色板 / 预览浮窗，
+  // 宿主适配器看到 defaultPrevented 就不再收起整个弹层；焦点在宿主（如输入框）时不拦，Esc 照常归宿主。
+  const inCard = (event) => event.composedPath().some((node) => node === root || node === peek);
   effects.listen(doc, "keydown", (event) => {
     if (event.key !== "Escape" || !picking) return;
-    event.preventDefault();
+    if (inCard(event)) event.preventDefault();
     picking = null;
     render();
   }, true);
   effects.listen(doc, "keydown", (event) => {
     if (event.key !== "Escape") return;
-    if (peek.matches(":popover-open")) event.preventDefault();
+    if (peek.matches(":popover-open") && inCard(event)) event.preventDefault();
     closePeek();
   }, true);
   effects.listen(peek, "pointerenter", () => cancelPeek());

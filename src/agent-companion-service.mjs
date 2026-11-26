@@ -156,6 +156,9 @@ export class AgentCompanionService {
     if (current?.key === key) return current.loading;
     const loading = (async () => {
       await current?.loading.catch(() => {});
+      // 等前一次加载期间自己已被撤下（syncCards 把它换掉了）：直接结束，不能再去等撤下，
+      // 撤下本身在等这次加载完成，互等会卡死。
+      if (this.loaded.get(id)?.loading !== loading) return;
       await this.unloading.get(id);
       if (this.registry.closed) return;
       await this.registry.unregister(id);

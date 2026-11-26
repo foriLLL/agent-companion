@@ -4,6 +4,7 @@ import { EventEmitter } from "node:events";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { connect } from "node:net";
 import { PassThrough } from "node:stream";
 import test from "node:test";
 import { promisify } from "node:util";
@@ -714,6 +715,23 @@ test("stdout 因队列满暂停时 FFmpeg 先退出：等 stdout 读完（close�
     if (end) break;
   }
   assert.equal(complete, 10);
+});
+
+test("RangeProxy：FFmpeg 在写入积压时断开连接不算播放失败", async (t) => {
+  const errors = [];
+  const proxy = new RangeProxy({
+    readRange: async ({ start, end }) => ({ bytes: new Uint8Array(end - start + 1), start, end, total: 100 * 1024 * 1024, contentType: "video/mp4" }),
+    onError: (error) => errors.push(error)
+  });
+  t.after(() => proxy.close());
+  const url = new URL(await proxy.start());
+  const socket = connect(Number(url.port), "127.0.0.1");
+  socket.write(`GET ${url.pathname} HTTP/1.1\r\nHost: x\r\nRange: bytes=0-\r\n\r\n`);
+  socket.pause();
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  socket.destroy();
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  assert.deepEqual(errors, []);
 });
 
 test("FFmpeg 失败信息去掉签名地址与本机路径", async (t) => {

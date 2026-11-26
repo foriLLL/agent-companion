@@ -173,6 +173,40 @@ test("卡片服务换代码时撤下与按需加载并发：迟到的撤下不�
   assert.ok(["v1", "v2"].includes(await service.handleRpc("plugin.ping", {}, context)), "撤下之后服务仍然登记着");
 });
 
+test("加载中的服务被连续换代码两次：撤下与加载不互等，之后的同步都能完成", async t => {
+  const manifest = { id: "xcard", title: "X", version: "1.0.0", defaultEnabled: false, defaultOrder: 50, capabilities: [],
+    layout: { height: "content" }, lifecycle: {}, state: { scope: "target", version: 1 } };
+  let mtime = 1;
+  let release;
+  const gate = new Promise(resolve => { release = resolve; });
+  let imports = 0;
+  const cards = {
+    manifests: () => [manifest],
+    get: id => id === "xcard" ? { dir: "/fake/xcard", manifest, service: { path: "/fake/xcard/service.mjs", mtimeMs: mtime } } : null,
+    has: id => id === "xcard",
+    isBuiltin: () => false,
+    importService: async () => { if (++imports === 1) await gate; return { createService: () => ({ methods: { ping: () => "pong" } }) }; },
+    subscribe: () => () => {}
+  };
+  const config = { version: 2, revision: 1, enabled: true, cards: { xcard: { enabled: true } } };
+  const service = new AgentCompanionService({ cards, configStore: { loadV2: async () => config }, logger: quiet });
+  t.after(() => service.dispose());
+  const tick = () => new Promise(resolve => setTimeout(resolve, 10));
+  const first = service.syncCards(config);
+  await tick();
+  const second = service.syncCards(config);
+  mtime = 2;
+  await tick();
+  mtime = 3;
+  const third = service.syncCards(config);
+  await tick();
+  release();
+  const within = (promise) => Promise.race([promise.then(() => "done"), new Promise(resolve => setTimeout(() => resolve("pending"), 1000))]);
+  assert.deepEqual(await Promise.all([first, second, third].map(within)), ["done", "done", "done"]);
+  assert.equal(await within(service.syncCards(config)), "done");
+  assert.equal(await service.handleRpc("xcard.ping", {}, { cardId: "xcard", generation: 1, targetId: "t", executionContextId: 1 }), "pong");
+});
+
 test("安装来源：owner/repo[@ref]、git 地址与本地目录", async t => {
   const root = await temporary(t);
   assert.deepEqual(await parseCardSource("someone/agent-companion-card-x"), { kind: "git", url: "https://github.com/someone/agent-companion-card-x.git", ref: null });
@@ -270,6 +304,7 @@ test("--path 不能借同前缀目录或符号链接指向仓库之外", async t
   const userDir = join(root, "user");
   assert.equal((await installCard({ source: repo, path: "cards/inside", userDir })).id, "inside");
   await assert.rejects(installCard({ source: repo, path: "../repo2", userDir }), { code: "INVALID_SOURCE" });
+  assert.equal((await installCard({ source: join(repo, "cards", "inside"), path: ".", userDir, force: true })).id, "inside", "--path . 仍然可用");
   await assert.rejects(installCard({ source: repo, path: "escape", userDir }), { code: "INVALID_SOURCE" });
 });
 

@@ -125,7 +125,7 @@ async function preparePackage(dir, { subpath = null, expectedId = null, build = 
     // 按真实路径判断：既防 ../ 与同前缀的兄弟目录，也防仓库里指向外面的符号链接。
     const root = await realpath(dir);
     cardDir = await realpath(resolve(root, subpath)).catch(() => resolve(root, subpath));
-    if (!isPathInside(cardDir, root)) throw new CardManageError("INVALID_SOURCE", "--path 不能指向仓库之外");
+    if (cardDir !== root && !isPathInside(cardDir, root)) throw new CardManageError("INVALID_SOURCE", "--path 不能指向仓库之外");
   }
   const hasBundle = Boolean(await stat(join(cardDir, RENDERER_BUNDLE)).catch(() => null));
   const hasSource = Boolean(await stat(join(cardDir, RENDERER_SOURCE)).catch(() => null));

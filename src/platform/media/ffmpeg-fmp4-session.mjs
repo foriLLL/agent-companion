@@ -305,7 +305,8 @@ export class RangeProxy {
       }
       response.end();
     } catch (error) {
-      if (!["CANCELLED", "ABORTED"].includes(error?.code)) this.onError?.(error);
+      // FFmpeg 自己断开连接（探测时的输入 seek、seek 时停掉旧进程）是常态，不算播放失败。
+      if (!controller.signal.aborted && !["CANCELLED", "ABORTED"].includes(error?.code)) this.onError?.(error);
       if (!response.headersSent) {
         response.writeHead(error?.code === "INVALID_RANGE" ? 416 : 502);
         response.end();
