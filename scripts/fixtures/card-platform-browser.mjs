@@ -541,12 +541,17 @@ export async function settingsLayout() {
   document.body.append(host);
   const calls = [];
   let config = { version: 2, revision: 0, enabled: true, cards: { tasks: { enabled: true, settings: {} } }, order: ["long-title", "tasks"], placement: "standalone-button", launch: { proxy: { enabled: false, port: 7890 } }, agent: { autoRelaunch: true } };
+  // 自己安装的插件：超长标题与来源检查「插件」一节在 320px 下不横向溢出。
+  let installed = true;
+  const plugin = { id: "long-plugin", title: "很长的插件名称".repeat(6), defaultEnabled: false, defaultOrder: 20, source: "user",
+    plugin: { kind: "git", from: `someone/agent-companion-card-${"x".repeat(60)}@v1.0.0`, overridesBuiltin: false } };
   const panel = createSettingsPanel({ document, call: async (method, params) => {
     calls.push({ method, params });
-    if (method === "companion.settings.get") return { config, catalog: [{ id: "long-title", title: "LongUnbrokenCardTitle".repeat(5), defaultEnabled: true, defaultOrder: 0 }, { id: "tasks", title: "任务看板", defaultEnabled: true, defaultOrder: 5 }] };
+    if (method === "companion.settings.get") return { config, catalog: [{ id: "long-title", title: "LongUnbrokenCardTitle".repeat(5), defaultEnabled: true, defaultOrder: 0 }, { id: "tasks", title: "任务看板", defaultEnabled: true, defaultOrder: 5 }, ...(installed ? [plugin] : [])] };
     if (method === "companion.agent.status") return { available: false };
     if (method === "companion.update.status") return structuredClone(UPDATE_STATUS);
     if (method === "companion.codex.restart") return { accepted: true };
+    if (method === "companion.cards.remove") { installed = false; return { id: params.id, restoresBuiltin: false }; }
     const tasksPatch = params.patch.cards?.tasks ?? {};
     const tasks = { ...config.cards.tasks, ...tasksPatch, settings: { ...config.cards.tasks.settings, ...tasksPatch.settings } };
     config = { ...config, ...params.patch, revision: config.revision + 1, cards: { ...config.cards, ...params.patch.cards, tasks } };
@@ -585,6 +590,21 @@ export async function settingsLayout() {
       for (const animation of apply.getAnimations()) animation.finish();
       assert(buttonContrast(apply) >= 4.5, `${scheme} 立即更新按钮文字对比度不足：${getComputedStyle(apply).color} / ${getComputedStyle(apply).backgroundColor}`);
       update.querySelector("details summary").click();
+      const plugins = [...panel.element.querySelectorAll("legend")].find(legend => legend.textContent === "插件").parentElement;
+      const removeButton = plugins.querySelector('[data-plugin="long-plugin"] button');
+      assert(!plugins.hidden && removeButton?.textContent === "卸载", `${scheme} 插件一节未显示卸载`);
+      assert(plugins.scrollWidth <= plugins.clientWidth && removeButton.getBoundingClientRect().right <= plugins.getBoundingClientRect().right,
+        `${scheme} 插件行溢出`);
+      removeButton.click();
+      const removal = panel.element.querySelector('[aria-label="确认卸载插件"]');
+      assert(!removal.hidden && shadow.activeElement?.textContent === "取消", `${scheme} 卸载确认未显示或默认焦点不是取消`);
+      assert(removal.scrollWidth <= removal.clientWidth && panel.element.scrollWidth <= panel.element.clientWidth, `${scheme} 卸载确认溢出`);
+      const confirmRemove = removal.querySelector(".cc-primary");
+      for (const animation of confirmRemove.getAnimations()) animation.finish();
+      assert(buttonContrast(confirmRemove) >= 4.5, `${scheme} 卸载按钮文字对比度不足`);
+      shadow.activeElement.click();
+      assert(removal.hidden && shadow.activeElement === removeButton, `${scheme} 取消卸载未恢复焦点`);
+      equal(calls.filter(call => call.method === "companion.cards.remove").length, 0, "取消后不能卸载");
       planHint.click();
       assert(!confirmation.hidden && !planHint.checked, "确认前开关不能显示已开启");
       equal(calls.filter(call => call.method.endsWith("patch")).length, 0, "确认前不能保存计划提示");
@@ -617,7 +637,14 @@ export async function settingsLayout() {
     buttons.find(button => button.textContent === "确认重启").click();
     await tick();
     equal(calls.filter(call => call.method.endsWith("restart")).length, 1, "确认后只发一次重启");
-    return { width: 320, themes: 2, overflow: false, labelledInputs: panel.element.querySelectorAll("input").length, confirmedRestart: true, confirmedPlanHint: true, exactRulePreview: true, updateSection: true };
+    panel.element.querySelector('[data-plugin="long-plugin"] button').click();
+    panel.element.querySelector('[aria-label="确认卸载插件"] .cc-primary').click();
+    await until(() => !panel.element.querySelector('[data-plugin="long-plugin"]'), "卸载后插件行消失");
+    equal(calls.filter(call => call.method === "companion.cards.remove").map(call => call.params), [{ id: "long-plugin", purgeData: false }], "卸载请求");
+    const pluginLegend = [...panel.element.querySelectorAll("legend")].find(legend => legend.textContent === "插件");
+    assert(pluginLegend.parentElement.hidden, "没有插件后「插件」一节应隐藏");
+    assert(panel.notice().startsWith("已卸载 "), `卸载后提示：${panel.notice()}`);
+    return { width: 320, themes: 2, overflow: false, labelledInputs: panel.element.querySelectorAll("input").length, confirmedRestart: true, confirmedPlanHint: true, exactRulePreview: true, updateSection: true, pluginRemoval: true };
   } finally { panel.destroy(); host.remove(); }
 }
 
@@ -675,6 +702,10 @@ export async function cardBundles() {
     sent.push(request);
     if (request.method === "companion.update.status") return Promise.resolve(structuredClone(UPDATE_STATUS));
     if (request.method === "proxy.status") return Promise.resolve({ enabled: false, port: 7890, reachable: false });
+    if (request.method === "companion.settings.get") {
+      return Promise.resolve({ config: { ...injection.config, revision: 2 }, catalog: injection.cards.map((id, index) => ({ id, title: id, defaultEnabled: false, defaultOrder: index })) });
+    }
+    if (request.method === "companion.agent.status") return Promise.resolve({ available: false });
     return Promise.reject(Object.assign(Error(`fixture: ${request.method}`), { code: "FIXTURE" }));
   };
   try {
@@ -698,7 +729,25 @@ export async function cardBundles() {
     equal((0, eval)(injection.define).status, "registered", "重复补送同一版本只登记");
     equal(runtime.getDiagnostics().cards.usage.generation, generation, "重复补送同一版本重建了卡片");
     equal(Object.keys(runtime.getDiagnostics().errors ?? {}).length, 0, "挂载出错");
-    return { artifact: injection.hash.slice(0, 16), available: injection.cards.length, registered: 1, definedLater: "usage" };
+
+    // 换注入产物（安装、卸载卡片后卡片目录变化）：整页重新注入，抽屉与设置保持打开，接着显示原来的提示。
+    const shellRoot = () => document.getElementById("agent-companion-root-shell").shadowRoot.querySelector("#agent-companion-root").shadowRoot;
+    shellRoot().querySelector('[aria-label="Companion 设置"]').click();
+    const panel = () => shellRoot().querySelector(".cc-settings");
+    await until(() => panel()?.querySelector('[data-setting="card-usage"]'), "设置读取完成");
+    panel().querySelector(".cc-settings-message").textContent = "已卸载 插件演示";
+    equal(runtime.getUiState(), { open: true, settings: { open: true, notice: "已卸载 插件演示" } }, "重建前的界面状态");
+    const nextHash = "f".repeat(64);
+    const remounted = (0, eval)(injection.mount.replaceAll(injection.hash, nextHash));
+    equal(remounted.status, "mounted", "换产物后整页重新注入");
+    const next = globalThis.__AGENT_COMPANION__;
+    assert(next.runtime !== runtime && next.artifactHash === nextHash, "换产物后没有重建运行时");
+    await until(() => next.runtime.getUiState()?.open === true, "重建后抽屉应保持打开");
+    assert(panel() && !panel().hidden, "重建后设置应保持打开");
+    await until(() => panel().querySelector(".cc-settings-message").textContent === "已卸载 插件演示", "重建后接着显示原来的提示");
+    await until(() => next.runtime.getDiagnostics().cards.proxy?.active === true, "重建后 proxy 卡片挂载");
+    equal(next.runtime.getDiagnostics().errors.length, 0, "重建后出错");
+    return { artifact: injection.hash.slice(0, 16), available: injection.cards.length, registered: 1, definedLater: "usage", remountKeepsUi: true };
   } finally {
     globalThis.__AGENT_COMPANION_RENDERER__?.bootstrap({ action: "unmount" });
     delete globalThis.__AGENT_COMPANION_RENDERER__;

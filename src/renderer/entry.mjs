@@ -60,12 +60,15 @@ function bootstrap({ action = "mount", config = {}, host = "codex", artifactHash
     void previous.runtime.applyConfig(config);
     return { status: "already-mounted", version };
   }
+  // 换注入产物（安装、卸载卡片等）时整体重建：先记下抽屉和设置是否开着，新运行时接着打开。
+  let restoreUi = null;
+  try { restoreUi = previous?.runtime?.getUiState?.() ?? null; } catch {}
   try { previous?.unmount?.(); } catch {}
   // 只清理本平台旧宿主，不访问原生 Summary。
   for (const id of ["agent-companion-root", "agent-companion-rail", "agent-companion-rail-backdrop"]) document.getElementById(id)?.remove();
   const renderers = Object.fromEntries([...cards].map(([id, { module }]) => [id, module]));
   const rendererHashes = Object.fromEntries([...cards].map(([id, { hash }]) => [id, hash]));
-  const runtime = createCardRuntime({ manifests, renderers, rendererHashes, config, artifactHash, host });
+  const runtime = createCardRuntime({ manifests, renderers, rendererHashes, config, artifactHash, host, restoreUi });
   const bridge = {
     version, artifactHash, cardsKey: artifactHash, runtime, host,
     hostId: "agent-companion-root", railId: "agent-companion-rail",

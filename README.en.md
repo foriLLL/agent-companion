@@ -291,7 +291,8 @@ launch proxy you also need to reopen it from the menu yourself.
 
 - Enable, disable, and reorder cards in the settings. Disabling a card keeps its saved data.
 - Install cards other people wrote with `agent-companion cards install owner/repo[@tag]`; `cards list` shows them,
-  `cards update` updates them, and `cards remove <id>` uninstalls one. Newly installed cards start disabled.
+  `cards update` updates them, and `cards remove <id>` uninstalls one (you can also uninstall from the
+  "插件" (Plugins) section in the settings). Newly installed cards start disabled.
 - After saving the "Codex 启动代理" (Codex launch proxy) preference, click "保存并重启" (Save and restart) to apply it.
 - Collapsing a card keeps its page state. Closing the page, cancelling a request, or stopping the backend
   releases media sessions, Blob URLs, segment caches, and transcoding processes.

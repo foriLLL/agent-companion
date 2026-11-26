@@ -144,7 +144,8 @@ test("设置页首次打开才读取，渲染全部区块与 catalog 标题，�
   await f.panel.open();
   const root = f.panel.element;
   assert.deepEqual(f.calls.map(item => item.method), ["companion.settings.get", "companion.agent.status"]);
-  assert.deepEqual(descendants(root).filter(item => item.tagName === "legend").map(item => item.textContent), ["卡片", "显示方式", "任务看板", "启动", "自动加载", "更新", "状态"]);
+  assert.deepEqual(descendants(root).filter(item => item.tagName === "legend").map(item => item.textContent), ["卡片", "插件", "显示方式", "任务看板", "启动", "自动加载", "更新", "状态"]);
+  assert.equal(descendants(root).find(item => item.tagName === "legend" && item.textContent === "插件").parentNode.hidden, true, "没装插件时隐藏");
   assert.ok(bySetting(root, "enabled").checked);
   assert.ok(bySetting(root, "card-alpha").parentNode.textContent.includes("甲卡片"));
   assert.equal(bySetting(root, "card-beta").checked, false);
@@ -536,8 +537,8 @@ test("重启必须面板内确认，取消不调用，确认期间禁用，失�
   byText(root, "立即重启 Codex").click();
   assert.equal(byLabel(root, "确认重启 Codex").hidden, false);
   assert.ok(root.textContent.includes("将正常退出并重新打开 Codex，未保存的输入可能丢失"));
-  assert.equal(f.document.activeElement, byText(root, "取消"));
-  byText(root, "取消").click();
+  assert.equal(f.document.activeElement, byText(byLabel(root, "确认重启 Codex"), "取消"));
+  byText(byLabel(root, "确认重启 Codex"), "取消").click();
   assert.equal(f.calls.length, 2);
   byText(root, "立即重启 Codex").click();
   byText(root, "确认重启").click();
@@ -958,7 +959,7 @@ test("更新：源码安装只给命令；刚更新完打开即确认提示；�
 
 test("更新：有新版本或刚更新完时整组提到最上面并换强调色，已是最新时回到「状态」上方", async () => {
   const legends = root => descendants(root).filter(item => item.tagName === "legend").map(item => item.textContent);
-  const usual = ["卡片", "显示方式", "任务看板", "启动", "自动加载", "更新", "状态"];
+  const usual = ["卡片", "插件", "显示方式", "任务看板", "启动", "自动加载", "更新", "状态"];
   let status = updateStatus();
   const f = fixture(null, { updates: method => {
     if (method === "companion.update.check") status = updateStatus({ available: false, latest: null, current: "0.2.1" });
@@ -1169,4 +1170,147 @@ test("runtime：启用时还没送到的卡片不占位，defineCard 送到后�
   await turn();
   assert.deepEqual(mounted, ["alpha", "beta", "beta2"], "换了代码的卡片重建实例");
   await runtime.dispose();
+});
+
+// 自己安装的插件：settings.get 的 catalog 里 source 为 user，plugin 给出来源。
+const pluginCatalog = () => [
+  ...catalog,
+  { id: "gamma", title: "丙插件", defaultEnabled: false, defaultOrder: 10, source: "user", plugin: { kind: "git", from: "someone/agent-companion-card-gamma@v1.0.0", overridesBuiltin: false } },
+  { id: "delta", title: "丁插件", defaultEnabled: false, defaultOrder: 11, source: "user", plugin: { kind: "link", from: "~/dev/delta", overridesBuiltin: false } },
+  { id: "alpha2", title: "改过的甲", defaultEnabled: false, defaultOrder: 12, source: "user", plugin: { kind: "manual", from: null, overridesBuiltin: true } }
+];
+const pluginRow = (root, id) => descendants(root).find(child => child.dataset.plugin === id);
+const message = root => descendants(root).find(child => child.className === "cc-settings-message");
+
+test("插件：只列自己安装的卡片与来源；卸载要在面板内确认，带上是否删除数据，成功后重新读取并提示", async () => {
+  let entries = pluginCatalog();
+  const gate = deferred();
+  const f = fixture(method => {
+    if (method === "companion.settings.get") return { config: initialConfig(), catalog: entries };
+    if (method === "companion.agent.status") return { available: false };
+    assert.equal(method, "companion.cards.remove");
+    return gate.promise;
+  });
+  await f.panel.open();
+  const root = f.panel.element;
+  const legend = descendants(root).find(item => item.tagName === "legend" && item.textContent === "插件");
+  assert.equal(legend.parentNode.hidden, false);
+  assert.equal(pluginRow(root, "alpha"), undefined, "内置卡片不能卸载，不出现在这一节");
+  assert.ok(pluginRow(root, "gamma").textContent.includes("安装自 someone/agent-companion-card-gamma@v1.0.0"));
+  assert.ok(pluginRow(root, "delta").textContent.includes("开发链接 → ~/dev/delta"));
+  assert.ok(pluginRow(root, "alpha2").textContent.includes("手动放进卡片目录 · 覆盖内置版本"));
+  assert.ok(byLabel(root, "恢复内置版本 改过的甲"));
+  const confirmBox = byLabel(root, "确认卸载插件");
+  assert.equal(confirmBox.hidden, true);
+
+  byLabel(root, "卸载 丙插件").click();
+  assert.equal(confirmBox.hidden, false);
+  assert.ok(confirmBox.textContent.includes("卸载「丙插件」？会删除它的插件目录"));
+  assert.equal(f.document.activeElement, byText(confirmBox, "取消"));
+  assert.equal(escape(root).defaultPrevented, true);
+  assert.equal(confirmBox.hidden, true, "Esc 先取消确认");
+  assert.equal(f.document.activeElement, byLabel(root, "卸载 丙插件"));
+  assert.equal(f.panel.element.hidden, false);
+
+  byLabel(root, "卸载 丁插件").click();
+  assert.ok(confirmBox.textContent.includes("删除「丁插件」的开发链接？源码目录不会被删除"));
+  assert.ok(byText(confirmBox, "删除链接"));
+  byText(confirmBox, "取消").click();
+  assert.equal(f.calls.some(item => item.method === "companion.cards.remove"), false, "取消不调用");
+
+  byLabel(root, "卸载 丙插件").click();
+  bySetting(root, "plugin-purge").checked = true;
+  byText(confirmBox, "卸载").click();
+  byText(confirmBox, "卸载").click();
+  assert.deepEqual(f.calls.filter(item => item.method === "companion.cards.remove"), [{ method: "companion.cards.remove", params: { id: "gamma", purgeData: true } }]);
+  assert.equal(byText(confirmBox, "卸载").disabled, true, "卸载期间禁用");
+  assert.equal(message(root).textContent, "正在卸载 丙插件…");
+  entries = entries.filter(entry => entry.id !== "gamma");
+  gate.resolve({ id: "gamma", restoresBuiltin: false });
+  await turn(); await turn();
+  assert.equal(confirmBox.hidden, true);
+  assert.equal(pluginRow(root, "gamma"), undefined);
+  assert.equal(bySetting(root, "card-gamma"), undefined, "卡片列表也随之去掉");
+  assert.equal(message(root).textContent, "已卸载 丙插件");
+  assert.equal(f.panel.notice(), "已卸载 丙插件");
+
+  // 再次打开确认框时「同时删除数据」恢复为不勾选。
+  byLabel(root, "恢复内置版本 改过的甲").click();
+  assert.equal(bySetting(root, "plugin-purge").checked, false);
+  assert.ok(confirmBox.textContent.includes("删除你安装的「改过的甲」，恢复使用内置版本？"));
+  f.panel.destroy();
+});
+
+test("插件：卸载失败显示原因，确认框保留可以取消；没有插件时整节隐藏", async () => {
+  let fail = true;
+  const f = fixture(method => {
+    if (method === "companion.settings.get") return { config: initialConfig(), catalog: fail ? pluginCatalog() : catalog };
+    if (method === "companion.agent.status") return { available: false };
+    throw Object.assign(new Error("没有安装这张卡片，可能已经卸载"), { code: "NOT_INSTALLED" });
+  });
+  await f.panel.open();
+  const root = f.panel.element;
+  const confirmBox = byLabel(root, "确认卸载插件");
+  byLabel(root, "卸载 丙插件").click();
+  byText(confirmBox, "卸载").click();
+  await turn();
+  assert.equal(message(root).textContent, "没有安装这张卡片，可能已经卸载");
+  assert.equal(message(root).getAttribute("role"), "alert");
+  assert.equal(f.panel.notice(), "", "错误不带到重建后的面板");
+  assert.equal(confirmBox.hidden, false);
+  byText(confirmBox, "取消").click();
+  assert.equal(confirmBox.hidden, true);
+  fail = false;
+  byText(root, "重试").click();
+  await turn();
+  const legend = descendants(root).find(item => item.tagName === "legend" && item.textContent === "插件");
+  assert.equal(legend.parentNode.hidden, true);
+  assert.equal(pluginRow(root, "gamma"), undefined);
+  f.panel.destroy();
+});
+
+test("页面整体重建（换注入产物）：新运行时接着打开抽屉与设置，并显示原来的提示", async () => {
+  const document = makeDocument();
+  const backend = { getItem: () => null, setItem() {} };
+  const results = { "companion.settings.get": { config: initialConfig(), catalog }, "companion.agent.status": { available: false },
+    "companion.update.status": { supported: false }, "companion.settings.patch": { config: { ...initialConfig(), revision: 5 } } };
+  const opened = [];
+  function make(restoreUi) {
+    const sent = [];
+    const client = createRpcClient({ binding: () => raw => { sent.push(JSON.parse(raw)); } });
+    const shell = createCardShell({ document });
+    const runtime = createCardRuntime({
+      manifests: [], config: initialConfig(), shellFactory: () => shell, rpcClient: client, localStorage: backend, sessionStorage: backend, restoreUi,
+      adapterFactory: ({ host }) => {
+        document.body.append(host);
+        let open = false;
+        return { setPlacement() {}, setHasCards() {}, dispose() {}, getDiagnostics: () => ({ mode: "fixture" }),
+          setOpen(value) { open = value; opened.push(value); }, isOpen: () => open };
+      }
+    });
+    const answer = async () => {
+      for (const request of sent.splice(0)) client.receiveRpc({ id: request.id, result: results[request.method] });
+      await turn();
+    };
+    return { shell, runtime, answer };
+  }
+  const first = make(null);
+  assert.deepEqual(first.runtime.getUiState(), { open: false, settings: null });
+  assert.deepEqual(opened, [], "没有可恢复的状态时不打开");
+  first.runtime.setOpen(true);
+  byLabel(first.shell.root, "Companion 设置").click();
+  await first.answer();
+  change(bySetting(first.shell.root, "card-alpha"), false);
+  await first.answer();
+  assert.deepEqual(first.runtime.getUiState(), { open: true, settings: { open: true, notice: "已保存" } });
+  const state = first.runtime.getUiState();
+  await first.runtime.dispose();
+  assert.equal(first.runtime.getUiState(), null);
+
+  const second = make(state);
+  assert.deepEqual(opened, [true, true]);
+  assert.equal(second.shell.isSettingsOpen(), true);
+  await second.answer();
+  assert.equal(message(second.shell.root).textContent, "已保存");
+  await second.runtime.dispose();
 });

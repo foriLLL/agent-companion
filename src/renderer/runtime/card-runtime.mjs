@@ -44,7 +44,9 @@ export function createCardRuntime({
   hostApiFactory = (HOST_FACTORIES[host] ?? HOST_FACTORIES.codex).hostApiFactory,
   attentionFactory = createAttentionLayer,
   localStorage: localBackend, sessionStorage: sessionBackend,
-  rpcClient = createRpcClient(), onError = () => {}
+  rpcClient = createRpcClient(), onError = () => {},
+  // 上一个运行时的界面状态（getUiState）：页面整体重新注入后抽屉与设置保持原样打开。
+  restoreUi = null
 }) {
   // 只声明了别的宿主的卡片（如只对 Codex 有意义的代理状态）在这个宿主里不出现。
   const manifests = allManifests.filter((manifest) => !manifest.hosts || manifest.hosts.includes(host));
@@ -300,6 +302,13 @@ export function createCardRuntime({
   }
 
   void applyConfig(initialConfig);
+  // 与旧运行时的释放在同一个任务里完成，中间不会画出关闭的一帧。
+  if (restoreUi?.open === true) {
+    try {
+      adapter.setOpen(true);
+      if (restoreUi.settings?.open === true) shell.openSettings?.(typeof restoreUi.settings.notice === "string" ? restoreUi.settings.notice : "");
+    } catch (error) { report(error, { phase: "restore" }); }
+  }
   return {
     artifactHash, applyConfig, receiveRpc: rpcClient.receiveRpc, retry, dispose, defineCard,
     getDefinedCards: () => Object.fromEntries([...modules].map(([id, { hash }]) => [id, hash])),
@@ -310,6 +319,7 @@ export function createCardRuntime({
     getPlacement: () => adapter.getDiagnostics().mode,
     setOpen: (open) => adapter.setOpen(open),
     getConfig: () => config,
+    getUiState: () => (disposed ? null : { open: adapter.isOpen?.() === true, settings: shell.settingsState?.() ?? null }),
     getDiagnostics: () => ({ artifactHash, revision: config.revision, scopeId, disposed,
       adapter: adapter.getDiagnostics(), shell: shell.diagnostics(), rpc: rpcClient.diagnostics(), attention: attention?.diagnostics() ?? null,
       cards: Object.fromEntries([...records].map(([id, record]) => [id, record.lifecycle.diagnostics()])), errors: [...failures] })

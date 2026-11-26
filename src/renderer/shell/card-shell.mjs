@@ -169,6 +169,13 @@ export function createCardShell({ document: doc = document, hostId = "agent-comp
       empty.textContent = enabled ? "暂无启用的卡片" : "卡片已关闭";
     },
     isSettingsOpen: () => Boolean(settings && !settings.element.hidden),
+    // 页面整体重新注入（例如卸载插件后卡片目录变化）时，新外框接着打开设置并显示原来的提示。
+    settingsState: () => (settings && !settings.element.hidden ? { open: true, notice: settings.notice?.() ?? "" } : null),
+    openSettings(notice = "") {
+      if (!settings || !settings.element.hidden) return;
+      settingsButton.setAttribute("aria-expanded", "true");
+      void settings.open({ notice });
+    },
     get: (id) => slots.get(id),
     diagnostics: () => ({ count: slots.size, ids: [...slots.keys()] }),
     dispose() {

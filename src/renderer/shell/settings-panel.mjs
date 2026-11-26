@@ -333,6 +333,8 @@ export function createSettingsPanel({ document: doc, call, connection, onClose =
     .cc-settings-confirm summary { cursor:pointer;font-size:12px; }
     .cc-settings-confirm pre { margin:8px 0 0;padding:10px;border-radius:8px;background:var(--surface);
       white-space:pre-wrap;overflow-wrap:anywhere;font:11px/1.6 ui-monospace,SFMono-Regular,Consolas,monospace; }
+    .cc-settings-purge { display:flex;align-items:center;gap:6px;margin-top:8px;font-size:12px;color:var(--fg2);cursor:pointer; }
+    .cc-settings-purge input { margin:0; }
     .cc-status { display:flex;align-items:center;gap:8px;padding:8px 8px 8px 12px;min-height:40px; }
     .cc-status p { flex:1;color:var(--fg);font-size:13px; }
     .cc-status p::before { content:"";display:inline-block;width:7px;height:7px;margin:0 8px 1px 0;border-radius:50%;
@@ -371,6 +373,29 @@ export function createSettingsPanel({ document: doc, call, connection, onClose =
   const enabled = checkbox(general, "启用卡片", "enabled", value => ({ enabled: value }));
   const cardList = node("div", null, "cc-list");
   general.append(cardList);
+  // 自己安装的插件：显示来源，可以卸载（内置卡片只能关闭）。没有装插件时整节隐藏。
+  const pluginSection = section("插件");
+  const pluginList = node("div", null, "cc-list");
+  pluginSection.append(pluginList);
+  const pluginRows = new Map();
+  let removalTarget = null;
+  const removal = confirmationBox({ label: "确认卸载插件", onCancel(restoreFocus) {
+    const target = removalTarget;
+    removalTarget = null;
+    if (restoreFocus) pluginRows.get(target?.id)?.button.focus();
+  } });
+  const removalText = node("p");
+  const purgeLabel = node("label", null, "cc-settings-purge");
+  const purgeInput = control(node("input"));
+  purgeInput.type = "checkbox";
+  purgeInput.dataset.setting = "plugin-purge";
+  purgeLabel.append(purgeInput, node("span", "同时删除它保存的数据"));
+  const cancelRemoval = control(button("取消", () => removal.cancel()));
+  const confirmRemoval = control(button("卸载", () => { void uninstall(); }, null, "cc-primary"));
+  const removalActions = node("div", null, "cc-settings-actions");
+  removalActions.append(cancelRemoval, confirmRemoval);
+  removal.element.append(removalText, purgeLabel, removalActions);
+  pluginSection.append(removal.element);
   const placementSection = section("显示方式");
   placementSection.parentNode.className = "cc-fieldset-seg";
   placementSection.className = "cc-seg";
@@ -644,6 +669,76 @@ export function createSettingsPanel({ document: doc, call, connection, onClose =
         if (!element.hidden && row.element.contains(focused)) focused.focus({ preventScroll: true });
       }
     }
+    renderPlugins();
+  }
+  function pluginOrigin(plugin = {}) {
+    const from = typeof plugin.from === "string" && plugin.from ? plugin.from : "";
+    const text = plugin.kind === "link" ? `开发链接 → ${from}` : from ? `安装自 ${from}` : "手动放进卡片目录";
+    return plugin.overridesBuiltin ? `${text} · 覆盖内置版本` : text;
+  }
+  // 行节点按 id 复用，保存其它设置后不丢焦点；来源与标题只作为文本插入。
+  function renderPlugins() {
+    const plugins = catalog.filter(card => card.source === "user");
+    pluginSection.parentNode.hidden = plugins.length === 0;
+    for (const [id, row] of pluginRows) {
+      if (plugins.some(card => card.id === id)) continue;
+      row.element.remove();
+      pluginRows.delete(id);
+      controls.splice(controls.findIndex(item => item.value === row.button), 1);
+    }
+    for (const [index, card] of plugins.entries()) {
+      let row = pluginRows.get(card.id);
+      if (!row) {
+        const rowElement = node("div", null, "cc-settings-row");
+        rowElement.dataset.plugin = card.id;
+        const text = node("span");
+        const name = node("span");
+        const origin = node("small");
+        text.append(name, origin);
+        const action = control(button("", () => askRemoval(card.id)));
+        rowElement.append(text, action);
+        row = { element: rowElement, name, origin, button: action };
+        pluginRows.set(card.id, row);
+      }
+      const restores = card.plugin?.overridesBuiltin === true;
+      row.name.textContent = card.title;
+      row.origin.textContent = pluginOrigin(card.plugin);
+      row.button.textContent = restores ? "恢复内置版本" : "卸载";
+      row.button.setAttribute("aria-label", `${restores ? "恢复内置版本" : "卸载"} ${card.title}`);
+      if (pluginList.children[index] !== row.element) pluginList.insertBefore(row.element, pluginList.children[index] ?? null);
+    }
+  }
+  function askRemoval(id) {
+    if (busy || !config || destroyed) return;
+    const card = catalog.find(item => item.id === id && item.source === "user");
+    if (!card) return;
+    removalTarget = card;
+    const restores = card.plugin?.overridesBuiltin === true;
+    const linked = card.plugin?.kind === "link";
+    removalText.textContent = restores ? `删除你安装的「${card.title}」，恢复使用内置版本？`
+      : linked ? `删除「${card.title}」的开发链接？源码目录不会被删除。`
+        : `卸载「${card.title}」？会删除它的插件目录，卡片随即从抽屉里移除。`;
+    confirmRemoval.textContent = restores ? "恢复内置版本" : linked ? "删除链接" : "卸载";
+    purgeInput.checked = false;
+    removal.open(cancelRemoval);
+  }
+  // 卸载后重新读取设置；后台随即换上不含这张卡片的页面，抽屉与设置页保持打开。
+  async function uninstall() {
+    const card = removalTarget;
+    if (!card || !removal.isOpen() || busy || !config || destroyed) return;
+    const purgeData = purgeInput.checked;
+    setBusy(true);
+    showMessage(`正在卸载 ${card.title}…`);
+    try {
+      const result = await call("companion.cards.remove", { id: card.id, purgeData });
+      if (destroyed) return;
+      removal.cancel(false);
+      await readSettings(result?.restoresBuiltin ? `已恢复内置的 ${card.title}` : `已卸载 ${card.title}`);
+    } catch (error) {
+      if (destroyed) return;
+      showMessage(errorMessage(error), true);
+      await recoverAfter(error);
+    } finally { if (!destroyed) setBusy(false); }
   }
   function renderStatus(agent) {
     statusDetails.replaceChildren();
@@ -811,12 +906,12 @@ export function createSettingsPanel({ document: doc, call, connection, onClose =
     autoReloaded = true;
     reloadPending = true;
   }
-  async function load() {
+  async function load(notice = "") {
     if (busy || destroyed) return;
     setBusy(true);
     showMessage("正在读取…");
     try {
-      await readSettings();
+      await readSettings(typeof notice === "string" ? notice : "");
       autoReloaded = false;
     } catch (error) {
       if (destroyed) return;
@@ -922,14 +1017,17 @@ export function createSettingsPanel({ document: doc, call, connection, onClose =
   setBusy(false);
   return {
     element,
-    open() {
+    // notice：打开后显示的提示，例如页面因卸载插件重建后接着显示「已卸载 …」。
+    open({ notice = "" } = {}) {
       if (destroyed || !element.hidden) return;
       element.hidden = false;
       closeButton.focus({ preventScroll: true });
-      return load();
+      return load(notice);
     },
     close,
     addCard,
+    // 当前的提示文字（错误与进行中的提示不算），页面重建时带给新面板。
+    notice: () => (busy || message.getAttribute("role") !== "status" ? "" : message.textContent),
     destroy() {
       if (destroyed) return;
       destroyed = true;

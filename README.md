@@ -246,7 +246,8 @@ ChatGPT 若已开着，需要退出后从菜单重开一次。FFmpeg 需自行�
 
 - 在设置中调整卡片开关与顺序；关闭卡片保留存档。
 - 安装别人写的卡片：`agent-companion cards install owner/repo[@tag]`；`cards list` 查看、`cards update` 更新、
-  `cards remove <id>` 卸载。新装的卡片缺省关闭，在设置里启用。详见 [cards/README.md](cards/README.md)。
+  `cards remove <id>` 卸载，也可以在设置的「插件」一节卸载。新装的卡片缺省关闭，在设置里启用。
+  详见 [cards/README.md](cards/README.md)。
 - 「Codex 启动代理」保存启动偏好后，点击「保存并重启」应用。
 - 收起卡片保留页面状态；关闭页面、取消请求或后台退出时回收媒体会话、Blob URL、分片缓存与转码进程。
 

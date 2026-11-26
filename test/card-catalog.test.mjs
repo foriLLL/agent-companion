@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readFile, rm, symlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -250,4 +250,106 @@ test("cards 命令：参数解析、JSON 列表保持 manifest 数组形状、�
   assert.equal(userCardsDir({ dataDir: "/data", env: { AGENT_COMPANION_CARDS_DIR: "/elsewhere" } }), "/elsewhere");
   assert.match(builtinCardsDir({ env: {} }), /cards[\\/]?$/);
   assert.equal(builtinCardsDir({ env: {}, execPath: "/App/Resources/agent-companion", moduleUrl: "file:///$bunfs/root/agent-companion" }), join("/App/Resources", "cards"));
+});
+
+// 设置页卸载用的配置存储：按 revision 合并卡片开关，记下每次补丁。
+function memoryConfig(cards) {
+  const store = { patches: [], config: { version: 2, revision: 3, enabled: true, cards } };
+  store.loadV2 = async () => store.config;
+  store.patch = async (patch, { expectedRevision }) => {
+    if (expectedRevision !== store.config.revision) throw Object.assign(new Error("conflict"), { code: "CONFIG_CONFLICT" });
+    store.patches.push(patch);
+    const next = { ...store.config.cards };
+    for (const [id, card] of Object.entries(patch.cards ?? {})) next[id] = { ...next[id], ...card };
+    store.config = { ...store.config, revision: expectedRevision + 1, cards: next };
+    return store.config;
+  };
+  return store;
+}
+
+test("设置页卸载插件：列出来源；卸载删除目录、可选删除数据、关掉开关并立即撤下服务；内置卡片拒绝", async t => {
+  const root = await temporary(t);
+  const builtin = join(root, "builtin"), user = join(root, "user"), dataRoot = join(root, "data");
+  await writeCard(builtin, "alpha");
+  await writeCard(builtin, "beta");
+  await writeCard(user, "beta", { extra: { title: "我的 Beta" } });
+  await writeCard(user, "plugin", { service: "export function createService() { return { methods: { ping: () => \"pong\" }, dispose() { globalThis.__removedPluginDisposed = true; } }; }" });
+  const source = await writeCard(join(root, "src"), "linked");
+  await symlink(source, join(user, "linked"), "junction");
+  await writeFile(join(user, ".installs.json"), JSON.stringify({ plugin: { source: "https://github.com/someone/agent-companion-card-plugin.git", kind: "git", ref: "v1.0.0" } }));
+  await mkdir(join(dataRoot, "card-data", "plugin"), { recursive: true });
+  await writeFile(join(dataRoot, "card-data", "plugin", "state.json"), "{}");
+  const catalog = new CardCatalog({ roots: [{ dir: builtin, source: "builtin" }, { dir: user, source: "user" }], logger: quiet });
+  await catalog.load();
+  const configStore = memoryConfig({ plugin: { enabled: true, settings: { keep: 1 } }, beta: { enabled: true, settings: {} } });
+  const service = new AgentCompanionService({ cards: catalog, configStore, dataRoot, logger: quiet });
+  t.after(() => service.dispose());
+  await service.syncCards(configStore.config);
+  const platform = { cardId: "companion" };
+  const call = (method, params) => service.handleRpc(method, params, { ...platform });
+  assert.equal(await service.handleRpc("plugin.ping", {}, { cardId: "plugin", generation: 1, targetId: "t", executionContextId: 1 }), "pong");
+
+  const { catalog: entries } = await call("companion.settings.get", {});
+  const plugins = Object.fromEntries(entries.filter(entry => entry.source === "user").map(entry => [entry.id, entry.plugin]));
+  assert.deepEqual(plugins.plugin, { kind: "git", from: "someone/agent-companion-card-plugin@v1.0.0", overridesBuiltin: false });
+  assert.deepEqual(plugins.beta, { kind: "manual", from: null, overridesBuiltin: true });
+  assert.equal(plugins.linked.kind, "link");
+  assert.equal(entries.find(entry => entry.id === "alpha").plugin, undefined, "内置卡片不带插件来源");
+
+  await assert.rejects(call("companion.cards.remove", { id: "alpha" }), { code: "BUILTIN" });
+  await assert.rejects(call("companion.cards.remove", { id: "missing" }), { code: "NOT_INSTALLED" });
+  for (const params of [{ id: "../alpha" }, { id: "plugin", purgeData: "yes" }, { id: "plugin", force: true }, {}]) {
+    await assert.rejects(call("companion.cards.remove", params), { code: "RPC_INVALID_PARAMS" });
+  }
+  assert.equal(configStore.patches.length, 0, "被拒绝的请求不改配置");
+
+  const changes = [];
+  catalog.subscribe(() => changes.push(catalog.list().map(card => card.id)));
+  assert.deepEqual(await call("companion.cards.remove", { id: "plugin", purgeData: true }),
+    { id: "plugin", title: "PLUGIN", linked: false, restoresBuiltin: false, purged: true });
+  await assert.rejects(lstat(join(user, "plugin")), { code: "ENOENT" });
+  await assert.rejects(lstat(join(dataRoot, "card-data", "plugin")), { code: "ENOENT" });
+  assert.deepEqual(await readInstallRecords(user), {});
+  assert.deepEqual(configStore.patches, [{ cards: { plugin: { enabled: false } } }], "重新安装时仍然缺省关闭");
+  assert.deepEqual(configStore.config.cards.plugin.settings, { keep: 1 });
+  assert.equal(changes.length, 1, "立即刷新卡片目录");
+  assert.equal(catalog.has("plugin"), false);
+  assert.equal(globalThis.__removedPluginDisposed, true, "返回前已撤下服务");
+  await assert.rejects(service.handleRpc("plugin.ping", {}, { cardId: "plugin", generation: 1, targetId: "t", executionContextId: 1 }), { code: "RPC_METHOD_NOT_FOUND" });
+  delete globalThis.__removedPluginDisposed;
+
+  // 覆盖内置版本的卡片：卸载后恢复内置版本，开关属于内置卡片，不动。
+  assert.equal((await call("companion.cards.remove", { id: "beta" })).restoresBuiltin, true);
+  assert.equal(catalog.get("beta").source, "builtin");
+  assert.equal(configStore.config.cards.beta.enabled, true);
+  // 开发链接只删链接，源码目录保留。
+  assert.equal((await call("companion.cards.remove", { id: "linked" })).linked, true);
+  assert.ok((await lstat(join(source, "manifest.json"))).isFile());
+  assert.equal(configStore.patches.length, 1);
+  assert.deepEqual((await call("companion.settings.get", {})).catalog.map(entry => [entry.id, entry.source]), [["alpha", "builtin"], ["beta", "builtin"]]);
+});
+
+test("卸载后关开关遇到配置冲突会重读重试；没有开着的卡片不写配置", async t => {
+  const root = await temporary(t);
+  const user = join(root, "user");
+  await writeCard(user, "plugin");
+  await writeCard(user, "quiet");
+  const catalog = new CardCatalog({ roots: [{ dir: user, source: "user" }], logger: quiet });
+  await catalog.load();
+  const configStore = memoryConfig({ plugin: { enabled: true, settings: {} } });
+  const patch = configStore.patch;
+  let conflicts = 1;
+  configStore.patch = async (value, options) => {
+    if (conflicts-- > 0) {
+      configStore.config = { ...configStore.config, revision: configStore.config.revision + 1 };
+      throw Object.assign(new Error("conflict"), { code: "CONFIG_CONFLICT" });
+    }
+    return patch(value, options);
+  };
+  const service = new AgentCompanionService({ cards: catalog, configStore, dataRoot: join(root, "data"), logger: quiet });
+  t.after(() => service.dispose());
+  await service.handleRpc("companion.cards.remove", { id: "plugin" }, { cardId: "companion" });
+  assert.equal(configStore.config.cards.plugin.enabled, false);
+  await service.handleRpc("companion.cards.remove", { id: "quiet" }, { cardId: "companion" });
+  assert.equal(configStore.patches.length, 1);
 });

@@ -176,7 +176,9 @@ Codex 每次升级都可能改掉类名、data 属性、DOM 层级和打包方�
 - **卡片插件**：插件以用户权限运行、没有沙箱，平台不做签名或审核（vim / zsh 插件式，GitHub topic `agent-companion-card`）。
   关闭的插件不能运行任何代码：界面只在启用时注入，服务只在启用后 import。`.app` / Linux 版里内置卡片放在后端同级的
   `cards/`（`scripts/package-cards.mjs`，服务打成自包含的单文件），Linux install.sh 的归属检查按 `PACKAGED_CARD_FILES`；
-  编译后的 Bun 会忽略 import 的查询串，服务代码更新要重启后台服务才生效
+  编译后的 Bun 会忽略 import 的查询串，服务代码更新要重启后台服务才生效。设置页「插件」一节经 `companion.cards.remove`
+  卸载（只删用户目录里的卡片，卸载后关掉开关）；卡片目录一变页面就整体重新注入（会打断正在播放的媒体），
+  `entry.mjs` 把旧运行时的 `getUiState()` 交给新运行时的 `restoreUi`，抽屉与设置保持打开
 - **安全红线**：CDP 调试端口只绑 loopback + 随机端口，禁止改为
   0.0.0.0；Emby AccessToken 只存系统凭证库（`src/platform/secret-store.mjs`），
   明文不得出现在命令行参数（macOS `security` 除外）；连接信息存数据目录下 `emby.json` (0600)。
