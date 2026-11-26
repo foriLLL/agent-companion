@@ -224,21 +224,21 @@ agent-companion cards link .                           # 软链进卡片目录�
 ```mermaid
 flowchart LR
   subgraph OS["常驻后台服务 (launchd / systemd)"]
-    Agent["Agent 运行时 (状态机与配置热更新)"]
-    Native["companion-native (macOS NSWorkspace 原生助手)"]
-    Services["卡片服务注册表 (内置 + 用户插件)"]
+    Agent["Agent 运行时<br/>状态机 · 热更新"]
+    Native["companion-native<br/>macOS 原生助手"]
+    Services["卡片服务注册表<br/>内置 · 用户插件"]
     Agent <--> Native
     Agent <--> Services
   end
 
   subgraph Host["宿主桌面端 (ChatGPT / Antigravity)"]
-    CDP["本机回环 CDP (127.0.0.1:随机端口)"]
-    Page["卡片平台外壳 (宿主适配器 + 独立 Shadow DOM)"]
+    CDP["本机回环 CDP<br/>127.0.0.1"]
+    Page["卡片平台外壳<br/>Shadow DOM"]
     CDP <--> Page
   end
 
   Agent <-->|"注入与隔离 RPC"| CDP
-  Services -.->|"只读会话 / 本地媒体代理 / 钥匙串"| Local["本机数据与系统凭证库"]
+  Services -.->|"会话 · 媒体代理"| Local["本机数据与<br/>系统凭证库"]
 ```
 
 - **安全自动重开（macOS）**：`companion-native` 经 `NSWorkspace` 监听启动，仅对刚启动 8 秒内且处于前台的普通实例请求正常退出（`NSRunningApplication.terminate()`，绝不强杀），再以本机随机调试端口重开并注入；已运行中的会话不会被自动打断。

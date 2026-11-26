@@ -227,21 +227,21 @@ Full authoring & packaging specification: **[cards/README.md](cards/README.md)**
 ```mermaid
 flowchart LR
   subgraph OS["Background Service (launchd / systemd)"]
-    Agent["Agent Runtime (State Machine & Watcher)"]
-    Native["companion-native (macOS NSWorkspace)"]
-    Services["Card Service Registry (Built-in + Plugins)"]
+    Agent["Agent Runtime<br/>State & Watcher"]
+    Native["companion-native<br/>macOS Helper"]
+    Services["Card Services<br/>Built-in + Plugins"]
     Agent <--> Native
     Agent <--> Services
   end
 
-  subgraph Host["Host Desktop App (ChatGPT / Antigravity)"]
-    CDP["Loopback CDP (127.0.0.1:random)"]
-    Page["Card Platform Shell (Host Adapter + Shadow DOM)"]
+  subgraph Host["Host App (ChatGPT / Antigravity)"]
+    CDP["Loopback CDP<br/>127.0.0.1"]
+    Page["Card Shell<br/>Shadow DOM"]
     CDP <--> Page
   end
 
-  Agent <-->|"Inject & Scoped RPC"| CDP
-  Services -.->|"Read-only Sessions / Local Proxy"| Local["Local Disk & OS Keychain"]
+  Agent <-->|"Inject & RPC"| CDP
+  Services -.->|"Sessions & Proxy"| Local["Local Disk &<br/>OS Keychain"]
 ```
 
 - **Safe auto-reopen (macOS)**: `companion-native` observes app launches via `NSWorkspace` and only requests a graceful `NSRunningApplication.terminate()` within 8 seconds of a foreground launch (never `SIGKILL`), then reopens with a random loopback debugging port. Already-running sessions are never interrupted.
