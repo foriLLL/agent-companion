@@ -252,7 +252,10 @@ LINUX_CARD_FILES=(manifest.json renderer.js service.mjs)
 
 linux_install_dir() {
   if [ -n "${AGENT_COMPANION_INSTALL_DIR:-}" ]; then
-    printf '%s\n' "$AGENT_COMPANION_INSTALL_DIR"
+    # 去掉末尾的 /：否则备份路径 "$INSTALL_DIR.backup.$$" 会落进安装目录里面。
+    local dir="$AGENT_COMPANION_INSTALL_DIR"
+    while [ "${#dir}" -gt 1 ] && [ "${dir%/}" != "$dir" ]; do dir="${dir%/}"; done
+    printf '%s\n' "$dir"
   elif [[ "${XDG_DATA_HOME:-}" = /* ]]; then
     printf '%s\n' "$XDG_DATA_HOME/agent-companion"
   else

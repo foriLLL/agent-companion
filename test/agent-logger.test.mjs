@@ -120,7 +120,7 @@ async function agentOptions(t) {
   return { home, processRef, helperPath: "/fake/native", nativeBridge: nativeBridge(snapshot([ours()])),
     configStore: configStore(), runtimeState: stateStore(), logger, isAlive: () => false,
     lockSpawnImpl: fakeLockSpawn(), now: timer.now, setTimeoutImpl: timer.setTimeoutImpl, clearTimeoutImpl: timer.clearTimeoutImpl,
-    waitForTargets: async () => [], notifyImpl: async () => {}, watchConfig: async () => ({ close: async () => {} }) };
+    waitForTargets: async () => [], notifyImpl: async () => {}, watchConfig: async () => ({ close: async () => {} }), updater: false };
 }
 
 test("CLI --log-dir 将运行时/session logger 写入文件，SIGTERM 排空日志队列", agentOnly, async t => {
