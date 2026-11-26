@@ -121,7 +121,7 @@ Codex 每次升级都可能改掉类名、data 属性、DOM 层级和打包方�
 - **按宿主区分**：`src/targets.mjs` 的 `HOST_TARGETS` 决定注入哪些页面，`card-runtime.mjs` 的 `HOST_FACTORIES`
   决定页面适配器与会话定位（`antigravity.mjs` / `antigravity-threads.mjs`），任务服务按 `host` 依赖选数据源
   （`CodexSessions` / `AntigravitySessions`，接口相同）和看板文件。只对某个宿主有意义的卡片在 manifest 里写 `hosts`。
-  Antigravity 的锚点只有 `[data-testid="toggle-overview-panel"]` 一级，找不到时退到自有悬浮按钮；
+  Antigravity 的锚点先认 `[data-testid="toggle-overview-panel"]`，找不到（如新建会话页）再退到右上角标题栏最右侧的原生图标按钮（`titlebar-trailing`），都找不到时退到右上角自有悬浮按钮（避开右下角发送按钮）；
   侧栏任务色标记先认 `[data-sidebar-row-id] [data-cascade-id]`（正文区的对话容器也带 `data-cascade-id`，不能单用），
   再退到 `/c/<id>` 链接所在、高度像一行的元素；
   会话跳转走 Hub 的 TanStack Router（`pushState` 带 `__TSR_index` 再发 `popstate`）。冒烟在 `scripts/smoke-antigravity-adapter.mjs`。

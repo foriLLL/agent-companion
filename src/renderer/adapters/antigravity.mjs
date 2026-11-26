@@ -1,10 +1,11 @@
 /**
  * Antigravity 布局适配器：卡片区做成和原生 Overview 一样的标题栏弹层。
  *
- * 入口按稳定程度分两级：
+ * 入口按稳定程度分三级：
  * 1. 会话页标题栏里 Overview 开关（`data-testid="toggle-overview-panel"`）左侧插一个同款按钮，样式抄它的 class；
- * 2. 找不到 Overview 开关（首页、新建会话、Antigravity 改版）时，右下角显示自有的悬浮按钮。
- * 两级都能用 ⌥⌘J 开关。原生节点只在它旁边插入自己的按钮，不改原生节点的属性和样式。
+ * 2. 找不到 Overview 开关（新建会话、首页等）时，退到右上角标题栏最右侧的原生图标按钮（如 `⋮`）左侧；
+ * 3. 标题栏完全无锚点时，右上角显示自有的悬浮按钮（避开右下角发送按钮与输入框）。
+ * 各级都能用 ⌥⌘J 开关。原生节点只在它旁边插入自己的按钮，不改原生节点的属性和样式。
  */
 export function createAntigravityAdapter({ host, placement = "standalone-button", onVisibilityChange, onError, hasCards = true, hasSettings = false } = {}) {
   if (!host?.shadowRoot) throw new TypeError("Antigravity adapter requires a host with an open ShadowRoot");
@@ -67,14 +68,14 @@ export function createAntigravityAdapter({ host, placement = "standalone-button"
   rail.append(host);
   document.documentElement.append(rail);
 
-  // ---------- 悬浮入口（找不到标题栏锚点时） ----------
+  // ---------- 悬浮入口（找不到标题栏锚点时，放在右上角避开底部输入框与发送按钮） ----------
   const floating = document.createElement("div");
   floating.id = "agent-companion-entry";
   floating.hidden = true;
-  floating.style.cssText = "position:fixed;z-index:2147483645;right:20px;bottom:20px;-webkit-app-region:no-drag";
+  floating.style.cssText = "position:fixed;z-index:2147483645;top:52px;right:16px;-webkit-app-region:no-drag";
   const floatingRoot = floating.attachShadow({ mode: "open" });
   floatingRoot.innerHTML = `<style>
-    button{all:unset;box-sizing:border-box;width:40px;height:40px;border-radius:12px;display:grid;place-items:center;cursor:pointer;
+    button{all:unset;box-sizing:border-box;width:34px;height:34px;border-radius:10px;display:grid;place-items:center;cursor:pointer;
       background:var(--hg-panel-bg,#fff);color:var(--hg-panel-color,#1f1f1f);box-shadow:var(--hg-panel-shadow)}
     button:hover{filter:brightness(.96)} button[aria-expanded=true]{outline:2px solid color-mix(in srgb,currentColor 30%,transparent)}
   </style><button type="button" aria-label="Agent Companion" title="Agent Companion  ⌥⌘J" aria-expanded="false">${ICON}</button>`;
@@ -174,14 +175,14 @@ export function createAntigravityAdapter({ host, placement = "standalone-button"
     syncEntryColors();
     floatingButton.setAttribute("aria-expanded", String(open));
   };
-  const makeEntry = (overview) => {
+  const makeEntry = (reference, tier) => {
     const button = document.createElement("button");
     button.type = "button";
-    button.setAttribute(ENTRY_MARK, "");
+    button.setAttribute(ENTRY_MARK, tier);
     button.setAttribute("aria-label", "Agent Companion");
     button.title = "Agent Companion  ⌥⌘J";
     // 尺寸、圆角、悬停色都来自原生按钮；它若正处于选中态，换回普通态的两个 class。
-    button.className = overview.className;
+    button.className = reference.className;
     button.classList.remove(...SELECTED_CLASSES);
     button.classList.add(...NORMAL_CLASSES);
     button.style.cssText = "-webkit-app-region:no-drag";
@@ -189,14 +190,51 @@ export function createAntigravityAdapter({ host, placement = "standalone-button"
     button.addEventListener("click", onEntryClick);
     return button;
   };
-  const ensureEntries = () => {
-    // Overview 开关被 React 移除时，插在它旁边的入口不会跟着消失，要自己清。
-    for (const entry of entries()) {
-      if (!entry.nextElementSibling?.matches?.(OVERVIEW_SELECTOR)) entry.remove();
+  // 第二级锚点：没有 Overview 开关（新建会话、首页等）时，找右上角标题栏里最右侧的原生图标按钮（如 ⋮）。
+  const findTrailingAnchor = () => {
+    const candidates = [...document.querySelectorAll("button")].filter((button) => {
+      if (button.hasAttribute(ENTRY_MARK) || !button.querySelector("svg") || button.textContent.trim()) return false;
+      if (button.closest('[data-sidebar-row-id], [role="dialog"], [role="menu"]')) return false;
+      const rect = button.getBoundingClientRect();
+      return rect.width > 0 && rect.height > 0 && rect.width <= 48 && rect.height <= 48
+        && rect.top >= 0 && rect.bottom <= 64 && rect.left >= window.innerWidth / 2;
+    });
+    if (!candidates.length) return null;
+    candidates.sort((a, b) => b.getBoundingClientRect().right - a.getBoundingClientRect().right);
+    for (const button of candidates) {
+      let slot = button;
+      // 按钮被弹窗/提示触发器包了一层单子容器时，向上找到真正的横向 flex 标题栏。
+      for (let depth = 0; depth < 2 && slot.parentElement; depth += 1) {
+        const display = window.getComputedStyle(slot.parentElement).display;
+        if (display === "flex" || display === "inline-flex") return { button, slot };
+        if (slot.parentElement.children.length !== 1) break;
+        slot = slot.parentElement;
+      }
     }
-    for (const overview of document.querySelectorAll(OVERVIEW_SELECTOR)) {
-      if (overview.previousElementSibling?.hasAttribute?.(ENTRY_MARK)) continue;
-      overview.before(makeEntry(overview));
+    return null;
+  };
+  let entryTier = "floating";
+  const ensureEntries = () => {
+    const overviews = [...document.querySelectorAll(OVERVIEW_SELECTOR)];
+    if (overviews.length > 0) {
+      // Overview 开关被 React 移除或切回会话页时，清理其它层级或孤立入口。
+      for (const entry of entries()) {
+        if (entry.getAttribute(ENTRY_MARK) !== "overview" || !entry.nextElementSibling?.matches?.(OVERVIEW_SELECTOR)) entry.remove();
+      }
+      for (const overview of overviews) {
+        if (overview.previousElementSibling?.hasAttribute?.(ENTRY_MARK)) continue;
+        overview.before(makeEntry(overview, "overview"));
+      }
+      entryTier = entries().length > 0 ? "overview-toggle" : "floating";
+    } else {
+      const trailing = findTrailingAnchor();
+      for (const entry of entries()) {
+        if (entry.getAttribute(ENTRY_MARK) !== "trailing" || !trailing || entry.nextElementSibling !== trailing.slot) entry.remove();
+      }
+      if (trailing && !trailing.slot.previousElementSibling?.hasAttribute?.(ENTRY_MARK)) {
+        trailing.slot.before(makeEntry(trailing.button, "trailing"));
+      }
+      entryTier = entries().length > 0 ? "titlebar-trailing" : "floating";
     }
     const anchored = entries().length > 0;
     floating.hidden = disposed || anchored || !(hasCards || hasSettings);
@@ -238,10 +276,10 @@ export function createAntigravityAdapter({ host, placement = "standalone-button"
       rail.style.maxHeight = `calc(100vh - ${Math.round(rect.bottom + 18)}px)`;
     } else {
       rail.style.left = "auto";
-      rail.style.right = "20px";
-      rail.style.top = "auto";
-      rail.style.bottom = "72px";
-      rail.style.maxHeight = "calc(100vh - 96px)";
+      rail.style.right = "16px";
+      rail.style.top = "94px";
+      rail.style.bottom = "auto";
+      rail.style.maxHeight = "calc(100vh - 110px)";
     }
     syncBackdrop();
   };
@@ -323,7 +361,7 @@ export function createAntigravityAdapter({ host, placement = "standalone-button"
     isPlaced: () => !disposed && (hasCards || hasSettings) && host.isConnected,
     getDiagnostics: () => ({
       placement, mode: !disposed && !rail.hidden ? "popover" : "hidden", visible: !disposed && !rail.hidden,
-      hasCards, hasSettings, disposed, entry: entries().length > 0 ? "overview-toggle" : "floating",
+      hasCards, hasSettings, disposed, entry: entries().length > 0 ? entryTier : "floating",
       page: /\/c\/[0-9a-f-]{36}/i.test(window.location.pathname) ? "conversation" : "other"
     }),
     dispose() {

@@ -104,18 +104,31 @@ try {
     await connection.send("Input.dispatchKeyEvent", { type: "rawKeyDown", code: "Escape", key: "Escape", windowsVirtualKeyCode: 27 });
     assert.equal(await evaluate("adapter.isOpen()"), false, "焦点在卡片里时 Esc 收起");
 
-    // Overview 开关消失（首页、新建会话）：入口跟着清掉，换成悬浮按钮，弹层贴右下
-    await evaluate("document.getElementById('overview').remove()");
+    // Overview 开关消失但标题栏右侧仍有原生图标按钮（新建会话页的 ⋮）：退到第二级 titlebar-trailing，弹层仍从右上展开
+    await evaluate(`document.getElementById('bar').innerHTML = '<button id="more-icon" class="agy-button h-7 w-7 bg-transparent text-secondary-foreground"><svg width="16" height="16"><circle cx="8" cy="8" r="2"/></svg></button>'`);
+    await evaluate("new Promise((resolve) => setTimeout(resolve, 50))");
+    assert.equal(await evaluate("adapter.getDiagnostics().entry"), "titlebar-trailing", "无 Overview 时退到右上角图标按钮旁");
+    assert.equal(await evaluate("document.getElementById('more-icon').previousElementSibling?.hasAttribute('data-agent-companion-entry')"), true);
+    assert.equal(await evaluate("document.getElementById('agent-companion-entry').hidden"), true);
+    await evaluate("document.querySelector('[data-agent-companion-entry]').click()");
+    assert.equal(await evaluate("adapter.isOpen()"), true);
+    assert.equal(await evaluate("document.getElementById('agent-companion-rail').style.bottom"), "auto", "第二级弹层从右上向下展开");
+    await evaluate("adapter.setOpen(false)");
+
+    // 标题栏钩子全无：入口清掉，退到右上角悬浮按钮（不挡右下角发送按钮），弹层从上方展开
+    await evaluate("document.getElementById('bar').innerHTML = ''");
     await evaluate("new Promise((resolve) => setTimeout(resolve, 50))");
     assert.equal(await evaluate("document.querySelectorAll('[data-agent-companion-entry]').length"), 0, "孤立入口被移除");
     assert.equal(await evaluate("document.getElementById('agent-companion-entry').hidden"), false, "退到悬浮按钮");
+    assert.equal(await evaluate("adapter.getDiagnostics().entry"), "floating");
     await evaluate("document.getElementById('agent-companion-entry').shadowRoot.querySelector('button').click()");
     assert.equal(await evaluate("adapter.isOpen()"), true);
-    assert.equal(await evaluate("document.getElementById('agent-companion-rail').style.bottom"), "72px");
-    // Overview 回来后重新挂到标题栏
+    assert.equal(await evaluate("document.getElementById('agent-companion-rail').style.top"), "94px");
+    // Overview 回来后重新挂到标题栏第一级
     await evaluate("document.getElementById('bar').insertAdjacentHTML('beforeend', '<button id=\"overview\" class=\"agy-button h-7 w-7 bg-transparent text-secondary-foreground\" data-testid=\"toggle-overview-panel\">O</button>')");
     await evaluate("new Promise((resolve) => setTimeout(resolve, 50))");
     assert.equal(await evaluate("document.getElementById('overview').previousElementSibling?.hasAttribute('data-agent-companion-entry')"), true);
+    assert.equal(await evaluate("adapter.getDiagnostics().entry"), "overview-toggle");
     assert.equal(await evaluate("document.getElementById('agent-companion-entry').hidden"), true);
 
     // 没有卡片时不显示任何入口

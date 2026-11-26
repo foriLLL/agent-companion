@@ -19,9 +19,12 @@ async function temporary(t) {
   return { dir, path: join(dir, "config-v2.json") };
 }
 
-function command(args, input) {
+function command(args, input, extraEnv = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, ["src/cli.mjs", ...args], { cwd: new URL("..", import.meta.url) });
+    const child = spawn(process.execPath, ["src/cli.mjs", ...args], {
+      cwd: new URL("..", import.meta.url),
+      env: { ...process.env, ...extraEnv }
+    });
     let stdout = "", stderr = "";
     child.stdout.on("data", chunk => { stdout += chunk; });
     child.stderr.on("data", chunk => { stderr += chunk; });
@@ -149,10 +152,11 @@ test("实际目录 watcher 覆盖四卡与第五卡的 enabled/settings、顺序
 });
 
 test("CLI 真实子进程目录、配置和 stdin 补丁；冲突机器可读且不写配置", async t => {
-  const { path } = await temporary(t);
-  // 子进程读取已含 launch 的隔离配置，不触发真实 defaults 迁移。
+  const { dir, path } = await temporary(t);
+  const env = { AGENT_COMPANION_CARDS_DIR: join(dir, "cards") };
+  // 子进程读取已含 launch 的隔离配置，不触发真实 defaults 迁移，也不读本机已安装的用户插件卡。
   await createConfig({ path }).loadV2();
-  const catalog = await command(["cards", "list"]);
+  const catalog = await command(["cards", "list"], undefined, env);
   assert.equal(catalog.code, 0, catalog.stderr);
   assert.deepEqual(JSON.parse(catalog.stdout).map(card => card.id), CARD_MANIFESTS.map(card => card.id));
   const initial = await command(["config", "get", "--config-path", path]);
