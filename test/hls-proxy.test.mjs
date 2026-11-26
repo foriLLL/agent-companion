@@ -196,6 +196,48 @@ test("m3u8 重写：相对路径保持不变、同源绝对路径改代理形式
   assert.doesNotMatch(rewritten, /api_key=must-strip|token=xyz|api_key=abc/);
 });
 
+test("m3u8 重写：外源清单的子地址按外源地址解析、一律走 @ext；同源以 / 开头的路径改代理形式", async (t) => {
+  const external = "#EXTM3U\nseg0.ts?sig=1\n../emby/Videos/movie/leak.ts\n/abs/seg1.ts\n#EXT-X-KEY:METHOD=AES-128,URI=\"key.bin\"\n";
+  const sameOrigin = "#EXTM3U\n/emby/Videos/movie/root.ts\n";
+  const { proxy } = await startProxy({
+    dnsLookup: async () => [{ address: "93.184.216.34", family: 4 }],
+    upstream: async ({ url }) => textResponse(url.startsWith("https://cdn.example.com/") ? external : sameOrigin)
+  });
+  t.after(() => proxy.close());
+  const session = proxy.register({ token: "token-1", baseUrl: BASE_URL, pathPrefix: PATH_PREFIX });
+  const decode = (line) => Buffer.from(line.slice("/hls/secret-1/@ext/".length), "base64url").toString("utf8");
+
+  const ext = await (await fetch(session.urlFor("https://cdn.example.com/hls/v/index.m3u8"))).text();
+  const lines = ext.split("\n").filter((line) => line && !line.startsWith("#EXTM3U"));
+  assert.deepEqual(lines.filter((line) => !line.startsWith("#")).map(decode), [
+    "https://cdn.example.com/hls/v/seg0.ts?sig=1",
+    "https://cdn.example.com/hls/emby/Videos/movie/leak.ts",
+    "https://cdn.example.com/abs/seg1.ts"
+  ]);
+  const key = /URI="([^"]+)"/.exec(ext)[1];
+  assert.equal(decode(key), "https://cdn.example.com/hls/v/key.bin");
+  assert.doesNotMatch(ext, /\/hls\/secret-1\/emby\//, "外源清单不能落回带令牌的同源路径");
+
+  const same = await (await fetch(session.urlFor(`${BASE_URL}/Videos/movie/master.m3u8`))).text();
+  assert.ok(same.split("\n").includes("/hls/secret-1/emby/Videos/movie/root.ts"), same);
+});
+
+test("m3u8 重写：上游重定向到外源后，相对路径按重定向后的地址改写为 @ext", async (t) => {
+  const { proxy } = await startProxy({
+    upstream: async () => {
+      const response = textResponse("#EXTM3U\nseg0.ts\n");
+      Object.defineProperty(response, "url", { value: "https://cdn.example.com/v/index.m3u8" });
+      return response;
+    }
+  });
+  t.after(() => proxy.close());
+  const session = proxy.register({ token: "token-1", baseUrl: BASE_URL, pathPrefix: PATH_PREFIX });
+  const text = await (await fetch(session.urlFor(`${BASE_URL}/Videos/movie/master.m3u8`))).text();
+  const line = text.split("\n")[1];
+  assert.ok(line.startsWith("/hls/secret-1/@ext/"), text);
+  assert.equal(Buffer.from(line.slice("/hls/secret-1/@ext/".length), "base64url").toString("utf8"), "https://cdn.example.com/v/seg0.ts");
+});
+
 test("content-type 不含 mpegurl 但 body 以 #EXTM3U 开头时也按清单重写", async (t) => {
   const { proxy, origin } = await startProxy({
     upstream: async () => textResponse("#EXTM3U\nabs.ts\n", { contentType: "application/octet-stream" })

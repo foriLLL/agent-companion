@@ -1,8 +1,9 @@
 import { execFile } from "node:child_process";
-import { cp, lstat, mkdir, mkdtemp, readFile, readlink, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { cp, lstat, mkdir, mkdtemp, readFile, readlink, realpath, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import { promisify } from "node:util";
+import { isPathInside } from "../paths.mjs";
 import { replaceFile } from "../replace-file.mjs";
 import { buildCardRenderer } from "./build.mjs";
 import { RENDERER_BUNDLE, RENDERER_SOURCE, readCardPackage } from "./catalog.mjs";
@@ -25,6 +26,14 @@ const execFileAsync = promisify(execFile);
 export const INSTALLS_FILE = ".installs.json";
 const GITHUB_SHORTHAND = /^([A-Za-z0-9](?:[A-Za-z0-9-]{0,38}))\/([A-Za-z0-9._-]{1,100})(?:@([^\s@]+))?$/;
 const COMMIT = /^[0-9a-f]{7,40}$/i;
+const CARD_ID = /^[a-z][a-z0-9-]*$/;
+
+// 命令行传进来的 id 直接拼进路径并递归删除，必须先确认是合法的卡片 id（不含 / 与 ..）。
+function assertCardId(id) {
+  if (typeof id !== "string" || !CARD_ID.test(id) || id === "companion") {
+    throw new CardManageError("INVALID_ID", `不是有效的卡片 id：${id ?? "（未指定）"}`);
+  }
+}
 
 export class CardManageError extends Error {
   constructor(code, message) {
@@ -110,15 +119,24 @@ async function fetchSource(source, { execFileImpl } = {}) {
   }
 }
 
-async function preparePackage(dir, { subpath = null, build = buildCardRenderer } = {}) {
-  const cardDir = subpath ? resolve(dir, subpath) : dir;
-  if (subpath && !cardDir.startsWith(resolve(dir))) throw new CardManageError("INVALID_SOURCE", "--path 不能指向仓库之外");
+async function preparePackage(dir, { subpath = null, expectedId = null, build = buildCardRenderer } = {}) {
+  let cardDir = dir;
+  if (subpath) {
+    // 按真实路径判断：既防 ../ 与同前缀的兄弟目录，也防仓库里指向外面的符号链接。
+    const root = await realpath(dir);
+    cardDir = await realpath(resolve(root, subpath)).catch(() => resolve(root, subpath));
+    if (!isPathInside(cardDir, root)) throw new CardManageError("INVALID_SOURCE", "--path 不能指向仓库之外");
+  }
   const hasBundle = Boolean(await stat(join(cardDir, RENDERER_BUNDLE)).catch(() => null));
   const hasSource = Boolean(await stat(join(cardDir, RENDERER_SOURCE)).catch(() => null));
   if (!hasBundle && hasSource) await build({ dir: cardDir });
-  try { return { dir: cardDir, card: await readCardPackage(cardDir, { source: "user", expectedId: null }) }; } catch (error) {
+  let card;
+  try { card = await readCardPackage(cardDir, { source: "user", expectedId: null }); } catch (error) {
     throw new CardManageError(error.code ?? "INVALID_CARD", `不是有效的卡片：${error.message}`);
   }
+  // update 时来源里的 id 变了就在替换任何目录之前停下，不能覆盖另一张卡片。
+  if (expectedId !== null && card.id !== expectedId) throw new CardManageError("ID_CHANGED", `来源里的卡片 id 变成了 ${card.id}`);
+  return { dir: cardDir, card };
 }
 
 // 用准备好的目录整体替换 <userDir>/<id>：先放进同盘的临时位置，再两次 rename。
@@ -145,11 +163,11 @@ async function placePackage(userDir, id, preparedDir) {
  * 已安装同 id 的卡片时需要 force；内置卡片同 id 时安装的版本会覆盖内置版本（卸载即恢复）。
  */
 export async function installCard({ source: input, ref = null, path: subpath = null, force = false, userDir, builtinIds = [],
-  cwd, now = () => new Date(), execFileImpl, build } = {}) {
+  cwd, now = () => new Date(), execFileImpl, build, expectedId = null } = {}) {
   const source = typeof input === "string" ? await parseCardSource(input, { ref, cwd }) : input;
   const fetched = await fetchSource(source, { execFileImpl });
   try {
-    const { dir, card } = await preparePackage(fetched.dir, { subpath, build });
+    const { dir, card } = await preparePackage(fetched.dir, { subpath, expectedId, build });
     const target = join(userDir, card.id);
     const existing = await lstat(target).catch(() => null);
     if (existing && !force) throw new CardManageError("ALREADY_INSTALLED", `已安装 ${card.id}；更新请用 update，覆盖请加 --force`);
@@ -167,6 +185,7 @@ export async function installCard({ source: input, ref = null, path: subpath = n
 
 /** 按安装记录重新获取。ref 传入时改用新的 ref。返回 installCard 的结果，加上 previous（旧 commit）。 */
 export async function updateCard({ id, ref, userDir, builtinIds, execFileImpl, build, now } = {}) {
+  assertCardId(id);
   const installs = await readInstalls(userDir);
   const record = installs[id];
   const target = join(userDir, id);
@@ -175,13 +194,13 @@ export async function updateCard({ id, ref, userDir, builtinIds, execFileImpl, b
   if (info.isSymbolicLink()) return { id, linked: await readlink(target), skipped: "linked" };
   if (!record) throw new CardManageError("UNKNOWN_SOURCE", `${id} 没有安装记录，无法更新；请重新 install --force`);
   const source = record.kind === "path" ? { kind: "path", path: record.source } : { kind: "git", url: record.source, ref: ref ?? record.ref ?? null };
-  const result = await installCard({ source, path: record.path ?? null, force: true, userDir, builtinIds, execFileImpl, build, now });
-  if (result.id !== id) throw new CardManageError("ID_CHANGED", `来源里的卡片 id 变成了 ${result.id}`);
+  const result = await installCard({ source, path: record.path ?? null, force: true, userDir, builtinIds, execFileImpl, build, now, expectedId: id });
   return { ...result, previous: record.commit ?? null };
 }
 
 /** 卸载用户卡片（链接只删链接本身）。purgeData 同时删除它在 card-data/ 下的数据。 */
 export async function removeCard({ id, userDir, dataRoot = null, purgeData = false, builtinIds = [] } = {}) {
+  assertCardId(id);
   const target = join(userDir, id);
   const info = await lstat(target).catch(() => null);
   if (!info) {

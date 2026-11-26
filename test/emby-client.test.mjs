@@ -65,15 +65,24 @@ test("assertLoginHostAllowed 拦截回环/链路本地/元数据，但放行 LAN
     "http://169.254.169.254",
     "http://0.0.0.0",
     "http://[::1]",
-    "https://224.0.0.1"
+    "https://224.0.0.1",
+    // IPv4 映射 / 兼容 / NAT64 / 6to4 里内嵌的回环与元数据地址，以及 IPv6 链路本地。
+    "http://[::ffff:127.0.0.1]",
+    "http://[::ffff:169.254.169.254]",
+    "http://[::127.0.0.1]",
+    "http://[64:ff9b::7f00:1]",
+    "http://[2002:7f00:1::]",
+    "http://[fe81::1]",
+    "http://[::]"
   ]) {
     await assert.rejects(assertLoginHostAllowed(host, { dnsLookup: never }), { code: "UNSAFE_SERVER_URL" }, host);
   }
+  await assert.rejects(assertLoginHostAllowed("http://localhost.:8096", { dnsLookup: never }), { code: "UNSAFE_SERVER_URL" });
   // localhost 主机名同样拒绝。
   await assert.rejects(assertLoginHostAllowed("http://localhost:8096", { dnsLookup: never }), { code: "UNSAFE_SERVER_URL" });
   await assert.rejects(assertLoginHostAllowed("http://app.localhost", { dnsLookup: never }), { code: "UNSAFE_SERVER_URL" });
   // 自建 Emby 常驻的 LAN 私网 IP → 放行（不做 DNS）。
-  for (const host of ["http://192.168.1.10:8096", "http://10.0.0.5", "http://172.16.9.9"]) {
+  for (const host of ["http://192.168.1.10:8096", "http://10.0.0.5", "http://172.16.9.9", "http://[::ffff:192.168.1.10]", "http://[2001:db8::1]"]) {
     await assert.doesNotReject(assertLoginHostAllowed(host, { dnsLookup: never }), host);
   }
   // 主机名解析到内网 LAN → 放行；解析到回环/元数据 → 拒绝。

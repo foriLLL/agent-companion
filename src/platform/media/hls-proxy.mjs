@@ -253,7 +253,7 @@ export class HlsProxy {
         this.#sendError(response, code.startsWith("UNSAFE") ? 403 : 502, "bad gateway");
         return;
       }
-      await this.#forward({ upstream, session, method, response });
+      await this.#forward({ upstream, session, method, response, target, external });
     } catch (error) {
       if (!response.headersSent && !response.writableEnded && !response.destroyed) {
         this.#sendError(response, 500, "internal error");
@@ -265,7 +265,7 @@ export class HlsProxy {
     }
   }
 
-  async #forward({ upstream, session, method, response }) {
+  async #forward({ upstream, session, method, response, target, external }) {
     const headers = {
       "Access-Control-Allow-Origin": "*",
       "Cache-Control": "no-store"
@@ -303,7 +303,9 @@ export class HlsProxy {
         size += next.value.byteLength ?? next.value.length;
         chunks.push(Buffer.from(next.value));
       }
-      const rewritten = this.#rewritePlaylist(Buffer.concat(chunks).toString("utf8"), session);
+      const rewritten = this.#rewritePlaylist(Buffer.concat(chunks).toString("utf8"), session, {
+        target, external, finalUrl: upstream.url
+      });
       response.writeHead(status, {
         "Access-Control-Allow-Origin": "*",
         "Cache-Control": "no-store",
@@ -331,21 +333,30 @@ export class HlsProxy {
     }
   }
 
-  // 逐行重写 playlist：相对 URI 保持不变（相对解析天然落回代理路径）；
-  // 同源绝对 URL 改写为代理路径形式并剥离令牌查询参数；跨源绝对 URL 改写为 @ext 形式。
-  #rewritePlaylist(text, session) {
+  // 逐行重写 playlist，target 是这份清单的上游地址：
+  // - 同源清单里的相对路径保持不变（相对解析天然落回本会话的代理路径），只剥离令牌查询参数；
+  // - 同源清单里的绝对地址与以 / 开头的路径，按上游地址解析后同源的改写为代理路径，跨源的改写为 @ext；
+  // - 外源（@ext）清单里的一切子地址都按上游地址解析后改写为 @ext，绝不落回带 Emby 令牌的同源路径。
+  // 上游跟随过重定向时（upstream.url 与请求地址不同），相对路径要按重定向后的地址解析，不能再保持相对。
+  #rewritePlaylist(text, session, { target, external, finalUrl }) {
+    let base = target;
+    try {
+      if (finalUrl) base = new URL(finalUrl);
+    } catch {}
+    const foreign = external || base.origin !== session.origin;
+    const keepRelative = !foreign && base.href === target.href;
     const rewriteUri = (raw) => {
       const value = String(raw).trim();
       if (!value) return raw;
-      const absolute = /^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(value) || value.startsWith("//");
-      if (!absolute) return stripRelativeSecretQuery(value);
+      const absolute = /^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(value) || value.startsWith("/");
+      if (keepRelative && !absolute) return stripRelativeSecretQuery(value);
       let resolved;
       try {
-        resolved = new URL(value, session.baseUrl);
+        resolved = new URL(value, base);
       } catch {
         return value;
       }
-      if (resolved.origin === session.origin) {
+      if (!foreign && resolved.origin === session.origin) {
         stripSecretQuery(resolved);
         return `/hls/${session.secret}${resolved.pathname}${resolved.search}`;
       }

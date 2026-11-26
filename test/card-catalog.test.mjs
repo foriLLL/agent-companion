@@ -192,6 +192,46 @@ test("安装 / 覆盖 / 更新 / 卸载本地卡片；内置卡片不能卸载�
   assert.equal(built, 1, "只有源码时安装前先打包");
 });
 
+test("卸载与更新只接受合法卡片 id：.. 之类的参数不能删到用户卡片目录之外", async t => {
+  const root = await temporary(t);
+  const userDir = join(root, "data", "cards");
+  await mkdir(userDir, { recursive: true });
+  await writeFile(join(root, "data", "config-v2.json"), "{}");
+  for (const id of ["..", "../..", "../config-v2.json", "a/b", "", "Hello", "companion", undefined]) {
+    await assert.rejects(removeCard({ id, userDir, dataRoot: join(root, "data"), purgeData: true }), { code: "INVALID_ID" }, String(id));
+    await assert.rejects(updateCard({ id, userDir }), { code: "INVALID_ID" }, String(id));
+  }
+  assert.equal(await readFile(join(root, "data", "config-v2.json"), "utf8"), "{}", "数据目录原样保留");
+});
+
+test("更新时来源里的 id 变了：在替换任何目录之前报 ID_CHANGED，不覆盖另一张卡片", async t => {
+  const root = await temporary(t);
+  const userDir = join(root, "user");
+  const source = await writeCard(join(root, "src"), "alpha");
+  await installCard({ source, userDir });
+  const other = await writeCard(join(root, "other"), "beta");
+  await installCard({ source: other, userDir });
+  const beforeBeta = await readFile(join(userDir, "beta", "renderer.js"), "utf8");
+  await writeFile(join(source, "manifest.json"), (await readFile(join(other, "manifest.json"), "utf8")));
+  await assert.rejects(updateCard({ id: "alpha", userDir }), { code: "ID_CHANGED" });
+  assert.equal(await readFile(join(userDir, "beta", "renderer.js"), "utf8"), beforeBeta, "beta 没被覆盖");
+  assert.ok(await readFile(join(userDir, "alpha", "manifest.json"), "utf8"), "alpha 保留");
+  assert.equal((await readInstallRecords(userDir)).beta.source, other, "安装记录没被改写");
+});
+
+test("--path 不能借同前缀目录或符号链接指向仓库之外", async t => {
+  const root = await temporary(t);
+  const repo = join(root, "repo");
+  await writeCard(join(repo, "cards"), "inside");
+  await writeCard(join(root, "repo2"), "sibling");
+  const outside = await writeCard(join(root, "outside"), "outside");
+  await symlink(outside, join(repo, "escape"));
+  const userDir = join(root, "user");
+  assert.equal((await installCard({ source: repo, path: "cards/inside", userDir })).id, "inside");
+  await assert.rejects(installCard({ source: repo, path: "../repo2", userDir }), { code: "INVALID_SOURCE" });
+  await assert.rejects(installCard({ source: repo, path: "escape", userDir }), { code: "INVALID_SOURCE" });
+});
+
 test("开发链接：符号链接进用户目录，卡片目录读到原目录的改动；卸载只删链接", async t => {
   const root = await temporary(t);
   const source = await writeCard(join(root, "dev"), "devcard");
@@ -266,6 +306,21 @@ function memoryConfig(cards) {
   };
   return store;
 }
+
+test("cards remove 与设置页一致：卸载后关掉开关；恢复内置版本时不动内置卡片的开关", async t => {
+  const root = await temporary(t);
+  await writeCard(join(root, "builtin"), "alpha");
+  await writeCard(join(root, "user"), "plugin");
+  await writeCard(join(root, "user"), "alpha");
+  const config = memoryConfig({ plugin: { enabled: true }, alpha: { enabled: true } });
+  const deps = { builtinDir: join(root, "builtin"), userDir: join(root, "user"), home: root, env: {}, isTTY: false,
+    configStore: config, out: { log() {}, error() {} } };
+  await runCardsCommand(["remove", "plugin"], deps);
+  assert.deepEqual(config.patches, [{ cards: { plugin: { enabled: false } } }]);
+  await runCardsCommand(["remove", "alpha"], deps);
+  assert.equal(config.patches.length, 1, "恢复内置版本不改开关");
+  await assert.rejects(runCardsCommand(["remove", ".."], deps), { code: "INVALID_ID" });
+});
 
 test("设置页卸载插件：列出来源；卸载删除目录、可选删除数据、关掉开关并立即撤下服务；内置卡片拒绝", async t => {
   const root = await temporary(t);

@@ -651,8 +651,12 @@ function subtitleExtension(codec) {
   return "sub";
 }
 
-function filterPath(value) {
-  return String(value).replaceAll("\\", "\\\\").replaceAll(":", "\\:").replaceAll("'", "\\'");
+// 滤镜参数要过 FFmpeg 的两层解析：先按选项值转义（\ ' :），再按滤镜图转义（\ ' [ ] , ;）。
+// 不用单引号包裹：单引号里的 \' 不是转义，路径里一旦有 ' 就会提前结束引号。
+function filterValue(value) {
+  const text = String(value);
+  if (/[\0\r\n]/.test(text)) throw new MediaError("SUBTITLE_SOURCE_INVALID", "字幕路径包含不支持的字符");
+  return text.replace(/[\\':]/g, "\\$&").replace(/[\\'[\],;]/g, "\\$&");
 }
 
 export function buildFfmpegArguments({
@@ -709,7 +713,7 @@ export function buildFfmpegArguments({
       const unshift = startTimeSeconds > 0 ? `,setpts=PTS-${startTimeSeconds.toFixed(3)}/TB` : "";
       args.push(
         "-filter_complex",
-        `[0:v:0]${colorFilter}${shift}subtitles=filename='${filterPath(subtitleInput)}'${streamOption}${unshift}[v]`,
+        `[0:v:0]${colorFilter}${shift}subtitles=filename=${filterValue(subtitleInput)}${streamOption}${unshift}[v]`,
         "-map", "[v]"
       );
     } else {

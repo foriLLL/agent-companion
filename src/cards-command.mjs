@@ -62,6 +62,21 @@ function describe(card) {
   return `${card.manifest.title}（${card.id}）能力：${capabilities}${card.service ? "；含后台服务（在后台进程里以你的用户权限运行）" : ""}`;
 }
 
+async function disableCard(configStore, id) {
+  if (typeof configStore.patch !== "function") return;
+  for (let attempt = 0; ; attempt++) {
+    const config = await configStore.loadV2();
+    const raw = config?.cards?.[id];
+    if ((typeof raw === "boolean" ? raw : raw?.enabled) !== true || !Number.isSafeInteger(config.revision)) return;
+    try {
+      await configStore.patch({ cards: { [id]: { enabled: false } } }, { expectedRevision: config.revision });
+      return;
+    } catch (error) {
+      if (error?.code !== "CONFIG_CONFLICT" || attempt >= 2) throw error;
+    }
+  }
+}
+
 /**
  * cards 命令。dependencies 供测试替换：home、env、platform、cwd、out（{ log, error }）、isTTY、
  * catalogFactory、configStore、execFileImpl、build。
@@ -142,6 +157,11 @@ export async function runCardsCommand(argv, dependencies = {}) {
     }
     case "remove": {
       const result = await removeCard({ ...common, id: options.args[0], dataRoot, purgeData: options.purge === true });
+      // 和设置页的卸载一致：关掉开关，以后重新安装仍然缺省关闭；恢复内置版本时开关属于内置卡片，不动。
+      if (!result.restoresBuiltin) {
+        const configStore = dependencies.configStore ?? new CompanionConfig({ path: env.AGENT_COMPANION_CONFIG_PATH });
+        await disableCard(configStore, result.id).catch(error => out.error(`卸载后关闭 ${result.id} 的开关失败：${error.message}`));
+      }
       out.log(`已${result.linked ? "删除开发链接" : "卸载"} ${result.id}${options.purge ? "，并删除了它的数据" : ""}${result.restoresBuiltin ? "；恢复使用内置版本" : ""}`);
       return result;
     }

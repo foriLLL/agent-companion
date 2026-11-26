@@ -277,7 +277,10 @@ export class HongguoService {
     const resolved = await this.#client.resolvePlayback(target.id);
     signal?.throwIfAborted();
     const playback = resolved?.playback;
-    const streams = Array.isArray(playback?.streams) ? playback.streams.filter((stream) => stream?.url) : [];
+    // 播放地址直接交给 FFmpeg 的 -i：只接受 http(s)，不让 file:、concat: 之类的协议进来。
+    const streams = Array.isArray(playback?.streams)
+      ? playback.streams.filter((stream) => typeof stream?.url === "string" && /^https?:\/\//i.test(stream.url))
+      : [];
     if (streams.length === 0) {
       throw new HongguoError("VIDEO_SOURCE_UNAVAILABLE", "红果没有返回这一集的播放地址", { retryable: true });
     }

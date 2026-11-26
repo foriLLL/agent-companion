@@ -10,6 +10,8 @@ import {
   DEFAULT_SUBTITLE_LIMIT,
   MediaError,
   SECRET_QUERY_KEYS,
+  embeddedIpv4,
+  ipv6Words,
   isPrivateAddress,
   resolveExternalMediaAddress,
   validateExternalMediaUrl
@@ -137,13 +139,16 @@ export function sanitizeDirectStreamUrl(baseUrl, input) {
 // 重定向那样一律拒绝私网；但必须拦住回环、link-local（含云元数据 169.254.169.254）、
 // 通配与组播/保留地址——这些是 SSRF 探测内网/元数据端点的高价值目标，Emby 绝不会在此。
 function isBlockedLoginAddress(address) {
-  const normalized = String(address).toLowerCase().split("%")[0];
-  if (normalized === "::1" || normalized === "::") return true;
-  if (normalized.startsWith("fe80") || normalized.startsWith("fe9") || normalized.startsWith("fea") || normalized.startsWith("feb")) {
-    return true; // IPv6 link-local
+  const normalized = String(address).toLowerCase().split("%")[0].replace(/^\[|\]$/g, "");
+  if (isIP(normalized) === 6) {
+    const words = ipv6Words(normalized);
+    if (!words) return true;
+    // IPv4 映射 / 兼容 / NAT64 / 6to4 按内嵌的 IPv4 判断；::、::1 内嵌 0.0.0.x，同样拒绝。
+    const embedded = embeddedIpv4(words);
+    if (embedded) return isBlockedLoginAddress(embedded);
+    return (words[0] & 0xffc0) === 0xfe80 // IPv6 link-local
+      || (words[0] & 0xff00) === 0xff00; // IPv6 multicast
   }
-  if (normalized.startsWith("ff")) return true; // IPv6 multicast
-  if (normalized.startsWith("::ffff:")) return isBlockedLoginAddress(normalized.slice(7));
   if (isIP(normalized) !== 4) return false;
   const [a, b] = normalized.split(".").map(Number);
   return a === 0                        // "this" network / 0.0.0.0
@@ -159,7 +164,7 @@ export async function assertLoginHostAllowed(baseUrl, { dnsLookup = defaultDnsLo
   } catch (cause) {
     throw new EmbyError("INVALID_SERVER_URL", "Emby 服务器地址无效", { cause });
   }
-  const hostname = url.hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  const hostname = url.hostname.toLowerCase().replace(/^\[|\]$/g, "").replace(/\.$/, "");
   if (hostname === "localhost" || hostname.endsWith(".localhost")) {
     throw new EmbyError("UNSAFE_SERVER_URL", "拒绝把 Emby 登录指向本机地址");
   }

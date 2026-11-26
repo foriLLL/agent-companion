@@ -2,7 +2,9 @@
 // 页面侧对应的 MSE 播放器在 sdk/renderer-media.mjs；两边随卡片一起打包，协议版本总是一致。
 // 例外：CDP 媒体拦截的端口登记表全局只有一份，由 api.media.interceptor 提供，HlsProxy 要传它的 register。
 export { MediaError } from "../src/platform/media/errors.mjs";
-export { SECRET_QUERY_KEYS, isPrivateAddress, resolveExternalMediaAddress, validateExternalMediaUrl } from "../src/platform/media/net-guard.mjs";
+export {
+  SECRET_QUERY_KEYS, embeddedIpv4, ipv6Words, isPrivateAddress, resolveExternalMediaAddress, validateExternalMediaUrl
+} from "../src/platform/media/net-guard.mjs";
 export {
   DIRECT_VIDEO_BITRATE_LIMIT, FFMPEG_VIDEO_COPY_BITRATE_LIMIT, FfmpegFmp4Session, RangeProxy,
   buildFfmpegArguments, ffmpegStrategy, mediaSourceExceedsDirectBitrate, requireToneMappingSupport, videoBitrateFor
