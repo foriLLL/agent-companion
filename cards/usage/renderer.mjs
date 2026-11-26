@@ -100,6 +100,17 @@ export function shouldUseRings(sections) {
   return count >= 3 || sections.some((section) => Boolean(section.title));
 }
 
+// 读取失败（RPC 或宿主接口出错）后要显示的数据：手里有过成功的额度就继续显示并标记 stale。
+// 连续失败时上一份已经是 ok:false + stale:true，仍要保持 stale，不能让旧的额度条看起来像是最新的。
+export function failedUsageData(previous, message) {
+  return {
+    ...(previous ?? { limits: [] }),
+    ok: false,
+    stale: Boolean(previous?.ok || previous?.stale),
+    error: message || "读取失败，请稍后重试"
+  };
+}
+
 const RING_R = 19;
 const RING_C = 2 * Math.PI * RING_R;
 const REFRESH_ICON = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M13.2 8a5.2 5.2 0 1 1-1.3-3.45"/><path d="M13.2 2.8v2.3h-2.3"/></svg>';
@@ -259,7 +270,7 @@ export function mount({ root, rpc, effects, signal, host }) {
         render();
       } catch (error) {
         if (signal.aborted || SILENT_CODES.has(error?.code)) return;
-        data = { ...(data ?? { limits: [] }), ok: false, stale: Boolean(data?.ok), error: error?.message || "读取失败，请稍后重试" };
+        data = failedUsageData(data, error?.message);
         render();
       } finally {
         pending = null;

@@ -5,7 +5,7 @@ import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { codexCliCandidates, normalizeCodexRateLimits, readCodexRateLimits, resolveCodexCli } from "../cards/usage/codex-usage.mjs";
 import { createService, resolveProxyPort } from "../cards/usage/service.mjs";
-import { antigravityGroupLabel, antigravityWindowLabel, remainingTone, resetText, shortResetText, shouldUseRings, windowLabel } from "../cards/usage/renderer.mjs";
+import { antigravityGroupLabel, antigravityWindowLabel, failedUsageData, remainingTone, resetText, shortResetText, shouldUseRings, windowLabel } from "../cards/usage/renderer.mjs";
 import { createAntigravityHostApi } from "../src/renderer/adapters/antigravity-host-api.mjs";
 
 // 假的 `codex app-server`：按行读 JSON-RPC 请求，按脚本回包，记录收到的方法。
@@ -167,6 +167,19 @@ test("读取失败时保留上次成功的数据并标记 stale；从没成功�
 
   const missing = createService({ resolveCliImpl: () => null, inspectCodexProxy: async () => ({}) });
   assert.equal((await missing.methods.status({}, { signal: new AbortController().signal })).code, "CODEX_CLI_NOT_FOUND");
+});
+
+test("界面连续读取失败时一直标记 stale，旧额度条不会看起来像是最新的", () => {
+  const fresh = { ok: true, fetchedAt: 1, limits: [{ id: "a" }] };
+  const once = failedUsageData(fresh, "bridge down");
+  assert.deepEqual([once.ok, once.stale, once.error, once.limits.length], [false, true, "bridge down", 1]);
+  const twice = failedUsageData(once, "still down");
+  assert.deepEqual([twice.ok, twice.stale, twice.error, twice.limits.length], [false, true, "still down", 1]);
+  // 从没成功过：没有旧数据可显示，不标记 stale。
+  const never = failedUsageData(failedUsageData(null, ""), "again");
+  assert.deepEqual([never.ok, never.stale, never.limits], [false, false, []]);
+  assert.equal(failedUsageData(null, "").error, "读取失败，请稍后重试");
+  assert.equal(failedUsageData({ ok: false, code: "CODEX_CLI_NOT_FOUND", limits: [] }, "x").stale, false);
 });
 
 test("界面文案：窗口名称、重置时间与剩余额度配色", () => {

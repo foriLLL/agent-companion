@@ -4,6 +4,15 @@ import { cardStyles } from "./styles.mjs";
 // 「我的片单」超过这个数时折叠，只列最近打开的几部。
 const LIST_COLLAPSED = 3;
 
+// 能直接播放的集数：官网只开放前 accessibleEpisodeCount 集（hongguo.detail 返回），之后的集选了只会报
+// EPISODE_NOT_AVAILABLE。选集网格把它们显示为未开放，自动连播也以此为界。没有这个字段时退回 totalEpisodes。
+export function playableEpisodeCount(drama) {
+  const total = Math.max(0, Math.floor(Number(drama?.totalEpisodes) || 0));
+  const accessible = drama?.accessibleEpisodeCount;
+  if (typeof accessible !== "number" || !Number.isFinite(accessible) || accessible < 0) return total;
+  return Math.floor(accessible);
+}
+
 export function mount(ctx) {
   const scope = createMediaScope(ctx);
   const { rpc, requestRpc, cancelRpc, listen, unlisten, setTimeout, clearTimeout, requestAnimationFrame, queueMicrotask, createObjectURL, revokeObjectURL, isDisposed } = scope;
@@ -497,16 +506,23 @@ export function mount(ctx) {
       scroll.append(status);
     }
     const grid = makeElement("div", "hg-episode-grid");
-    const total = Math.max(0, Number(drama.totalEpisodes || 0));
-    if (total === 0) grid.append(makeElement("div", "hg-empty", "红果官网当前没有开放可播放剧集"));
-    else {
-      for (let episode = 1; episode <= total; episode += 1) {
-        const button = makeElement("button", "hg-episode", String(episode));
-        button.type = "button";
+    const playable = playableEpisodeCount(drama);
+    const total = Math.max(playable, Math.floor(Number(drama.totalEpisodes) || 0));
+    if (playable === 0) grid.append(makeElement("div", "hg-empty", "红果官网当前没有开放可播放剧集"));
+    for (let episode = 1; episode <= total; episode += 1) {
+      const button = makeElement("button", "hg-episode", String(episode));
+      button.type = "button";
+      if (episode > playable) {
+        // 官网未开放的集：显示但不可点，不让用户点进 EPISODE_NOT_AVAILABLE 错误页。
+        button.classList.add("locked");
+        button.disabled = true;
+        button.title = "红果官网暂未开放这一集";
+        button.setAttribute("aria-label", `第 ${episode} 集，官网暂未开放`);
+      } else {
         button.setAttribute("aria-label", `播放第 ${episode} 集`);
         listen(button, "click", () => void beginHongguoPlayback(drama, episode));
-        grid.append(button);
       }
+      grid.append(button);
     }
     scroll.append(grid);
     view.append(scroll);
@@ -606,8 +622,10 @@ export function mount(ctx) {
     autoplay.append(autoplayCard);
     const drama = hongguoState.selectedDrama;
     const currentEpisode = Number(playback.episode);
-    const totalEpisodes = Math.max(0, Number(drama?.totalEpisodes || 0));
+    // 连播只在官网开放的集数以内：下一集未开放时停在本集，不跳去报错。
+    const totalEpisodes = playableEpisodeCount(drama);
     const knownTotal = totalEpisodes > 0;
+    const lockedAfter = Math.floor(Number(drama?.totalEpisodes) || 0) > totalEpisodes;
     const nextEpisode =
       drama?.id && currentEpisode > 0 && (!knownTotal || currentEpisode < totalEpisodes)
         ? currentEpisode + 1
@@ -658,7 +676,8 @@ export function mount(ctx) {
     const handleEpisodeEnded = () => {
       if (playbackTransitionStarted || hongguoState.playback !== playback || hongguoState.view !== "playback") return;
       if (!nextEpisode) {
-        showEndedActions("本集已播放完毕", knownTotal ? "已经是最后一集" : "没有更多可播放的选集");
+        showEndedActions("本集已播放完毕", !knownTotal ? "没有更多可播放的选集"
+          : lockedAfter ? `红果官网只开放了前 ${totalEpisodes} 集` : "已经是最后一集");
         return;
       }
       if (!autoAdvance) {

@@ -22,6 +22,7 @@ import {
   EmbyClient,
   EmbyError,
   assertLoginHostAllowed,
+  createStreamIdleGuard,
   embyAuthorizationHeader,
   normalizeServerUrl,
   redactSensitive,
@@ -633,6 +634,18 @@ export class EmbyService {
       : null;
     this.itemPositions.clear();
     await this.storage.deleteToken(removed.serverId, removed.userId);
+    // 与 logout 一致：被移除服务器的首页缓存（内存与磁盘）一并清掉，不在盘上残留私有库标题/缩略图。
+    // 磁盘缓存同一时刻只存一个服务器的数据，按 serverId/userId 判断是不是被移除的这台。
+    const removedCacheKey = `${removed.serverId}:${removed.userId}`;
+    const ownsHomeCache = this.homeCacheKey === removedCacheKey
+      || Boolean(await Promise.resolve(this.storage.loadHomeCache?.(removed.serverId, removed.userId)).catch(() => null));
+    if (ownsHomeCache) {
+      await Promise.resolve(this.storage.clearHomeCache?.(removed.serverId, removed.userId)).catch(() => {});
+      if (this.homeCacheKey === removedCacheKey) {
+        this.homeCache = null;
+        this.homeCacheKey = null;
+      }
+    }
     return this.#statusDto();
   }
 
@@ -1551,6 +1564,9 @@ export class EmbyService {
     const sessions = [...this.playbacks.values()].filter((session) => session.targetId === targetId);
     await Promise.allSettled(sessions.map(async (session) => {
       session.stopped = true;
+      // 与 #stopOne 一致：字幕加载器（含 FFmpeg 子进程与缓存）随会话一起回收。
+      session.subtitleLoader?.dispose();
+      session.subtitleFullLoader?.dispose();
       session.directSession?.destroy();
       this.#releaseHlsProxySession(session);
       this.playbacks.delete(session.playbackId);
@@ -1902,14 +1918,39 @@ export class EmbyService {
         delete requestHeaders["X-Emby-Authorization"];
       }
       const requestImpl = external ? (client.directStreamFetchImpl ?? client.fetchImpl) : client.fetchImpl;
-      const options = { method, headers: requestHeaders, signal, redirect: "manual" };
+      // dispatcher 的超时在 Bun 编译版里不生效：另用 JS 层空闲超时兜底（等响应头与每次读取分片数据）。
+      const idleGuard = client.streamIdleTimeoutMs ? createStreamIdleGuard(signal, client.streamIdleTimeoutMs) : null;
+      const options = { method, headers: requestHeaders, signal: idleGuard?.signal ?? signal, redirect: "manual" };
       // 与 openDirectRangeStream 一致：同源流附带带 bodyTimeout 的 dispatcher，
       // 避免半开的 Emby 套接字让分片请求永久挂起。
       if (!external && client.sameOriginStreamDispatcher && client.fetchImpl === globalThis.fetch) {
         options.dispatcher = client.sameOriginStreamDispatcher;
       }
-      const response = await requestImpl(current, options);
-      if (![301, 302, 303, 307, 308].includes(response.status)) return response;
+      let response;
+      try {
+        const pending = requestImpl(current, options);
+        response = await (idleGuard ? idleGuard.wait(pending) : pending);
+      } catch (error) {
+        idleGuard?.release();
+        throw error;
+      }
+      if (![301, 302, 303, 307, 308].includes(response.status)) {
+        if (!idleGuard) return response;
+        if (!response.body || typeof response.body[Symbol.asyncIterator] !== "function") {
+          idleGuard.release();
+          return response;
+        }
+        // 本地代理只用到 status / headers / url / body；body 换成带空闲超时的包装流。
+        return {
+          ok: response.ok,
+          status: response.status,
+          statusText: response.statusText,
+          headers: response.headers,
+          url: response.url,
+          body: idleGuard.wrapBody(response.body)
+        };
+      }
+      idleGuard?.release();
       const location = response.headers.get("location");
       if (typeof response.body?.cancel === "function") await response.body.cancel().catch(() => {});
       else response.body?.destroy?.();

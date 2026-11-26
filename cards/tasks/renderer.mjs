@@ -5,6 +5,28 @@ import { ALERT_TEXT, alertLevel, taskAlerts } from "./alerts.mjs";
 // Companion 设置面板里本卡的一节。
 export { settings } from "./settings.mjs";
 
+// 撤销一批移出时的放回顺序：每个 index 是在前面几个移出之后记下的，必须按移出的逆序（后移出的先放回）
+// 才能各回原位；按 index 升序放回，后面的任务会被前面放回的挤错位置。entries 按移出顺序排列。
+export function undoRestoreOrder(entries) {
+  return [...entries].reverse();
+}
+
+// 第二行旧文字淡出后移除。减少动效（animation:none）或卡片不可见时动画根本不会开始，animationend 永远等不到，
+// 旧文字会一直叠在新文字上：这时直接移除。
+export function retireLabel(label, view = globalThis) {
+  label.classList.remove("in");
+  label.classList.add("out");
+  const drop = () => label.remove();
+  const reduced = Boolean(view?.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches);
+  // getAnimations() 会先刷新样式，刚加上的 .out 动画能立即反映出来。
+  if (reduced || (typeof label.getAnimations === "function" && label.getAnimations().length === 0)) {
+    drop();
+    return;
+  }
+  label.addEventListener("animationend", drop, { once: true });
+  label.addEventListener("animationcancel", drop, { once: true });
+}
+
 // 长轮询：服务端在会话记录变化时立即返回，没变化最多挂 20 秒；出错后隔一会儿再连。
 const WATCH_WAIT_MS = 20_000;
 const WATCH_RETRY_MS = 3000;
@@ -455,9 +477,7 @@ ${TRACE_STYLE}
     if (current?.textContent === text && current.classList.contains("live") === Boolean(live)) return;
     const label = element("span", `label${live ? " live" : ""}`, text);
     if (current) {
-      current.classList.remove("in");
-      current.classList.add("out");
-      current.addEventListener("animationend", () => current.remove(), { once: true });
+      retireLabel(current, doc.defaultView);
       label.classList.add("in");
     }
     for (const stale of meta.querySelectorAll(".label.out")) if (stale !== current) stale.remove();
@@ -783,8 +803,8 @@ ${TRACE_STYLE}
       for (const task of targets) removingArchived.delete(task.threadId);
     }
     if (!removed.length) return;
-    // 按原位置从前往后放回，撤销后顺序不变。
-    const entries = removed.map(({ task, index }) => ({ task, index })).sort((a, b) => a.index - b.index);
+    // 保持移出顺序；撤销时由 undoRestoreOrder 倒序放回，各回原位。
+    const entries = removed.map(({ task, index }) => ({ task, index }));
     // 与「已完成」同样简短，长名字也能看到动作本身。
     offerUndo(entries, removed.length === 1 ? `已归档「${clipName(removed[0].name)}」` : `已移出 ${removed.length} 个已归档任务`,
       { keepArchived: true, glyph: "archive" });
@@ -798,7 +818,7 @@ ${TRACE_STYLE}
     cancelUndo();
     toast.hidden = true;
     void (async () => {
-      for (const { task, index } of entries) {
+      for (const { task, index } of undoRestoreOrder(entries)) {
         await mutate("restore", { task: keepArchived ? { ...task, keepArchived: true } : task, index });
         if (signal.aborted) return;
       }

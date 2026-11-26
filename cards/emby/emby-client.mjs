@@ -243,6 +243,60 @@ function createSameOriginStreamDispatcher() {
   });
 }
 
+export const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 30_000;
+
+// Bun 编译版里 globalThis.fetch 与 undici 包自己的 fetch 都不理会 dispatcher 的 headersTimeout / bodyTimeout，
+// 半开的套接字会让读取永久挂起。这里在 JS 层自己计时：等响应头、以及消费方每次读取时等上游数据，
+// 超过 idleMs 没有进展就中止请求并抛出可重试的 STREAM_STALLED。消费方暂停读取（背压）时不计时，
+// 与 undici 的 bodyTimeout 语义一致。用完（出错、非 2xx、重定向）要调用 release() 解除对外部 signal 的监听。
+export function createStreamIdleGuard(signal, idleMs) {
+  const controller = new AbortController();
+  const forward = () => controller.abort(signal.reason);
+  if (signal?.aborted) forward();
+  else signal?.addEventListener?.("abort", forward, { once: true });
+  const release = () => signal?.removeEventListener?.("abort", forward);
+  // 等一次上游进展（响应头或下一块数据）；超时就中止请求并拒绝，即使底层实现不理会 signal 也不会一直挂着。
+  const wait = (promise) => new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      const error = new EmbyError("STREAM_STALLED", "媒体服务器长时间没有返回数据", { retryable: true });
+      controller.abort(error);
+      reject(error);
+    }, idleMs);
+    Promise.resolve(promise).then(
+      (value) => { clearTimeout(timer); resolve(value); },
+      (error) => { clearTimeout(timer); reject(error); }
+    );
+  });
+  // highWaterMark 为 0：只在消费方真正读取时才向上游拉数据并计时。
+  const wrapBody = (body) => {
+    const iterator = body[Symbol.asyncIterator]();
+    return new ReadableStream({
+      async pull(streamController) {
+        let result;
+        try {
+          result = await wait(iterator.next());
+        } catch (error) {
+          release();
+          throw error;
+        }
+        if (result.done) {
+          release();
+          streamController.close();
+        } else {
+          streamController.enqueue(result.value);
+        }
+      },
+      cancel(reason) {
+        release();
+        controller.abort(reason);
+        // 不等 return()：底层读取挂起时它会一直等下去。
+        Promise.resolve().then(() => iterator.return?.()).catch(() => {});
+      }
+    }, { highWaterMark: 0 });
+  };
+  return { signal: controller.signal, wait, wrapBody, release };
+}
+
 function parseContentRange(value) {
   const match = /^bytes\s+(\d+)-(\d+)\/(\d+|\*)$/i.exec(String(value ?? "").trim());
   if (!match) return null;
@@ -512,7 +566,8 @@ export class EmbyClient {
     directStreamFetchImpl = null,
     directFollowsRedirects = null,
     externalStreamTransport = null,
-    sameOriginStreamDispatcher = null
+    sameOriginStreamDispatcher = null,
+    streamIdleTimeoutMs = null
   }) {
     this.baseUrl = normalizeServerUrl(baseUrl);
     this.deviceId = deviceId;
@@ -542,6 +597,9 @@ export class EmbyClient {
       ? createSameOriginStreamDispatcher()
       : sameOriginStreamDispatcher;
     this.ownsStreamResources = ownsExternalStreamTransport || ownsSameOriginDispatcher;
+    // 媒体流的 JS 层空闲超时（见 createStreamIdleGuard）：默认 fetch 时开启；注入 fetchImpl 的测试按需显式传入。
+    this.streamIdleTimeoutMs = streamIdleTimeoutMs
+      ?? (fetchImpl === globalThis.fetch ? DEFAULT_STREAM_IDLE_TIMEOUT_MS : null);
     this.resourceSemaphore = new Semaphore(resourceConcurrency);
     this.subtitleSemaphore = new Semaphore(2);
     // 外部媒体 URL 校验（DNS 解析）按 href 短 TTL 缓存：direct-mp4 每 1MB 一个 Range，
@@ -585,7 +643,8 @@ export class EmbyClient {
       directStreamFetchImpl: this.directStreamFetchImpl,
       directFollowsRedirects: this.directFollowsRedirects,
       externalStreamTransport: this.externalStreamTransport,
-      sameOriginStreamDispatcher: this.sameOriginStreamDispatcher
+      sameOriginStreamDispatcher: this.sameOriginStreamDispatcher,
+      streamIdleTimeoutMs: this.streamIdleTimeoutMs
     });
     // 传输层已共享给子 client：拥有权一并移交，父 client 之后 close() 不会误关
     // 子 client 正在使用的连接池。
@@ -1057,20 +1116,24 @@ export class EmbyClient {
       }
 
       let response;
+      // dispatcher 的超时在 Bun 编译版里不生效，另用 JS 层空闲超时兜底（Node 下两者并存）。
+      const idleGuard = this.streamIdleTimeoutMs ? createStreamIdleGuard(signal, this.streamIdleTimeoutMs) : null;
       try {
         const requestImpl = external ? this.directStreamFetchImpl : this.fetchImpl;
         const requestOptions = {
           method: "GET",
           headers,
-          signal,
+          signal: idleGuard?.signal ?? signal,
           redirect: external && this.directStreamFollowsRedirects ? "follow" : "manual"
         };
         // 同源流附带带 bodyTimeout 的 dispatcher，避免半开的 Emby 套接字让播放永久卡死。
         if (!external && this.sameOriginStreamDispatcher && requestImpl === globalThis.fetch) {
           requestOptions.dispatcher = this.sameOriginStreamDispatcher;
         }
-        response = await requestImpl(requestUrl, requestOptions);
+        const pending = requestImpl(requestUrl, requestOptions);
+        response = await (idleGuard ? idleGuard.wait(pending) : pending);
       } catch (cause) {
+        idleGuard?.release();
         if (cause instanceof MediaError) throw cause;
         if (signal?.aborted || cause?.name === "AbortError") {
           throw new EmbyError("CANCELLED", "媒体流请求已取消", { cause });
@@ -1079,6 +1142,7 @@ export class EmbyClient {
       }
 
       if ([301, 302, 303, 307, 308].includes(response.status)) {
+        idleGuard?.release();
         const location = response.headers.get("location");
         if (typeof response.body?.cancel === "function") await response.body.cancel().catch(() => {});
         else response.body?.destroy?.();
@@ -1097,6 +1161,7 @@ export class EmbyClient {
       }
 
       if (!response.ok) {
+        idleGuard?.release();
         if (typeof response.body?.cancel === "function") await response.body.cancel().catch(() => {});
         else response.body?.destroy?.();
         if (external && [401, 403, 404].includes(response.status)) {
@@ -1116,28 +1181,32 @@ export class EmbyClient {
 
       const contentRange = parseContentRange(response.headers.get("content-range"));
       if (response.status !== 206 || !contentRange || contentRange.start !== start) {
+        idleGuard?.release();
         if (typeof response.body?.cancel === "function") await response.body.cancel().catch(() => {});
         else response.body?.destroy?.();
         throw new EmbyError("RANGE_UNSUPPORTED", "媒体服务器不支持持续 Range 流");
       }
       if (!response.body || typeof response.body[Symbol.asyncIterator] !== "function") {
+        idleGuard?.release();
         if (typeof response.body?.cancel === "function") await response.body.cancel().catch(() => {});
         else response.body?.destroy?.();
         throw new EmbyError("MEDIA_STREAM_UNAVAILABLE", "媒体服务器没有返回可读取的数据流");
       }
 
+      // 成功时由包装后的 body 读完、出错或取消时 release。
+      const body = idleGuard ? idleGuard.wrapBody(response.body) : response.body;
       return {
-        body: response.body,
+        body,
         start: contentRange.start,
         end: contentRange.end,
         total: contentRange.total,
         contentType: response.headers.get("content-type") ?? "application/octet-stream",
         resolvedUrl: external ? requestUrl.href : null,
         cancel: async (reason) => {
-          if (typeof response.body?.cancel === "function") {
-            await response.body.cancel(reason).catch(() => {});
+          if (typeof body?.cancel === "function") {
+            await body.cancel(reason).catch(() => {});
           } else {
-            response.body?.destroy?.();
+            body?.destroy?.();
           }
         }
       };

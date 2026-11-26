@@ -187,6 +187,7 @@ export const cardStyles = `
         .hg-season-select { min-width: 0; flex: 1; }
         .hg-episode-grid { display: grid; grid-template-columns: repeat(5, minmax(0,1fr)); gap: 7px; padding: 11px 14px 14px; }
         .hg-episode { height: 32px; padding: 0; border-radius: 9px; background: var(--hg-hover-bg, rgba(127,127,127,.075)); font-size: 11px; }
+        .hg-episode.locked, .hg-episode.locked:hover { cursor: not-allowed; opacity: .38; background: var(--hg-hover-bg, rgba(127,127,127,.075)); }
         .hg-playback { position: relative; width: 100%; height: 100%; overflow: hidden; outline: none; background: #000; }
         .hg-video { display: block; width: 100%; height: 100%; object-fit: contain; background: #000; }
         .hg-playback-chrome { position: absolute; z-index: 3; top: 0; right: 0; left: 0; display: flex; align-items: center; gap: 8px; padding: 9px; color: #fff; background: linear-gradient(rgba(0,0,0,.72), transparent); opacity: 0; pointer-events: none; transition: opacity 120ms ease-out; }

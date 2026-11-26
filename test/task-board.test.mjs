@@ -6,6 +6,7 @@ import { dirname, join } from "node:path";
 import { CodexSessions, parseTrace, STALLED_AFTER_MS, defaultCodexHome, endsWithQuestion, lastLifecycle, threadCreatedAt } from "../src/codex-sessions.mjs";
 import { TaskBoardStorage, pickColor } from "../cards/tasks/task-board-storage.mjs";
 import { createService } from "../cards/tasks/service.mjs";
+import { retireLabel, undoRestoreOrder } from "../cards/tasks/renderer.mjs";
 import { assertMode } from "./helpers/permissions.mjs";
 
 // 01a18216-3b02 → 2026-10-28T10:37:37.410Z
@@ -227,6 +228,63 @@ test("完成即移出，可按原位置撤销；参数严格校验", async (t) =
   await assert.rejects(call("add", { threadId: ID, extra: 1 }), { code: "RPC_INVALID_PARAMS" });
   await assert.rejects(call("rename", { threadId: ID, name: 1 }), { code: "RPC_INVALID_PARAMS" });
   await assert.rejects(call("restore", { task: { threadId: ID }, index: -1 }), { code: "RPC_INVALID_PARAMS" });
+});
+
+test("批量移出后撤销按移出的逆序放回，每个任务回到原位置", async (t) => {
+  const { call } = await serviceFixture(t);
+  const ids = [
+    "01a10000-0000-7000-8000-00000000000a",
+    "01a10000-0000-7000-8000-00000000000b",
+    "01a10000-0000-7000-8000-00000000000c",
+    "01a10000-0000-7000-8000-00000000000d"
+  ];
+  // 新加入的排在最前：看板顺序是 d c b a。
+  for (const id of ids) await call("add", { threadId: id, title: id.at(-1) });
+  const original = (await call("list")).tasks.map((task) => task.threadId);
+  // 与渲染端 removeArchived 一样按看板顺序逐个移出，记下的 index 是移出前面那些之后的位置。
+  const entries = [];
+  for (const id of [original[0], original[2], original[3]]) {
+    const { removed } = await call("remove", { threadId: id });
+    entries.push({ task: removed.task, index: removed.index });
+  }
+  assert.deepEqual(entries.map(({ index }) => index), [0, 1, 1]);
+  let board;
+  for (const { task, index } of undoRestoreOrder(entries)) board = await call("restore", { task, index });
+  assert.deepEqual(board.tasks.map((task) => task.threadId), original);
+  assert.deepEqual(entries.map(({ task }) => task.threadId), [original[0], original[2], original[3]], "不改动传入的数组");
+});
+
+test("第二行旧文字：减少动效或动画没开始时立即移除，否则等动画结束", () => {
+  const fakeLabel = (animations) => {
+    const classes = new Set(["label", "in"]);
+    const listeners = new Map();
+    return {
+      removed: false,
+      classList: { add: (name) => classes.add(name), remove: (name) => classes.delete(name), has: (name) => classes.has(name) },
+      addEventListener: (type, listener) => listeners.set(type, listener),
+      getAnimations: () => animations,
+      remove() { this.removed = true; },
+      fire: (type) => listeners.get(type)?.()
+    };
+  };
+  const motion = { matchMedia: () => ({ matches: false }) };
+  const reduced = { matchMedia: () => ({ matches: true }) };
+
+  const animating = fakeLabel([{}]);
+  retireLabel(animating, motion);
+  assert.equal(animating.classList.has("out"), true);
+  assert.equal(animating.classList.has("in"), false);
+  assert.equal(animating.removed, false, "动画进行中先留着");
+  animating.fire("animationend");
+  assert.equal(animating.removed, true);
+
+  const withReducedMotion = fakeLabel([{}]);
+  retireLabel(withReducedMotion, reduced);
+  assert.equal(withReducedMotion.removed, true, "prefers-reduced-motion 下 animationend 不会触发");
+
+  const notStarted = fakeLabel([]);
+  retireLabel(notStarted, motion);
+  assert.equal(notStarted.removed, true, "animation:none 或不可见时没有动画可等");
 });
 
 test("换颜色；回合结束后未读，看过之后已读且已读时间只往后推", async (t) => {

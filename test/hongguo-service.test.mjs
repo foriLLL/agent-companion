@@ -4,6 +4,7 @@ import { HongguoService, jpegCoverUrl } from "../cards/hongguo/hongguo-service.m
 import { HongguoError } from "../cards/hongguo/hongguo-sdk-client.mjs";
 import { ServiceRegistry } from "../src/platform/services/registry.mjs";
 import { createService as createHongguoService } from "../cards/hongguo/service.mjs";
+import { playableEpisodeCount } from "../cards/hongguo/renderer.mjs";
 
 const HEIC = "https://p3-reading-sign.fqnovelpic.com/novel-pic/abc123~tplv-81nmtwyey9-superreso-aifit:400:0.heic?lk3s=1&x-signature=x";
 
@@ -228,6 +229,26 @@ test("超出集数时报 EPISODE_NOT_AVAILABLE", async () => {
     () => service.handleRpc("hongguo.playback.open", { dramaId: "100", episode: 9 }, { targetId: "t1" }),
     (error) => error.code === "EPISODE_NOT_AVAILABLE"
   );
+});
+
+test("选集与连播以官网开放的集数为界，未开放的集不会点进 EPISODE_NOT_AVAILABLE", async () => {
+  const { service } = createService({ sdk: fakeSdk({
+    getSeries: async () => ({ id: "100", title: "全 10 集，只开放 3 集", episode_count: 10 })
+  }) });
+  const detail = await service.handleRpc("hongguo.detail", { dramaId: "100" });
+  assert.equal(detail.totalEpisodes, 10);
+  assert.equal(detail.accessibleEpisodeCount, 3);
+  const playable = playableEpisodeCount(detail);
+  assert.equal(playable, 3);
+  await service.handleRpc("hongguo.playback.open", { dramaId: "100", episode: playable }, { targetId: "t1" });
+  await assert.rejects(
+    () => service.handleRpc("hongguo.playback.open", { dramaId: "100", episode: playable + 1 }, { targetId: "t1" }),
+    (error) => error.code === "EPISODE_NOT_AVAILABLE"
+  );
+  assert.equal(playableEpisodeCount({ totalEpisodes: 10, accessibleEpisodeCount: 0 }), 0);
+  // 旧数据没有 accessibleEpisodeCount 时退回 totalEpisodes。
+  assert.equal(playableEpisodeCount({ totalEpisodes: 4 }), 4);
+  assert.equal(playableEpisodeCount(null), 0);
 });
 
 test("切集销毁同一目标的旧播放会话", async () => {

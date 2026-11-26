@@ -356,7 +356,49 @@ test("同源媒体流附带带 bodyTimeout 的 dispatcher，自定义 fetchImpl 
   assert.notEqual(client.sameOriginStreamDispatcher, null, "默认 fetch 应启用同源超时 dispatcher");
   const retokened = client.withToken("new-token");
   assert.equal(retokened.sameOriginStreamDispatcher, client.sameOriginStreamDispatcher);
+  assert.equal(client.streamIdleTimeoutMs, 30_000, "默认 fetch 应开启 JS 层空闲超时");
+  assert.equal(retokened.streamIdleTimeoutMs, 30_000);
+  assert.equal(custom.streamIdleTimeoutMs, null, "注入 fetchImpl 时缺省不包装 body");
   await client.sameOriginStreamDispatcher.close();
+});
+
+test("媒体流上游半开时按 JS 层空闲超时中止（不依赖 dispatcher，Bun 编译版也生效）", async () => {
+  const signals = [];
+  // 发出一块后再无数据，且不理会 signal：模拟 Bun 下 dispatcher.bodyTimeout 不生效的半开套接字。
+  const fetchImpl = async (_url, options) => {
+    signals.push(options.signal);
+    let sent = false;
+    return new Response(new ReadableStream({
+      pull(controller) {
+        if (sent) return new Promise(() => {});
+        sent = true;
+        controller.enqueue(Uint8Array.from([1, 2]));
+      }
+    }, { highWaterMark: 0 }), {
+      status: 206,
+      headers: { "content-range": "bytes 0-3/4", "content-length": "4", "content-type": "video/mp4" }
+    });
+  };
+  const client = new EmbyClient({
+    baseUrl: "https://emby.example", deviceId: "device", token: "token", fetchImpl, streamIdleTimeoutMs: 50
+  });
+  const stream = await client.openDirectRangeStream("/Videos/1/stream.mp4", { start: 0 });
+  const reader = stream.body.getReader();
+  assert.deepEqual([...(await reader.read()).value], [1, 2]);
+  // 消费方暂停读取（背压）期间不计时。
+  await new Promise((resolve) => setTimeout(resolve, 120));
+  assert.equal(signals[0].aborted, false, "消费方没在读时不应判定为卡死");
+  const started = Date.now();
+  await assert.rejects(reader.read(), { code: "STREAM_STALLED", retryable: true });
+  assert.ok(Date.now() - started < 2_000);
+  assert.equal(signals[0].aborted, true, "超时后应中止底层请求");
+
+  // 响应头迟迟不来也一样超时，不会永远挂在 fetch 上。
+  const hanging = new EmbyClient({
+    baseUrl: "https://emby.example", deviceId: "device", token: "token",
+    fetchImpl: () => new Promise(() => {}), streamIdleTimeoutMs: 50
+  });
+  await assert.rejects(hanging.openDirectRangeStream("/Videos/1/stream.mp4", { start: 0 }), { code: "STREAM_STALLED" });
 });
 
 test("直连媒体拒绝不安全 CDN、内网 DNS 和超大 Range", async () => {

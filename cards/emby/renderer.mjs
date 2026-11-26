@@ -2,6 +2,18 @@ import Hls from "hls.js";
 import { createDirectMp4Stream, createMediaScope, createMediaUi } from "../../sdk/renderer-media.mjs";
 import { cardStyles } from "./styles.mjs";
 
+// <video> 回到应有位置之前 currentTime 不可信（还是 0）：首次续播的 seek 要等 MANIFEST_PARSED /
+// loadedmetadata 才应用（慢启动的 HLS 可能超过 10 秒），字幕重启与缓存恢复也要等 restore 落地。
+// 这段时间里进度与停止上报用待恢复的位置，不能用 0 覆盖服务器上的续播点。返回秒数；null 表示可以信 currentTime。
+export function pendingPlaybackPosition(playback) {
+  if (!playback || playback.mediaReady === true) return null;
+  const restore = Number(playback.restorePlaybackState?.currentTime);
+  if (Number.isFinite(restore) && restore > 0) return restore;
+  if (playback.initialPositionApplied === true) return null;
+  const start = Number(playback.startPositionTicks || 0) / 10_000_000;
+  return Number.isFinite(start) && start > 0 ? start : null;
+}
+
 export function mount(ctx) {
   const scope = createMediaScope(ctx);
   const { rpc, requestRpc, cancelRpc, listen, unlisten, setTimeout, clearTimeout, setInterval, clearInterval, requestAnimationFrame, queueMicrotask, createObjectURL, revokeObjectURL, isDisposed } = scope;
@@ -45,6 +57,9 @@ export function mount(ctx) {
   };
   let searchTimer = null;
   let searchGeneration = 0;
+  // 首页与媒体库请求的代际：重新加载、换文件夹、切换 / 移除服务器、登出时递增，迟到的旧结果直接丢弃。
+  let homeGeneration = 0;
+  let libraryGeneration = 0;
   let searchRequestId = null;
   let progressTimer = null;
   let volumeReportTimer = null;
@@ -52,6 +67,8 @@ export function mount(ctx) {
   let activeDirectPlayer = null;
   let lastMseDiagnostics = null;
   let playbackStopping = false;
+  // 播完界面的自动下一集倒计时；播放页重建（字幕切换重启等）或拆掉媒体时一并取消。
+  let cancelAutoNextCountdown = null;
   let workerFallbackReported = false;
   let subtitleRequestId = null;
   let subtitleObjectUrl = null;
@@ -696,6 +713,8 @@ export function mount(ctx) {
   // 切换/移除服务器时清空上一台服务器的浏览态，避免把 A 的搜索/剧集/媒体库数据
   // 带进 B 的视图（点进去会用 A 的 item id 去打 B 而报错）。
   const resetEmbyBrowseState = () => {
+    homeGeneration += 1;
+    libraryGeneration += 1;
     embyState.home = { views: [], resume: [], latest: [] };
     embyState.libraryStack = [];
     embyState.libraryItems = [];
@@ -822,17 +841,27 @@ export function mount(ctx) {
     if (!folder?.id) return;
     const previousView = embyState.view;
     const startIndex = append ? embyState.libraryItems.length : 0;
+    // 换文件夹（含返回上级）让进行中的加载与「加载更多」作废；加载更多只沿用当前代际。
+    const generation = append ? libraryGeneration : ++libraryGeneration;
+    // 加载更多的结果只追加回发起时的那个文件夹列表：期间离开了媒体库页就丢弃，不把用户拉回来。
+    const stale = () => isDisposed() || generation !== libraryGeneration || (append && (
+      embyState.view !== "library" || embyState.libraryStack.at(-1)?.id !== folder.id
+    ));
     if (append) {
       embyState.libraryLoadingMore = true;
       renderEmby();
     } else {
+      embyState.libraryLoadingMore = false;
       embyState.loadingLabel = `正在加载 ${folder.name || "媒体库"}…`;
       embyState.view = "loading";
       renderEmby();
     }
     try {
       const result = await rpc("library.get", { parentId: folder.id, startIndex, limit: 60 });
-      if (isDisposed()) return;
+      if (stale()) {
+        if (!isDisposed() && generation === libraryGeneration) embyState.libraryLoadingMore = false;
+        return;
+      }
       if (stack) embyState.libraryStack = stack;
       const items = Array.isArray(result?.items) ? result.items : [];
       embyState.libraryItems = append ? [...embyState.libraryItems, ...items] : items;
@@ -841,6 +870,10 @@ export function mount(ctx) {
       embyState.view = "library";
       renderEmby();
     } catch (errorValue) {
+      if (stale()) {
+        if (!isDisposed() && generation === libraryGeneration) embyState.libraryLoadingMore = false;
+        return;
+      }
       embyState.libraryLoadingMore = false;
       showError(errorValue, () => loadLibrary(folder, { append, stack }), previousView);
     }
@@ -1241,12 +1274,13 @@ export function mount(ctx) {
     const playback = embyState.playback;
     const embyVideo = currentEmbyVideo();
     if (!playback) return null;
+    const positionSeconds = pendingPlaybackPosition(playback) ?? Number(embyVideo?.currentTime || 0);
     return {
       playbackId: playback.playbackId,
       itemId: playback.itemId,
       mediaSourceId: playback.mediaSourceId,
       playSessionId: playback.playSessionId,
-      positionTicks: Math.max(0, Math.round(Number(embyVideo?.currentTime || 0) * 10_000_000)),
+      positionTicks: Math.max(0, Math.round(positionSeconds * 10_000_000)),
       isPaused: Boolean(embyVideo?.paused),
       isMuted: Boolean(embyVideo?.muted),
       volumeLevel: Math.max(0, Math.min(100, Math.round(Number(embyVideo?.volume ?? 1) * 100))),
@@ -1422,6 +1456,8 @@ export function mount(ctx) {
   };
 
   const teardownPlaybackMedia = () => {
+    cancelAutoNextCountdown?.();
+    cancelAutoNextCountdown = null;
     scope.release(() => activeHls?.destroy?.());
     activeHls = null;
     scope.release(() => activeDirectPlayer?.destroy?.());
@@ -1550,6 +1586,7 @@ export function mount(ctx) {
     }
     delete playback.restorePlaybackState;
     playback.mediaReady = true;
+    playback.initialPositionApplied = true;
     if (!restore?.paused) video.play().catch(() => {});
     if (Object.prototype.hasOwnProperty.call(playback, "pendingSubtitleSelection")) {
       const pendingSubtitleSelection = playback.pendingSubtitleSelection;
@@ -2186,9 +2223,11 @@ export function mount(ctx) {
       ended.dataset.countdown = "running";
       autoNextTimer = setTimeout(() => {
         autoNextTimer = null;
-        if (embyState.playback === playback && !ended.hidden) void playAdjacentEpisode(1);
+        // 播放页已被重建（旧 view 已不在卡片里）时不再跳集。
+        if (embyApp.contains(view) && embyState.playback === playback && !ended.hidden) void playAdjacentEpisode(1);
       }, AUTO_NEXT_SECONDS * 1000);
     };
+    cancelAutoNextCountdown = stopAutoNext;
     const hideEnded = () => {
       stopAutoNext();
       ended.hidden = true;
@@ -2502,6 +2541,9 @@ export function mount(ctx) {
   };
 
   const loadHome = async (showLoading = true) => {
+    // 后台刷新与首次加载都按代际收口：期间切换 / 移除服务器、登出或重新加载首页时，旧结果不再覆盖当前界面。
+    const generation = ++homeGeneration;
+    const stale = () => isDisposed() || generation !== homeGeneration;
     if (showLoading) {
       embyState.loadingLabel = "正在加载媒体库…";
       embyState.view = "loading";
@@ -2519,11 +2561,11 @@ export function mount(ctx) {
     };
     try {
       const result = await rpc("home.get", {}, { timeoutMs: 30_000 });
-      if (isDisposed()) return;
+      if (stale()) return;
       applyHomeResult(result);
       if (result?.cacheStatus === "stale") {
         void rpc("home.get", { refresh: true }, { timeoutMs: 30_000 }).then((refreshed) => {
-          if (isDisposed()) return;
+          if (stale()) return;
           embyState.home = {
             views: Array.isArray(refreshed?.views) ? refreshed.views : embyState.home.views,
             resume: Array.isArray(refreshed?.resume) ? refreshed.resume.slice(0, 5) : embyState.home.resume,
@@ -2533,6 +2575,7 @@ export function mount(ctx) {
         }).catch(() => {});
       }
     } catch (errorValue) {
+      if (stale()) return;
       showError(errorValue, () => loadHome(true), "home");
     }
   };
@@ -2548,6 +2591,8 @@ export function mount(ctx) {
     if (searchTimer) clearTimeout(searchTimer);
     searchTimer = null;
     searchGeneration += 1;
+    homeGeneration += 1;
+    libraryGeneration += 1;
     if (searchRequestId) cancelRpc(searchRequestId, true);
     searchRequestId = null;
     cancelImageLoads();

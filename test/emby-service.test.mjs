@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { EmbyError } from "../cards/emby/emby-client.mjs";
+import { EmbyClient, EmbyError } from "../cards/emby/emby-client.mjs";
 import { embyServerKey } from "../cards/emby/emby-storage.mjs";
 import { registerMediaInterceptPort, resolveMediaInterceptUrl, toMediaInterceptUrl } from "../src/platform/media/media-intercept.mjs";
 import {
@@ -2305,4 +2305,91 @@ test("内嵌字幕先返回当前窗口，后台完整字幕完成后跳转直�
     assert.match(next.data, /完整字幕/);
     assert.equal(windows, 1, "完整字幕完成后不应再提取媒体窗口");
   } finally { finishFull({ bytes: new TextEncoder().encode("WEBVTT\n") }); await service.dispose(); }
+});
+
+test("本地媒体代理的上游分片半开时按 JS 层空闲超时中止，不再永久挂起", async () => {
+  const config = { baseUrl: "https://emby.example/emby", serverId: "server", userId: "user", username: "alice", deviceId: "device" };
+  const signals = [];
+  // 发出一块后再无数据，且不理会 signal：模拟 Bun 编译版里 dispatcher.bodyTimeout 不生效。
+  const fetchImpl = async (_url, options) => {
+    signals.push(options.signal);
+    let sent = false;
+    return new Response(new ReadableStream({
+      pull(controller) {
+        if (sent) return new Promise(() => {});
+        sent = true;
+        controller.enqueue(Uint8Array.from([1, 2, 3]));
+      }
+    }, { highWaterMark: 0 }), { status: 200, headers: { "content-type": "video/mp2t" } });
+  };
+  let upstream = null;
+  const service = new EmbyService({
+    storage: new FakeStorage(config, "token"),
+    clientFactory: (settings) => new EmbyClient({ ...settings, fetchImpl, streamIdleTimeoutMs: 50 }),
+    hlsProxyFactory: (options) => {
+      upstream = options.upstream;
+      return makeFakeHlsProxy();
+    }
+  });
+  await service.handleRpc("connection.status", {});
+  const response = await upstream({
+    url: "https://emby.example/emby/Videos/movie/hls1/main/0.ts",
+    headers: { Accept: "*/*" },
+    signal: new AbortController().signal
+  });
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("content-type"), "video/mp2t");
+  const iterator = response.body[Symbol.asyncIterator]();
+  assert.deepEqual([...(await iterator.next()).value], [1, 2, 3]);
+  await assert.rejects(iterator.next(), { code: "STREAM_STALLED" });
+  assert.equal(signals[0].aborted, true, "超时后应中止底层请求");
+  await service.dispose();
+});
+
+test("同一目标换播时旧会话的字幕加载器与 stop 一样被回收", async () => {
+  const config = { baseUrl: "https://emby.example", serverId: "server", userId: "user", username: "alice", deviceId: "device" };
+  let nextId = 0;
+  const service = new EmbyService({
+    storage: new FakeStorage(config, "token"),
+    clientFactory: (settings) => makeClient(settings, []),
+    randomUUIDImpl: () => `playback-${++nextId}`
+  });
+  const first = await service.handleRpc("playback.open", { itemId: "movie" }, { targetId: "renderer-1" });
+  const disposed = [];
+  const session = service.playbacks.get(first.playbackId);
+  session.subtitleLoader = { dispose: () => disposed.push("window"), cancel() {} };
+  session.subtitleFullLoader = { dispose: () => disposed.push("full"), cancel() {} };
+  await service.handleRpc("playback.open", { itemId: "movie" }, { targetId: "renderer-1" });
+  assert.deepEqual(disposed.sort(), ["full", "window"]);
+});
+
+test("移除当前服务器时清空它的首页缓存（内存与磁盘），与登出一致", async () => {
+  const serverA = { baseUrl: "https://a.example", serverId: "server-a", userId: "user-a", username: "alice", deviceId: "stable-device" };
+  const serverB = { baseUrl: "https://b.example", serverId: "server-b", userId: "user-b", username: "bob", deviceId: "stable-device" };
+  const storage = new MultiServerStorage(
+    [serverA, serverB],
+    embyServerKey(serverA),
+    [[embyServerKey(serverA), "token-a"], [embyServerKey(serverB), "token-b"]]
+  );
+  // 磁盘缓存同一时刻只存一个服务器的数据，按 serverId/userId 匹配。
+  storage.homeCache = { serverId: "server-a", userId: "user-a", snapshot: { at: Date.now(), data: { views: [], resume: [], latest: [] } } };
+  storage.clearedHomeCache = 0;
+  storage.loadHomeCache = async (serverId, userId) => (
+    storage.homeCache?.serverId === serverId && storage.homeCache?.userId === userId ? storage.homeCache.snapshot : null
+  );
+  storage.saveHomeCache = async (serverId, userId, snapshot) => { storage.homeCache = { serverId, userId, snapshot }; };
+  storage.clearHomeCache = async () => { storage.clearedHomeCache += 1; storage.homeCache = null; };
+  const service = new EmbyService({ storage, clientFactory: (settings) => makeClient(settings, []) });
+
+  const home = await service.handleRpc("home.get", {});
+  assert.equal(home.cacheStatus, "fresh");
+  // 移除非当前、也不在缓存里的服务器：不动当前服务器的缓存。
+  await service.handleRpc("servers.remove", { serverKey: embyServerKey(serverB) });
+  assert.equal(storage.clearedHomeCache, 0);
+  assert.ok(service.homeCache, "当前服务器的内存缓存应保留");
+
+  await service.handleRpc("servers.remove", { serverKey: embyServerKey(serverA) });
+  assert.equal(storage.clearedHomeCache, 1, "移除当前服务器应清空磁盘首页缓存");
+  assert.equal(service.homeCache, null);
+  assert.equal(service.homeCacheKey, null);
 });
