@@ -8,8 +8,8 @@
 class AgentCompanion < Formula
   desc "Card drawer for the Codex desktop app: task board, short dramas, Emby and more"
   homepage "https://github.com/foriLLL/agent-companion"
-  url "https://github.com/foriLLL/agent-companion/releases/download/v0.5.2/agent-companion-0.5.2.tar.gz"
-  sha256 "baa6805daaed547a895b08cb8950e619dee0a6fb319455edecc69c4b62c72985"
+  url "https://github.com/foriLLL/agent-companion/releases/download/v0.5.3/agent-companion-0.5.3.tar.gz"
+  sha256 "9ec9c24459db940caf2e95e90d7d5a780e397c355bb288900166d1ab459c0757"
   license "MIT"
   head "https://github.com/foriLLL/agent-companion.git", branch: "main"
 
