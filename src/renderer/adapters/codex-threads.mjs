@@ -138,7 +138,7 @@ export function createCodexThreads({ document, onError } = {}) {
     if (needed && !observer) {
       observer = new window.MutationObserver(onMutations);
       observer.observe(document.documentElement, {
-        childList: true, subtree: true, attributes: true, attributeFilter: [ATTR.id, ATTR.active, ATTR.title]
+        childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: [ATTR.id, ATTR.active, ATTR.title]
       });
       schedule();
     } else if (!needed && observer) {

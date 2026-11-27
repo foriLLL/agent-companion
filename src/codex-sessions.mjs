@@ -616,7 +616,12 @@ export class CodexSessions {
   /** 看板涉及文件的 mtime/size 指纹；长轮询据此判断是否需要重新计算。 */
   async fingerprint(ids) {
     const parts = [];
-    for (const path of [join(this.codexHome, "session_index.jsonl"), ...await Promise.all(ids.map((id) => this.locate(id)))]) {
+    const watched = [
+      join(this.codexHome, "session_index.jsonl"),
+      join(this.codexHome, ".codex-global-state.json"),
+      ...await Promise.all(ids.map((id) => this.locate(id)))
+    ];
+    for (const path of watched) {
       if (!path) { parts.push("-"); continue; }
       try { const info = await stat(path); parts.push(`${info.mtimeMs}:${info.size}`); } catch { parts.push("x"); }
     }

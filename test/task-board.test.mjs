@@ -456,3 +456,21 @@ test("归档后撤销放回的任务带 keepArchived 存回看板；其它值不
   assert.equal("keepArchived" in plain.tasks[0], false);
   assert.equal("keepArchived" in (await taskBoard.load()).tasks[0], false);
 });
+
+test("Codex 写入 .codex-global-state.json 绑定或项目归属后，长轮询立即返回新标题与归属", async (t) => {
+  const CLIENT = "66df1b41-eb1f-4317-a606-7543ae182ba0";
+  const { call, taskBoard } = await serviceFixture(t);
+  const statePath = join(dirname(taskBoard.path), "codex", ".codex-global-state.json");
+  const initial = await call("add", { threadId: CLIENT, title: "新会话" });
+  const watching = call("watch", { since: initial.sig, waitMs: 5000 });
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  await writeFile(statePath, JSON.stringify({
+    "electron-persisted-atom-state": {
+      "client-thread-bindings-v1": { [`client-new-thread:${CLIENT}`]: ID },
+      "thread-project-assignments": { [ID]: { projectId: "proj-1" } }
+    }
+  }));
+  const next = await watching;
+  assert.notEqual(next.sig, initial.sig);
+  assert.deepEqual(next.tasks.map((task) => [task.threadId, task.name, task.projectId, task.aliases]), [[CLIENT, "Codex 起的名字", "proj-1", [ID]]]);
+});

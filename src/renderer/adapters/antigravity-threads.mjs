@@ -27,12 +27,29 @@ export function createAntigravityThreads({ document, onError } = {}) {
   let disposed = false;
   let timer = 0;
   let lastPath = window.location.pathname;
+  let lastRawTitle = String(document.title ?? "");
+  // 这份 document.title 最初是在哪个 pathname 下看到的：切页后 Antigravity 先改地址、
+  // 稍后才更新窗口标题，在标题真正变成新值之前不能把上一个会话的标题套给当前会话。
+  let titleOwnerPath = lastPath;
+  let notifiedKey = `${lastPath}\u0000${lastRawTitle}`;
+
+  function syncRoute() {
+    const path = window.location.pathname;
+    const raw = String(document.title ?? "");
+    if (raw !== lastRawTitle) {
+      lastRawTitle = raw;
+      titleOwnerPath = path;
+    }
+    if (path !== lastPath) lastPath = path;
+  }
 
   const currentId = () => ROUTE.exec(window.location.pathname)?.[1]?.toLowerCase() ?? null;
   // 会话页的窗口标题是「会话标题 - 项目 - Antigravity」；没有项目时是「会话标题 - Antigravity」。
   // 标题本身可能带 " - "，所以只从右边剥掉固定的后缀和项目名。
   const currentTitle = () => {
-    const parts = String(document.title ?? "").split(" - ");
+    syncRoute();
+    if (titleOwnerPath !== lastPath) return null;
+    const parts = lastRawTitle.split(" - ");
     if (parts.length < 2 || parts.at(-1).trim() !== "Antigravity") return null;
     const rest = parts.slice(0, -1);
     const title = (rest.length > 1 ? rest.slice(0, -1) : rest).join(" - ").trim();
@@ -113,10 +130,12 @@ export function createAntigravityThreads({ document, onError } = {}) {
       try { listener(); } catch (error) { try { onError?.(error); } catch {} }
     }
   };
-  // Hub 用 pushState 切页，没有可订阅的事件；不去改写 history，低频比对地址即可。
+  // Hub 用 pushState 切页，没有可订阅的事件；不去改写 history，低频比对地址与窗口标题即可。
   const check = () => {
-    if (window.location.pathname === lastPath) return;
-    lastPath = window.location.pathname;
+    syncRoute();
+    const key = `${lastPath}\u0000${lastRawTitle}`;
+    if (key === notifiedKey) return;
+    notifiedKey = key;
     notify();
   };
   const syncWatch = () => {
@@ -132,6 +151,8 @@ export function createAntigravityThreads({ document, onError } = {}) {
 
   // 补一条带 __TSR_index 的历史记录再发 popstate，路由当成一次前进导航处理，不刷新页面。
   function navigate(id) {
+    // 切页前先记下旧路由对应的窗口标题，避免 popstate 同步触发 render 时误用旧标题。
+    syncRoute();
     const state = window.history.state ?? {};
     const index = (Number.isInteger(state.__TSR_index) ? state.__TSR_index : 0) + 1;
     const key = Math.random().toString(36).slice(2, 10);
@@ -141,6 +162,8 @@ export function createAntigravityThreads({ document, onError } = {}) {
 
   return Object.freeze({
     colors: COLORS,
+    // 窗口标题异步更新且无会话 id 绑定，仅在后台摘要还没有标题时作兜底，不覆盖后台给出的真实标题。
+    titleFallback: true,
     current() {
       const id = currentId();
       return id ? { id, title: currentTitle(), projectId: null } : null;

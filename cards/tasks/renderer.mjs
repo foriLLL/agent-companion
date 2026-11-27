@@ -332,8 +332,13 @@ ${TRACE_STYLE}
   // 新建会话在本次运行中，侧栏条目用客户端临时 id；服务端给出别名，两个都认。
   const idsOf = (task) => [task.threadId, ...(task.aliases ?? [])];
   const taskFor = (id) => board?.tasks.find((task) => idsOf(task).includes(id));
-  // 未自定义名字时，优先用左侧条目上的实时标题（Codex 起名或 rename 后会立即更新）。
-  const displayName = (task) => task.customName ?? idsOf(task).map((id) => threads?.title(id)).find(Boolean) ?? task.name;
+  // 未自定义名字时：侧栏按会话 id 精确绑定的实时标题（Codex）优先；
+  // 只能从窗口标题兜底的宿主（Antigravity，titleFallback: true）优先用后台摘要库里的真实标题，
+  // 避免切页瞬间窗口标题滞后把上一个会话的名字盖到当前任务上。
+  const liveTitle = (task) => idsOf(task).map((id) => threads?.title(id)).find(Boolean) ?? null;
+  const displayName = (task) => task.customName
+    ?? (threads?.titleFallback ? (task.suggestedName ?? liveTitle(task)) : (liveTitle(task) ?? task.suggestedName))
+    ?? task.name;
 
   function renderHeader() {
     const current = threads?.current();
@@ -549,14 +554,15 @@ ${TRACE_STYLE}
     main.title = "在左侧定位并打开这个会话";
     main.append(statusIcon(task), taskText(task, BOARD_META), element("span", "when", whenOf(task)));
     syncProgress(main, task.plan);
-    main.addEventListener("click", () => { closePeek(); void reveal(task, item); });
-    item.addEventListener("pointerenter", () => hoverPeek(task, item));
+    const latest = () => taskFor(task.threadId) ?? task;
+    main.addEventListener("click", () => { closePeek(); void reveal(latest(), item); });
+    item.addEventListener("pointerenter", () => hoverPeek(latest(), item));
     item.addEventListener("pointerleave", schedulePeekClose);
     const actions = element("span", "actions");
     actions.append(
       colorToggle(iconButton("color", "换颜色", () => { picking = picking === task.threadId ? null : task.threadId; render(); })),
       iconButton("edit", "改名", () => { picking = null; editing = task.threadId; render(); }),
-      iconButton("done", "完成，移出看板", () => { void complete(task); })
+      iconButton("done", "完成，移出看板", () => { void complete(latest()); })
     );
     item.append(main, actions);
     return item;
@@ -580,7 +586,10 @@ ${TRACE_STYLE}
     const current = threads?.current();
     if (!current?.id) return;
     const task = taskFor(current.id);
-    if (!task) visited.set(current.id, { title: current.title ?? null, projectId: current.projectId ?? null });
+    if (!task) {
+      const previous = visited.get(current.id);
+      visited.set(current.id, { title: current.title ?? previous?.title ?? null, projectId: current.projectId ?? previous?.projectId ?? null });
+    }
     const id = task?.threadId ?? current.id;
     const next = touchRecent(recent, id);
     if (next === recent) return;
@@ -644,6 +653,8 @@ ${TRACE_STYLE}
 
   function accept(next) {
     if (signal.aborted || !next) return;
+    // 忽略乱序迟到的旧版快照（例如 watch 在本地修改前已算好旧 revision），避免短暂回退旧标题或旧列表。
+    if (board && Number.isSafeInteger(next.revision) && next.revision > 0 && Number.isSafeInteger(board.revision) && next.revision < board.revision) return;
     const previous = alertsArmed ? board : null;
     board = next;
     alertsArmed = watching !== null;
