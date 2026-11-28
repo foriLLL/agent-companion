@@ -103,6 +103,21 @@ npm 依赖一起打成一个 IIFE；平台注入时用自己的函数接住 `__c
 用 `kit.checkbox` / `kit.choice` / `kit.button` / `kit.confirmation` 生成与设置页其它部分一致的控件，
 设置项写进 `cards.<id>.settings`。范例见 `cards/tasks/settings.mjs`。
 
+平台通过 CSS 自定义属性把当前宿主（Codex / Antigravity）与亮暗主题透传进每张卡片的 ShadowRoot 与顶层浮层，
+卡片只需消费这些 `--cc-*` 变量即可与宿主和其它卡片保持一致（不要硬编码固定颜色或旧的 `--hg-*` 变量）：
+
+| 变量 | 用途 |
+|---|---|
+| `--cc-card-bg` / `--cc-card-surface` | 卡片底色 / 表面色（Antigravity 统一面板下为半透明表面） |
+| `--cc-card-fg` / `--cc-card-fg-muted` | 主文字 / 次要与辅助文字色 |
+| `--cc-card-border` / `--cc-card-border-strong` | 细边与分隔线 / 强调边框 |
+| `--cc-card-hover` / `--cc-card-active` / `--cc-card-input-bg` | 悬停底色 / 选中按压底色 / 输入框底色 |
+| `--cc-card-focus` / `--cc-card-accent` | 键盘焦点环色 / 宿主强调色 |
+| `--cc-card-radius` / `--cc-card-row-radius` / `--cc-card-font` | 面板圆角 / 行内圆角 / 宿主字体栈 |
+| `--cc-section-title-size` / `--cc-section-title-weight` / `--cc-section-title-color` | 节标题字号、字重与颜色（按宿主风格自动切换） |
+| `--cc-bar-track` / `--cc-bar-fill` | 细进度条轨道 / 单色填充 |
+| `--cc-ok` / `--cc-warn` / `--cc-danger` | 正常 / 警告 / 错误语义色（已按亮暗主题适配对比度） |
+
 ### 后台服务
 
 `service.mjs` 导出 `createService(api)`，返回 `{ methods, cleanupMethods?, disposeTarget?, dispose?, applyConfig? }`；

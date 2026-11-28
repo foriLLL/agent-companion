@@ -170,29 +170,31 @@ const PANEL_STYLE = `
   .backdrop{position:fixed;inset:0;pointer-events:auto}
   .backdrop[hidden]{display:none}
   .panel{position:fixed;left:50%;top:46%;width:min(460px,calc(100vw - 48px));max-height:min(560px,calc(100vh - 96px));
-    display:flex;flex-direction:column;padding:6px;border-radius:16px;overflow:hidden;transform:translate(-50%,-50%);
-    color:var(--color-token-text-primary,CanvasText);background:var(--color-token-dropdown-background,Canvas);
-    box-shadow:0 0 0 .5px var(--color-token-border-heavy,rgba(0,0,0,.14)),0 18px 50px rgba(0,0,0,.22),0 3px 10px rgba(0,0,0,.08);
-    font-family:"Inter",ui-sans-serif,system-ui,-apple-system,"PingFang SC",sans-serif;font-size:13.5px;line-height:1.4;
+    display:flex;flex-direction:column;padding:6px;border-radius:min(var(--cc-card-radius,var(--hg-panel-radius,16px)),16px);overflow:hidden;transform:translate(-50%,-50%);
+    color:var(--cc-card-fg,var(--color-token-text-primary,CanvasText));
+    background:var(--cc-card-bg,var(--color-token-dropdown-background,Canvas));
+    box-shadow:0 0 0 .5px var(--cc-card-border,var(--color-token-border-heavy,color-mix(in srgb,currentColor 14%,transparent))),0 18px 50px rgba(0,0,0,.22),0 3px 10px rgba(0,0,0,.08);
+    font-family:var(--cc-card-font,var(--hg-font-family,-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",sans-serif));font-size:13.5px;line-height:1.4;
     letter-spacing:-.006em;-webkit-font-smoothing:antialiased;-webkit-app-region:no-drag;animation:pop .16s var(--ease) both}
   .panel *,.flash{box-sizing:border-box}
   ul{position:relative;min-height:0;list-style:none;margin:0;padding:0;display:grid;gap:2px;overflow:auto;overscroll-behavior:contain;scrollbar-width:thin}
-  .item{--task:#8b8d98;display:grid;grid-template-columns:28px minmax(0,1fr) auto;column-gap:10px;align-items:center;padding:8px;border-radius:10px;cursor:default}
-  .item[aria-selected=true]{background:color-mix(in srgb,var(--task) 15%,transparent);box-shadow:inset 0 0 0 1.5px color-mix(in srgb,var(--task) 55%,transparent)}
+  .item{--task:#8b8d98;display:grid;grid-template-columns:28px minmax(0,1fr) auto;column-gap:10px;align-items:center;padding:8px;border-radius:var(--cc-card-row-radius,8px);cursor:default}
+  .item[aria-selected=true]{background:color-mix(in srgb,var(--task) 14%,transparent);box-shadow:inset 0 0 0 1.5px var(--cc-card-focus,color-mix(in srgb,var(--task) 65%,currentColor))}
   .item .progress{margin-top:6px}
   .key{align-self:start;margin-top:5px;min-width:18px;padding:0 4px;border-radius:5px;font:500 11px/18px ui-monospace,SFMono-Regular,Menlo,monospace;
     text-align:center;color:var(--muted);box-shadow:inset 0 0 0 1px var(--line)}
   footer{display:flex;flex-wrap:wrap;justify-content:center;column-gap:14px;row-gap:2px;padding:8px 8px 4px;font-size:11.5px;color:var(--muted);white-space:nowrap}
   footer .notice{color:var(--text);white-space:normal;text-align:center}
   kbd{font:inherit;font-weight:600;color:var(--text)}
-  .flash{position:fixed;left:50%;top:18%;max-width:calc(100vw - 48px);padding:9px 16px;border-radius:12px;transform:translateX(-50%);
-    color:var(--color-token-text-primary,CanvasText);background:var(--color-token-dropdown-background,Canvas);
-    box-shadow:0 0 0 .5px var(--color-token-border-heavy,rgba(0,0,0,.14)),0 10px 30px rgba(0,0,0,.18);
-    font:13px/1.4 "Inter",ui-sans-serif,system-ui,-apple-system,"PingFang SC",sans-serif;pointer-events:none;animation:drop .18s var(--ease,cubic-bezier(.22,1,.36,1)) both}
+  .flash{position:fixed;left:50%;top:18%;max-width:calc(100vw - 48px);padding:9px 16px;border-radius:min(var(--cc-card-radius,var(--hg-panel-radius,12px)),12px);transform:translateX(-50%);
+    color:var(--cc-card-fg,var(--color-token-text-primary,CanvasText));
+    background:var(--cc-card-bg,var(--color-token-dropdown-background,Canvas));
+    box-shadow:0 0 0 .5px var(--cc-card-border,var(--color-token-border-heavy,color-mix(in srgb,currentColor 14%,transparent))),0 10px 30px rgba(0,0,0,.18);
+    font:13px/1.4 var(--cc-card-font,var(--hg-font-family,-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",sans-serif));pointer-events:none;animation:drop .18s var(--ease,cubic-bezier(.22,1,.36,1)) both}
   .flash[hidden]{display:none}
   @keyframes pop{from{opacity:0;transform:translate(-50%,-50%) scale(.97)}}
   @keyframes drop{from{opacity:0;transform:translate(-50%,-6px)}}
-  @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+  @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
 `;
 const FLASH_MS = 1600;
 

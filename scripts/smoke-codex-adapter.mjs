@@ -593,7 +593,13 @@ try {
     { room: "clamp", dockShift: 324, inputClear: true }, "收起途中重新打开仍用实测生效的让位方式");
   await evaluate(`reopenAdapter.setOpen(false)`);
   await waitFor(`drawerOf().dataset.state === 'closed' && !document.querySelector('[data-companion-dock]') && ${pane}.style.maxWidth === ''`, "关闭后撤销限宽");
-  await evaluate(`reopenAdapter.dispose()`);
+  // 主题检测：Codex 始终为 cards 表面，且 data-theme 切换时同步更新 host 与 shell 的 color-scheme。
+  assert.equal(await evaluate(`host.dataset.surface`), "cards", "Codex 宿主应声明 cards 表面");
+  await evaluate(`document.documentElement.dataset.theme = 'dark'`);
+  await waitFor(`host.style.colorScheme === 'dark'`, "data-theme=dark 同步 color-scheme");
+  await evaluate(`document.documentElement.dataset.theme = 'light'`);
+  await waitFor(`host.style.colorScheme === 'light'`, "data-theme=light 同步 color-scheme");
+  await evaluate(`delete document.documentElement.dataset.theme; reopenAdapter.dispose()`);
   assert.deepEqual(await evaluate(`errors`), []);
 
   await evaluate(`clearInterval(frameTimer);video.srcObject.getTracks().forEach(track=>track.stop())`);

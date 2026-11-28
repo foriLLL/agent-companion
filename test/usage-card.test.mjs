@@ -5,7 +5,7 @@ import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { codexCliCandidates, normalizeCodexRateLimits, readCodexRateLimits, resolveCodexCli } from "../cards/usage/codex-usage.mjs";
 import { createService, resolveProxyPort } from "../cards/usage/service.mjs";
-import { antigravityGroupLabel, antigravityWindowLabel, failedUsageData, remainingTone, resetText, shortResetText, shouldUseRings, windowLabel } from "../cards/usage/renderer.mjs";
+import { antigravityGroupLabel, antigravityWindowLabel, failedUsageData, remainingTone, resetText, shortResetText, shouldUseCompactGrid, shouldUseRings, windowLabel } from "../cards/usage/renderer.mjs";
 import { createAntigravityHostApi } from "../src/renderer/adapters/antigravity-host-api.mjs";
 
 // 假的 `codex app-server`：按行读 JSON-RPC 请求，按脚本回包，记录收到的方法。
@@ -259,9 +259,12 @@ test("圆环下的重置时间用短写法", () => {
   assert.equal(shortResetText(undefined, now), "");
 });
 
-test("额度展示方式：无分组且不超过两个窗口用进度条，多分组或多窗口用圆环", () => {
-  assert.equal(shouldUseRings([{ title: "", items: [{}] }]), false);
-  assert.equal(shouldUseRings([{ title: "", items: [{}, {}] }]), false);
-  assert.equal(shouldUseRings([{ title: "", items: [{}, {}, {}] }]), true);
-  assert.equal(shouldUseRings([{ title: "Gemini 模型", items: [{}, {}] }, { title: "Claude / GPT 模型", items: [{}, {}] }]), true);
+test("额度展示方式：无分组且不超过两个窗口用全宽细条，多分组或多窗口用紧凑两列", () => {
+  assert.equal(shouldUseCompactGrid([{ title: "", items: [{}] }]), false);
+  assert.equal(shouldUseCompactGrid([{ title: "", items: [{}, {}] }]), false);
+  assert.equal(shouldUseCompactGrid([{ title: "", items: [{}, {}, {}] }]), true);
+  assert.equal(shouldUseCompactGrid([{ title: "Gemini 模型", items: [{}, {}] }, { title: "Claude / GPT 模型", items: [{}, {}] }]), true);
+  assert.equal(shouldUseRings, shouldUseCompactGrid);
+  // 长自定义窗口名回退时返回完整字符串，由样式里的 text-overflow:ellipsis 截断不撑破两列。
+  assert.equal(antigravityWindowLabel("custom", "Claude Opus Extended Context Window"), "Claude Opus Extended Context Window");
 });

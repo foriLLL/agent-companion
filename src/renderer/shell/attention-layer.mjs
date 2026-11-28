@@ -7,6 +7,8 @@
 // - 被平台暂停的媒体记下来，「继续播放」只恢复这些；用户自己点了播放的不再归平台管。
 // 宿主节点不声明 -webkit-app-region（铺满整窗的 no-drag 会让窗口拖不动），也不接收指针事件。
 
+import { createThemeMirror } from "./mirror-theme.mjs";
+
 const AUTO_DISMISS_MS = 6000;
 const MAX_VISIBLE = 3;
 const MEDIA_EVENTS = ["play", "playing", "pause", "ended", "emptied"];
@@ -14,40 +16,42 @@ const SEP = "\u0000";
 
 const STYLE = `
   .panel{position:fixed;inset:auto;top:52px;right:16px;margin:0;box-sizing:border-box;width:320px;max-width:calc(100vw - 32px);
-    padding:6px;border:0;border-radius:16px;overflow:hidden;pointer-events:auto;
-    color:var(--color-token-text-primary,CanvasText);background:var(--color-token-dropdown-background,Canvas);
-    box-shadow:0 0 0 .5px var(--color-token-border-heavy,rgba(0,0,0,.14)),0 12px 32px rgba(0,0,0,.18),0 2px 8px rgba(0,0,0,.08);
-    font:13px/1.4 -apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",sans-serif;-webkit-font-smoothing:antialiased;letter-spacing:-.006em}
+    padding:6px;border:0;border-radius:min(var(--cc-card-radius,var(--hg-panel-radius,16px)),16px);overflow:hidden;pointer-events:auto;
+    color:var(--cc-card-fg,var(--color-token-text-primary,CanvasText));
+    background:var(--cc-card-bg,var(--color-token-dropdown-background,Canvas));
+    box-shadow:0 0 0 .5px var(--cc-card-border,var(--color-token-border-heavy,color-mix(in srgb,currentColor 14%,transparent))),0 12px 32px rgba(0,0,0,.18),0 2px 8px rgba(0,0,0,.08);
+    font:13px/1.4 var(--cc-card-font,var(--hg-font-family,-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",sans-serif));-webkit-font-smoothing:antialiased;letter-spacing:-.006em}
   .panel[data-fullscreen="true"]{top:16px}
   .panel:popover-open{animation:in .18s cubic-bezier(.2,.8,.2,1) both}
   @keyframes in{from{opacity:0;transform:translateY(-6px) scale(.98)}}
   .panel *{box-sizing:border-box}
   ul{list-style:none;margin:0;padding:0;display:grid;gap:2px}
-  li{--task:#8b8d98;display:grid;grid-template-columns:3px minmax(0,1fr) auto;column-gap:10px;align-items:center;
-    padding:8px 8px 8px 6px;border-radius:10px}
-  li[data-tone="attention"]{background:color-mix(in srgb,var(--task) 11%,transparent)}
+  li{--task:#8b8d98;display:grid;grid-template-columns:2.5px minmax(0,1fr) auto;column-gap:9px;align-items:center;
+    padding:7px 8px 7px 6px;border-radius:var(--cc-card-row-radius,8px)}
+  li[data-tone="attention"]{background:color-mix(in srgb,var(--task) 6.5%,transparent)}
   .bar{align-self:stretch;border-radius:2px;background:var(--task)}
   .body{min-width:0}
   strong{display:block;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .text{display:block;margin-top:1px;font-size:12px;color:var(--color-token-text-secondary,color-mix(in srgb,currentColor 65%,transparent))}
   .detail{display:-webkit-box;margin-top:2px;font-size:12px;overflow:hidden;-webkit-line-clamp:2;-webkit-box-orient:vertical;
-    color:var(--color-token-text-tertiary,color-mix(in srgb,currentColor 50%,transparent))}
+    color:var(--cc-card-fg-muted,var(--color-token-text-tertiary,color-mix(in srgb,currentColor 55%,transparent)))}
   .detail:empty{display:none}
-  .more{margin:4px 8px 0;font-size:12px;color:var(--color-token-text-tertiary,color-mix(in srgb,currentColor 50%,transparent))}
+  .more{margin:4px 8px 0;font-size:12px;color:var(--cc-card-fg-muted,var(--color-token-text-tertiary,color-mix(in srgb,currentColor 55%,transparent)))}
   footer{display:flex;align-items:center;gap:6px;padding:6px 2px 2px 8px}
-  .state{margin-right:auto;font-size:12px;color:var(--color-token-text-tertiary,color-mix(in srgb,currentColor 50%,transparent))}
+  .state{margin-right:auto;font-size:12px;color:var(--cc-card-fg-muted,var(--color-token-text-tertiary,color-mix(in srgb,currentColor 55%,transparent)))}
   button{display:inline-flex;align-items:center;justify-content:center;flex:none;height:26px;padding:0 10px;
-    border:1px solid var(--color-token-border-heavy,color-mix(in srgb,currentColor 14%,transparent));border-radius:8px;
+    border:1px solid var(--cc-card-border,var(--color-token-border-heavy,color-mix(in srgb,currentColor 14%,transparent)));border-radius:8px;
     background:transparent;color:inherit;font:inherit;font-size:12px;font-weight:500;cursor:pointer}
-  button:hover{background:var(--color-token-list-hover-background,color-mix(in srgb,currentColor 6%,transparent))}
-  button.primary{border-color:transparent;background:var(--color-token-text-primary,CanvasText);color:var(--color-token-dropdown-background,Canvas)}
+  button:hover{background:var(--cc-card-hover,var(--color-token-list-hover-background,color-mix(in srgb,currentColor 6%,transparent)))}
+  button.primary{border-color:transparent;background:var(--cc-card-fg,var(--color-token-text-primary,CanvasText));
+    color:var(--cc-card-bg,var(--color-token-dropdown-background,Canvas))}
   button.primary:hover{opacity:.86}
-  button:focus-visible{outline:2px solid var(--color-token-focus-border,#3a83f7);outline-offset:1px}
+  button:focus-visible{outline:2px solid var(--cc-card-focus,var(--color-token-focus-border,#3a83f7));outline-offset:1px}
   [hidden]{display:none!important}
-  @media (prefers-reduced-motion:reduce){.panel:popover-open{animation:none}}
+  @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
 `;
 
-export function createAttentionLayer({ document: doc, onError = () => {}, autoDismissMs = AUTO_DISMISS_MS }) {
+export function createAttentionLayer({ document: doc, source = null, onError = () => {}, autoDismissMs = AUTO_DISMISS_MS }) {
   const win = doc?.defaultView ?? globalThis;
   const items = new Map();
   const roots = new Set();
@@ -111,13 +115,16 @@ export function createAttentionLayer({ document: doc, onError = () => {}, autoDi
   doc?.addEventListener?.("fullscreenchange", onFullscreenChange);
   win?.addEventListener?.("resize", onResize);
 
+  const mirror = createThemeMirror({ doc, source });
+
   function ensurePanel() {
-    if (host?.isConnected && panel) return panel;
+    if (host?.isConnected && panel) { mirror.attach(host); return panel; }
     host?.remove();
     host = doc.createElement("div");
     host.id = "agent-companion-attention";
     host.style.cssText = "all:initial !important;position:fixed !important;inset:0 !important;z-index:2147483647 !important;"
       + "pointer-events:none !important;color-scheme:light dark !important";
+    mirror.attach(host);
     const shadow = host.attachShadow({ mode: "open" });
     shadow.innerHTML = `<style>${STYLE}</style>`
       + '<section class="panel" popover="manual" aria-label="Companion 提醒"><ul aria-live="polite"></ul><p class="more" hidden></p>'
@@ -313,6 +320,7 @@ export function createAttentionLayer({ document: doc, onError = () => {}, autoDi
       listeners.clear();
       doc?.removeEventListener?.("fullscreenchange", onFullscreenChange);
       win?.removeEventListener?.("resize", onResize);
+      mirror.disconnect();
       anchor = null;
       host?.remove();
       host = null;

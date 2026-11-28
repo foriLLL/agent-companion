@@ -1,8 +1,8 @@
 // Emby卡片的样式（只注入本卡 ShadowRoot）。
 export const cardStyles = `
         :host { display: block; height: 100%; min-height: 0; }
-        /* 语义色：错误/危险统一一个红（#c84848；深底上 #c33f3f 对比度仅约 3:1 偏弱） */
-        :host { --cc-danger: #c84848; }
+        /* 语义色跟随平台统一变量，不重复声明同名变量以免形成 CSS 环。 */
+        :host { --emby-danger: var(--cc-danger, #c42b25); }
         * { box-sizing: border-box; }
         button, input { font: inherit; }
         button { color: inherit; }
@@ -20,51 +20,54 @@ export const cardStyles = `
           overflow: hidden;
           border: 0;
           border-radius: 0;
-          color: var(--hg-panel-color, var(--color-token-text-primary, #1a1c1f));
+          color: var(--cc-card-fg, var(--hg-panel-color, var(--color-token-text-primary, #1a1c1f)));
           background: transparent;
           box-shadow: none;
-          font-family: var(--hg-font-family, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif);
-          font-size: 14px;
+          font-family: var(--cc-card-font, var(--hg-font-family, inherit));
+          font-size: 13px;
           font-weight: var(--hg-font-weight, 445);
-          line-height: 21px;
+          line-height: 1.45;
+          letter-spacing: -.006em;
+          -webkit-font-smoothing: antialiased;
         }
         .emby-toolbar {
           position: relative;
           z-index: 3;
-          height: 40px;
-          min-height: 40px;
+          height: 36px;
+          min-height: 36px;
           display: flex;
           align-items: center;
-          gap: 7px;
-          padding: 12px 10px 4px 14px;
+          gap: 6px;
+          padding: 10px 10px 4px 13px;
           background: transparent;
-          color: var(--hg-panel-color, var(--color-token-text-primary, #1a1c1f));
+          color: var(--cc-card-fg, var(--hg-panel-color, #1a1c1f));
         }
         .emby-toolbar-title {
           min-width: 0;
           flex: 1;
           overflow: hidden;
           margin: 0;
-          font-size: 14px;
-          font-weight: 600;
+          font-size: var(--cc-section-title-size, 13px);
+          font-weight: var(--cc-section-title-weight, 600);
+          color: var(--cc-section-title-color, inherit);
           letter-spacing: -.006em;
-          line-height: 21px;
+          line-height: 20px;
           text-overflow: ellipsis;
           white-space: nowrap;
         }
         .emby-icon-button svg {
-          width: 16px;
-          height: 16px;
+          width: 14px;
+          height: 14px;
           display: block;
           fill: none;
           stroke: currentColor;
           stroke-linecap: round;
           stroke-linejoin: round;
-          stroke-width: 1.5;
+          stroke-width: 1.4;
         }
         .emby-card {
-          --emby-accent: var(--switch-track-color-checked, #3a83f7);
-          --emby-focus: var(--color-token-focus-border, #3a83f7);
+          --emby-accent: var(--cc-card-fg, currentColor);
+          --emby-focus: var(--cc-card-focus, var(--color-token-focus-border, #3a83f7));
           --emby-ease: var(--cubic-move, cubic-bezier(.65, 0, .35, 1));
           position: relative;
           padding: 0;
@@ -103,17 +106,18 @@ export const cardStyles = `
           -webkit-tap-highlight-color: transparent;
         }
         .emby-icon-button {
-          /* 与 .hg-icon-button 一致：toolbar 内容盒 26px，27px 会溢出 1px */
-          width: 26px;
-          height: 26px;
+          width: 24px;
+          height: 24px;
           display: inline-grid;
           flex: 0 0 auto;
           place-items: center;
           padding: 0;
-          border-radius: 9px;
-          color: var(--hg-header-color, var(--color-token-text-tertiary, rgba(26,28,31,.55)));
+          border-radius: 6px;
+          color: var(--cc-card-fg-muted, var(--hg-header-color, rgba(26,28,31,.55)));
           background: transparent;
+          transition: background-color 120ms ease, color 120ms ease;
         }
+        .emby-icon-button:hover, .emby-icon-button:focus-visible { color: var(--cc-card-fg, currentColor); }
         .emby-icon-button:hover,
         .emby-icon-button:focus-visible,
         .emby-button:hover,
@@ -127,7 +131,15 @@ export const cardStyles = `
         .emby-poster-button:hover,
         .emby-poster-button:focus-visible {
           outline: none;
-          background: var(--hg-hover-bg, rgba(127,127,127,.10));
+          background: var(--cc-card-hover, rgba(127,127,127,.10));
+        }
+        .emby-icon-button:focus-visible,
+        .emby-button:focus-visible,
+        .emby-chip:focus-visible,
+        .emby-media-button:focus-visible,
+        .emby-list-button:focus-visible,
+        .emby-server-avatar:focus-visible {
+          box-shadow: inset 0 0 0 2px var(--emby-focus);
         }
         .emby-scroll {
           min-height: 0;
@@ -144,15 +156,15 @@ export const cardStyles = `
         .emby-scroll::-webkit-scrollbar-track { background: transparent; }
         .emby-row::-webkit-scrollbar,
         .emby-chips::-webkit-scrollbar { display: none; }
-        .emby-content { padding: 6px 14px 16px; }
-        .emby-section + .emby-section { margin-top: 18px; }
+        .emby-content { padding: 6px 13px 14px; }
+        .emby-section + .emby-section { margin-top: 14px; }
         .emby-section-title {
           display: flex;
           align-items: center;
           justify-content: space-between;
-          margin: 0 0 8px;
-          color: var(--hg-header-color, var(--color-token-text-tertiary, rgba(26,28,31,.55)));
-          font-size: 12px;
+          margin: 0 0 6px;
+          color: var(--cc-card-fg-muted, var(--hg-header-color, rgba(26,28,31,.55)));
+          font-size: 11px;
           font-weight: 500;
           line-height: 16px;
         }
@@ -166,7 +178,7 @@ export const cardStyles = `
           padding: 14px;
           border: 0;
           border-radius: 12px;
-          background: var(--hg-hover-bg, rgba(127,127,127,.07));
+          background: var(--cc-card-hover, rgba(127,127,127,.07));
           color: var(--hg-header-color, var(--color-token-text-tertiary, rgba(26,28,31,.55)));
           font-size: 12px;
           text-align: center;
@@ -185,16 +197,16 @@ export const cardStyles = `
           background: linear-gradient(0deg, rgba(3,5,8,.88), rgba(3,5,8,.08) 75%);
         }
         .emby-progress {
-          height: 3px;
+          height: 2.5px;
           overflow: hidden;
           border-radius: 999px;
-          background: rgba(255,255,255,.28);
+          background: rgba(255,255,255,.22);
         }
         .emby-progress > span {
           display: block;
           height: 100%;
           border-radius: inherit;
-          background: var(--emby-accent);
+          background: #fff;
         }
         .emby-row,
         .emby-chips {
@@ -348,26 +360,27 @@ export const cardStyles = `
           text-shadow: 0 1px 2px rgba(0,0,0,.35);
         }
         .emby-server-avatar {
-          width: 26px;
-          height: 26px;
+          width: 24px;
+          height: 24px;
           display: grid;
           flex: 0 0 auto;
           place-items: center;
           padding: 0;
-          border: 0;
+          border: 1px solid var(--cc-card-border, rgba(127,127,127,.16));
           border-radius: 50%;
-          color: #fff;
-          background: linear-gradient(145deg, hsl(var(--emby-avatar-hue, 210) 52% 56%), hsl(var(--emby-avatar-hue, 210) 48% 42%));
+          color: var(--cc-card-fg, currentColor);
+          background: var(--cc-card-hover, rgba(127,127,127,.08));
           cursor: pointer;
-          font-size: 12px;
+          font-size: 11px;
           font-weight: 600;
           line-height: 1;
-          transition: box-shadow 150ms ease-out;
+          transition: background-color 140ms ease, border-color 140ms ease;
         }
         .emby-server-avatar:hover,
         .emby-server-avatar:focus-visible {
           outline: none;
-          box-shadow: 0 0 0 2px var(--hg-panel-bg, #fff), 0 0 0 3.5px var(--hg-divider, rgba(127,127,127,.3));
+          background: var(--cc-card-active, rgba(127,127,127,.14));
+          border-color: var(--cc-card-border-strong, rgba(127,127,127,.28));
         }
         .emby-resume:focus-visible,
         .emby-library-tile:focus-visible,
@@ -392,16 +405,16 @@ export const cardStyles = `
         .emby-load-more { grid-column: 1 / -1; width: 100%; }
         .emby-server-list { padding: 10px 12px 14px; }
         .emby-server-list .emby-list-button[aria-current="true"] {
-          background: var(--hg-hover-bg, rgba(127,127,127,.10));
+          background: var(--cc-card-hover, rgba(127,127,127,.10));
         }
         .emby-server-dot {
-          width: 9px;
-          height: 9px;
+          width: 6px;
+          height: 6px;
           flex: 0 0 auto;
           border-radius: 50%;
           background: rgba(127,127,127,.35);
         }
-        .emby-server-dot.connected { background: #36a269; }
+        .emby-server-dot.connected { background: var(--cc-ok, #238559); }
         .emby-server-actions { display: grid; gap: 8px; padding: 0 12px 14px; }
         .emby-poster-button {
           width: 80px;
@@ -492,97 +505,113 @@ export const cardStyles = `
           margin-bottom: 16px;
         }
         .emby-mark {
-          width: 31px;
-          height: 31px;
+          width: 28px;
+          height: 28px;
           display: grid;
           place-items: center;
-          border-radius: 10px;
-          color: #fff;
-          background: linear-gradient(145deg, #52b54b, #347a38);
-          font-size: 13px;
-          font-weight: 750;
+          border-radius: 8px;
+          color: var(--cc-card-bg, Canvas);
+          background: var(--cc-card-fg, CanvasText);
+          font-size: 12.5px;
+          font-weight: 700;
           letter-spacing: -.04em;
         }
-        .emby-brand strong { display: block; font-size: 16px; line-height: 19px; }
+        .emby-brand strong { display: block; font-size: 14px; line-height: 18px; }
         .emby-brand span { display: block; font-size: 11px; line-height: 15px; }
         .emby-field {
           display: block;
           margin-top: 9px;
-          color: var(--hg-header-color, var(--color-token-text-tertiary, rgba(26,28,31,.55)));
+          color: var(--cc-card-fg-muted, var(--hg-header-color, rgba(26,28,31,.55)));
           font-size: 11px;
           line-height: 15px;
         }
         .emby-input {
           width: 100%;
-          height: 34px;
+          height: 30px;
           margin-top: 3px;
-          padding: 0 10px;
-          border: .5px solid var(--hg-divider, var(--color-token-border-default, rgba(26,28,31,.16)));
-          border-radius: 10px;
+          padding: 0 9px;
+          border: 1px solid var(--cc-card-border, var(--hg-divider, rgba(26,28,31,.12)));
+          border-radius: 8px;
           outline: none;
-          color: var(--hg-panel-color, var(--color-token-text-primary, #1a1c1f));
-          background: var(--hg-input-bg, rgba(127,127,127,.055));
-          /* 与 .hg-search-input 统一（此前继承 14px，两处输入框字号不一致） */
+          color: var(--cc-card-fg, var(--hg-panel-color, #1a1c1f));
+          background: var(--cc-card-input-bg, rgba(127,127,127,.045));
           font-size: 12px;
+          transition: border-color 140ms ease, box-shadow 140ms ease;
         }
         .emby-input:focus {
-          border-color: rgba(49,142,211,.72);
-          box-shadow: 0 0 0 2px rgba(49,142,211,.12);
+          border-color: var(--emby-focus);
+          box-shadow: 0 0 0 2px color-mix(in srgb, var(--emby-focus) 20%, transparent);
         }
         .emby-button {
-          min-height: 34px;
-          padding: 6px 12px;
-          border-radius: 10px;
-          background: var(--hg-hover-bg, rgba(127,127,127,.10));
-          font-weight: 600;
+          min-height: 30px;
+          padding: 0 11px;
+          border: 1px solid var(--cc-card-border, var(--hg-divider, rgba(26,28,31,.12)));
+          border-radius: 8px;
+          background: transparent;
+          font-size: 11.5px;
+          font-weight: 500;
+          transition: background-color 120ms ease, opacity 120ms ease;
         }
         .emby-button.primary {
           width: 100%;
-          margin-top: 13px;
-          color: #fff;
-          background: #357f3a;
+          margin-top: 12px;
+          border-color: transparent;
+          color: var(--cc-card-bg, Canvas);
+          background: var(--cc-card-fg, CanvasText);
         }
-        .emby-button.danger { color: var(--cc-danger); }
+        .emby-button.primary:hover, .emby-button.primary:focus-visible {
+          background: var(--cc-card-fg, CanvasText);
+          opacity: .86;
+        }
+        .emby-button.primary:focus-visible,
+        .emby-chip[aria-selected="true"]:focus-visible,
+        .emby-source-chip[aria-selected="true"]:focus-visible {
+          outline: 2px solid var(--emby-focus);
+          outline-offset: 2px;
+          box-shadow: none;
+        }
+        .emby-button.danger { color: var(--emby-danger); }
         .emby-button:disabled { cursor: default; opacity: .55; }
         .emby-inline-error {
           min-height: 16px;
           margin: 7px 0 0;
-          color: var(--cc-danger);
+          color: var(--emby-danger);
           font-size: 11px;
           line-height: 16px;
         }
         .emby-center {
           align-items: center;
           gap: 10px;
-          color: var(--hg-header-color, var(--color-token-text-tertiary, rgba(26,28,31,.55)));
+          color: var(--cc-card-fg-muted, var(--hg-header-color, rgba(26,28,31,.55)));
           text-align: center;
         }
         .emby-spinner {
-          width: 25px;
-          height: 25px;
-          border: 2px solid rgba(127,127,127,.2);
-          border-top-color: #4ea548;
+          width: 22px;
+          height: 22px;
+          border: 1.8px solid var(--cc-bar-track, rgba(127,127,127,.2));
+          border-top-color: currentColor;
           border-radius: 50%;
           animation: emby-spin .8s linear infinite;
         }
         @keyframes emby-spin { to { transform: rotate(360deg); } }
-        .emby-view[data-view="home"] > .emby-toolbar { gap: 10px; height: 46px; min-height: 46px; padding: 12px 14px 4px; }
+        .emby-view[data-view="home"] > .emby-toolbar { gap: 8px; height: 42px; min-height: 42px; padding: 10px 13px 4px; }
         .emby-view[data-view="home"] > .emby-toolbar::after { display: none; }
-        .emby-view[data-view="home"] .emby-search-wrap { height: 30px; border-radius: 10px; }
+        .emby-view[data-view="home"] .emby-search-wrap { height: 30px; border-radius: 8px; }
         .emby-search-wrap {
-          height: 27px;
+          height: 28px;
           display: flex;
           flex: 1;
           min-width: 0;
           align-items: center;
           overflow: hidden;
-          border: .5px solid var(--hg-divider, var(--color-token-border-default, rgba(26,28,31,.15)));
-          border-radius: 9px;
-          background: var(--hg-input-bg, rgba(127,127,127,.07));
+          border: 1px solid var(--cc-card-border, var(--hg-divider, rgba(26,28,31,.12)));
+          border-radius: 8px;
+          background: var(--cc-card-input-bg, rgba(127,127,127,.045));
+          transition: border-color 140ms ease, box-shadow 140ms ease;
         }
         .emby-search-wrap:focus-within {
           border-color: var(--emby-focus);
-          box-shadow: 0 0 0 3px color-mix(in srgb, var(--emby-focus) 18%, transparent);
+          box-shadow: 0 0 0 2px color-mix(in srgb, var(--emby-focus) 20%, transparent);
         }
         .emby-search-input {
           min-width: 0;
@@ -687,36 +716,39 @@ export const cardStyles = `
           padding: 3px 9px;
           border-radius: 999px;
           color: var(--hg-header-color, var(--color-token-text-tertiary, rgba(26,28,31,.65)));
-          background: var(--hg-hover-bg, rgba(127,127,127,.08));
+          background: var(--cc-card-hover, rgba(127,127,127,.08));
           font-size: 10px;
           line-height: 18px;
         }
         .emby-chip[aria-selected="true"] {
-          color: #fff;
-          background: #357f3a;
+          color: var(--cc-card-bg, Canvas);
+          background: var(--cc-card-fg, CanvasText);
         }
         .emby-source-chips { padding-top: 2px; }
-        .emby-source-chip[aria-selected="true"] { background: #2f6fb0; }
+        .emby-source-chip[aria-selected="true"] {
+          color: var(--cc-card-bg, Canvas);
+          background: var(--cc-card-fg, CanvasText);
+        }
         .emby-episode-button { min-height: 51px; }
         .emby-episode-index {
           width: 25px;
           flex: 0 0 auto;
-          color: var(--hg-header-color, var(--color-token-text-tertiary, rgba(26,28,31,.55)));
+          color: var(--cc-card-fg-muted, var(--hg-header-color, rgba(26,28,31,.55)));
           font-size: 10px;
           text-align: center;
         }
         .emby-episode-progress {
           width: 54px;
-          height: 3px;
+          height: 2.5px;
           overflow: hidden;
           margin-top: 5px;
           border-radius: 999px;
-          background: rgba(127,127,127,.16);
+          background: var(--cc-bar-track, rgba(127,127,127,.16));
         }
         .emby-episode-progress span {
           display: block;
           height: 100%;
-          background: #52a94b;
+          background: var(--cc-bar-fill, currentColor);
         }
         .emby-playback {
           position: relative;
@@ -859,7 +891,7 @@ export const cardStyles = `
           padding: 1px 6px;
           border-radius: 5px;
           color: var(--hg-header-color, var(--color-token-text-tertiary, rgba(26,28,31,.55)));
-          background: var(--hg-hover-bg, rgba(127,127,127,.10));
+          background: var(--cc-card-hover, rgba(127,127,127,.10));
           font-size: 10px;
           font-variant-numeric: tabular-nums;
           line-height: 16px;
@@ -912,7 +944,7 @@ export const cardStyles = `
         .emby-playback-settings {
           overflow: visible;
           border-radius: 12px;
-          background: var(--hg-hover-bg, rgba(127,127,127,.07));
+          background: var(--cc-card-hover, rgba(127,127,127,.07));
         }
         .emby-playback-menu-anchor { position: relative; }
         .emby-playback-row {
@@ -935,7 +967,7 @@ export const cardStyles = `
         .emby-playback-row:focus-visible,
         .emby-playback-row[aria-expanded="true"] {
           outline: none;
-          background: var(--hg-hover-bg, rgba(127,127,127,.10));
+          background: var(--cc-card-hover, rgba(127,127,127,.10));
         }
         .emby-playback-row svg {
           width: 15px;
@@ -1006,7 +1038,7 @@ export const cardStyles = `
         .emby-subtitle-option:hover,
         .emby-subtitle-option:focus-visible {
           outline: none;
-          background: var(--hg-hover-bg, rgba(127,127,127,.10));
+          background: var(--cc-card-hover, rgba(127,127,127,.10));
         }
         .emby-subtitle-check {
           width: 14px;
@@ -1060,10 +1092,10 @@ export const cardStyles = `
           font: inherit;
           font-size: 11px;
         }
-        .emby-episode-season:hover { background: var(--hg-hover-bg, rgba(127,127,127,.10)); }
+        .emby-episode-season:hover { background: var(--cc-card-hover, rgba(127,127,127,.10)); }
         .emby-episode-season[aria-selected="true"] {
           color: var(--hg-panel-color, currentColor);
-          background: var(--hg-hover-bg, rgba(127,127,127,.12));
+          background: var(--cc-card-hover, rgba(127,127,127,.12));
           font-weight: 500;
         }
         .emby-episode-picker-grid {
@@ -1084,7 +1116,7 @@ export const cardStyles = `
           padding: 0 4px;
           border-radius: 9px;
           color: var(--hg-panel-color, currentColor);
-          background: var(--hg-hover-bg, rgba(127,127,127,.08));
+          background: var(--cc-card-hover, rgba(127,127,127,.08));
           font: inherit;
           font-size: 12px;
           font-variant-numeric: tabular-nums;
@@ -1096,11 +1128,11 @@ export const cardStyles = `
         .emby-episode-picker-item:hover,
         .emby-episode-picker-item:focus-visible {
           outline: none;
-          background: var(--hg-hover-bg-strong, rgba(127,127,127,.16));
+          background: var(--cc-card-active, rgba(127,127,127,.16));
         }
         .emby-episode-picker-item[aria-current="true"] {
-          color: #fff;
-          background: var(--emby-accent);
+          color: var(--cc-card-bg, Canvas);
+          background: var(--cc-card-fg, CanvasText);
           font-weight: 600;
         }
         .emby-episode-picker-empty {

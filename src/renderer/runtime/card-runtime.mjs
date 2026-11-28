@@ -170,7 +170,7 @@ export function createCardRuntime({
           ...(manifest.capabilities.includes("host") && hostApi ? { host: hostApi } : {}),
           // 顶层浮层与本实例同生命周期：卸载、关闭或重试时随 effects 一起移除。
           ...(manifest.capabilities.includes("overlay")
-            ? { overlay: createOverlayLayer({ document: shell.host.ownerDocument, cardId: manifest.id, effects }) } : {}),
+            ? { overlay: createOverlayLayer({ document: shell.host.ownerDocument, source: shell.host, cardId: manifest.id, effects }) } : {}),
           // 提醒随本实例撤回：卸载、关闭或重试时由 effects 清掉它发出的提醒和订阅。
           ...(manifest.capabilities.includes("attention") && attention ? { attention: attention.forCard(manifest.id, effects) } : {}),
           // 只有平台负责可见性；业务可以申请展开，不能操作原生 DOM。
@@ -205,7 +205,7 @@ export function createCardRuntime({
     }
   }
 
-  try { attention = attentionFactory({ document: shell.host.ownerDocument, onError: (error) => report(error, { phase: "attention" }) }); }
+  try { attention = attentionFactory({ document: shell.host.ownerDocument, source: shell.host, onError: (error) => report(error, { phase: "attention" }) }); }
   catch (error) { report(error, { phase: "attention" }); }
   if (hostApiFactory && manifests.some((manifest) => manifest.capabilities.includes("host"))) {
     try { hostApi = hostApiFactory({ document: shell.host.ownerDocument }); }

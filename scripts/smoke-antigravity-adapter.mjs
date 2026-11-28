@@ -1,13 +1,16 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 import { CdpConnection } from "../src/cdp-connection.mjs";
 import { reserveLoopbackPort } from "../src/launcher.mjs";
 import { listCdpTargets } from "../src/targets.mjs";
 import { createAntigravityAdapter } from "../src/renderer/adapters/antigravity.mjs";
 import { createAntigravityThreads } from "../src/renderer/adapters/antigravity-threads.mjs";
+
+const repoRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 
 // 只启动独立临时 Chrome profile；不访问用户 Antigravity 的 CDP 端口或数据。
 const port = await reserveLoopbackPort();
@@ -38,7 +41,20 @@ try {
   };
   const key = async (type, extra = {}) => connection.send("Input.dispatchKeyEvent", { type, code: "KeyJ", key: "j", windowsVirtualKeyCode: 74, modifiers: 1 | 4, ...extra });
   const http = await import("node:http");
-  const server = http.createServer((_request, response) => response.writeHead(200, { "content-type": "text/html" }).end("<!doctype html><html><head></head><body></body></html>"));
+  const server = http.createServer(async (request, response) => {
+    if (request.url?.startsWith("/src/")) {
+      const targetFile = path.resolve(repoRoot, `.${request.url}`);
+      if (targetFile.startsWith(`${repoRoot}${path.sep}src${path.sep}`)) {
+        try {
+          response.writeHead(200, { "content-type": "text/javascript" }).end(await readFile(targetFile));
+          return;
+        } catch {}
+      }
+      response.writeHead(404).end();
+      return;
+    }
+    response.writeHead(200, { "content-type": "text/html" }).end("<!doctype html><html><head></head><body></body></html>");
+  });
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   try {
     await connection.send("Page.enable");
@@ -77,12 +93,61 @@ try {
     assert.ok(Math.abs(layout.top - layout.buttonBottom - 6) <= 1, "弹层在按钮下方 6px");
     assert.ok(Math.abs(layout.right - (layout.width - 14)) <= 1, "没有对话区时贴窗口右边");
     // 有对话区时卡片右边贴着对话区右边框（rail 右边 = 对话区右边 - 6）
-    await evaluate(`document.body.insertAdjacentHTML('beforeend', '<main id="conversation" data-cascade-id="5f13e99e-f461-4309-9796-ce99e2b141ef" style="position:fixed;left:0;top:0;width:700px;height:10px"></main>'); dispatchEvent(new Event('resize'))`);
+    await evaluate(`document.body.insertAdjacentHTML('beforeend', '<div id="split" style="position:fixed;left:0;top:40px;right:0;bottom:0;display:flex"><div id="pane-wrap" style="width:700px;overflow:hidden;transition:width 80ms linear"><main id="conversation" data-cascade-id="5f13e99e-f461-4309-9796-ce99e2b141ef" style="min-width:600px;width:100%;height:100%">chat</main></div><aside id="sidepane" style="flex:1;background:#fff"></aside></div>')`);
     await evaluate("new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))");
     assert.ok(Math.abs(await evaluate("document.getElementById('agent-companion-rail').getBoundingClientRect().right") - 694) <= 1, "弹层右边对齐对话区");
-    await evaluate("document.getElementById('conversation').remove(); dispatchEvent(new Event('resize'))");
+
+    // 侧栏通过 CSS transition 关闭（无 childList 变化、无 window resize）：弹层随过渡展开回到窗口右边，不再卡在中间
+    await evaluate("document.getElementById('pane-wrap').style.width = `${innerWidth}px`");
+    await evaluate("new Promise((resolve) => setTimeout(resolve, 180))");
+    await evaluate("new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))");
+    assert.ok(Math.abs(await evaluate("document.getElementById('agent-companion-rail').getBoundingClientRect().right") - (layout.width - 8)) <= 1, "侧栏动画关闭后弹层回到右边");
+
+    // 侧栏分屏收窄后，再经父容器 width:0 + overflow:hidden 折叠全屏（对话容器自身仍保持 min-width）：弹层退回窗口右边
+    await evaluate("const w = document.getElementById('pane-wrap'); w.style.transition = 'none'; w.style.width = '700px'");
+    await evaluate("new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))");
+    assert.ok(Math.abs(await evaluate("document.getElementById('agent-companion-rail').getBoundingClientRect().right") - 694) <= 1, "分屏收窄后弹层贴对话区右边");
+    await evaluate("document.getElementById('pane-wrap').style.width = '0px'");
+    await evaluate("new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))");
+    assert.ok(Math.abs(await evaluate("document.getElementById('agent-companion-rail').getBoundingClientRect().right") - (layout.width - 14)) <= 1, "折叠容器裁没对话区时弹层退回窗口右边");
+
+    // 侧栏以不透明全屏层覆盖对话区与主标题栏（底层对话区尺寸不变、仍停在 700px）：入口切到全屏顶栏，弹层退回窗口右边
+    await evaluate("document.getElementById('pane-wrap').style.width = '700px'");
+    await evaluate("new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))");
+    assert.ok(Math.abs(await evaluate("document.getElementById('agent-companion-rail').getBoundingClientRect().right") - 694) <= 1);
+    await evaluate(`document.body.insertAdjacentHTML('beforeend', '<div id="fullscreen-side" style="position:fixed;inset:0;z-index:10;background:#fff"><div class="bar"><button id="fs-close" class="agy-button h-7 w-7 bg-transparent text-secondary-foreground"><svg width="16" height="16"><circle cx="8" cy="8" r="2"/></svg></button></div></div>')`);
+    await evaluate("new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))");
+    assert.equal(await evaluate("adapter.getDiagnostics().entry"), "titlebar-trailing", "全屏侧栏盖住主标题栏时入口切到全屏顶栏");
+    assert.ok(Math.abs(await evaluate("document.getElementById('agent-companion-rail').getBoundingClientRect().right") - (layout.width - 14)) <= 1, "全屏侧栏盖住对话区时弹层退回窗口右边");
+    // 退出全屏侧栏后恢复主标题栏入口并重新对齐对话区
+    await evaluate("document.getElementById('fullscreen-side').remove()");
+    await evaluate("new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))");
+    assert.equal(await evaluate("adapter.getDiagnostics().entry"), "overview-toggle", "退出全屏侧栏后恢复 Overview 旁入口");
+    assert.ok(Math.abs(await evaluate("document.getElementById('agent-companion-rail').getBoundingClientRect().right") - 694) <= 1, "退出全屏后重新对齐可见对话区");
+
+    // 半透明弹窗遮罩不误判为全屏侧栏，不撤标题栏入口、不让弹层乱跳
+    await evaluate(`document.body.insertAdjacentHTML('beforeend', '<div id="scrim" style="position:fixed;inset:0;z-index:10;background:rgba(0,0,0,.4)"></div>')`);
+    await evaluate("new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))");
+    assert.equal(await evaluate("adapter.getDiagnostics().entry"), "overview-toggle", "半透明遮罩不撤标题栏入口");
+    assert.ok(Math.abs(await evaluate("document.getElementById('agent-companion-rail').getBoundingClientRect().right") - 694) <= 1, "半透明遮罩不改变弹层对齐");
+    await evaluate("document.getElementById('scrim').remove(); document.getElementById('split').remove()");
+    await evaluate("new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))");
     assert.equal(await evaluate("host.style.getPropertyValue('--hg-panel-bg')"), "rgb(250, 250, 250)");
     assert.equal(await evaluate("host.style.getPropertyValue('--cc-card-border')"), "rgb(200, 200, 200)");
+    assert.equal(await evaluate("host.style.getPropertyValue('--cc-card-fg-muted')"), "rgb(120, 120, 120)");
+    assert.equal(await evaluate("host.dataset.surface"), "unified");
+    assert.equal(await evaluate("host.style.getPropertyValue('--cc-card-radius')"), "14px");
+    assert.equal(await evaluate("host.style.getPropertyValue('--cc-card-gap')"), "0px");
+    assert.equal(await evaluate("host.style.getPropertyValue('--cc-section-title-size')"), "11.5px");
+    assert.equal(await evaluate("host.style.colorScheme"), "light");
+    // 宿主切暗色/亮色类时同步 color-scheme 与表面变量（弹层收起时也同步，悬浮入口不掉色）
+    await evaluate("document.documentElement.classList.add('dark')");
+    await evaluate("new Promise((resolve) => setTimeout(resolve, 30))");
+    assert.equal(await evaluate("host.style.colorScheme"), "dark", "暗色主题同步 color-scheme");
+    await evaluate("document.documentElement.classList.remove('dark'); document.documentElement.classList.add('light')");
+    await evaluate("new Promise((resolve) => setTimeout(resolve, 30))");
+    assert.equal(await evaluate("host.style.colorScheme"), "light", "亮色主题同步 color-scheme");
+    await evaluate("document.documentElement.classList.remove('light')");
     assert.match(await evaluate("document.querySelector('[data-agent-companion-entry]').className"), /bg-secondary/, "打开时入口显示选中态");
 
     // 浮层不随点击收起：点卡片、点对话、聚焦输入框后都还开着
@@ -188,6 +253,53 @@ try {
     assert.equal(await evaluate("document.getElementById('row3').getAttribute('data-agent-companion-task')"), "4", "退到链接所在条目");
     await evaluate(`threads.setMarks([{ id: "${third}", color: 4 }, { id: "${other}", color: 1 }])`);
     assert.equal(await evaluate("document.getElementById('big').hasAttribute('data-agent-companion-task')"), false, "不像一行条目的不标");
+
+    // 统一面板外框（CardShell data-surface="unified"）：无 moveBefore 重排 + 隐藏 slot + 设置开关 + 空态无残留细线
+    const unifiedCheck = await evaluate(`(async () => {
+      const { createCardShell } = await import('/src/renderer/shell/card-shell.mjs');
+      const shell = createCardShell({ document, hostId: 'unified-probe' });
+      shell.host.dataset.surface = 'unified';
+      shell.host.style.setProperty('--cc-card-border', 'rgb(200, 200, 200)');
+      document.body.append(shell.host);
+      const outer = shell.root.querySelector('.shell');
+      // 初始空态（platform-bar 隐藏且无可见 slot）：不绘制多余外框细线。
+      const emptyShadow = getComputedStyle(outer).boxShadow;
+      const m = (id) => ({ id, title: id, layout: { height: 'content', minHeight: 40, scroll: 'outer' } });
+      const a = shell.add(m('a'), () => {});
+      const b = shell.add(m('b'), () => {});
+      const c = shell.add(m('c'), () => {});
+      b.outer.hidden = true;
+      // 模拟不支持 moveBefore 的旧 Chromium：只改 CSS order，仍需每张可见卡片自带 1px border-top。
+      const stack = shell.root.querySelector('.stack');
+      Object.defineProperty(stack, 'moveBefore', { value: undefined, configurable: true });
+      shell.reorder(['c', 'b', 'a']);
+      const noBarMarginTop = getComputedStyle(stack).marginTop;
+      const cTopBorder = getComputedStyle(c.outer).borderTopWidth;
+      const aTopBorder = getComputedStyle(a.outer).borderTopWidth;
+      const aBottomBorder = getComputedStyle(a.outer).borderBottomWidth;
+      // 打开顶栏后，每个可见区块由自身 border-top 分隔，无底边双线。
+      shell.configureSettings({ call: async () => ({}), connection: { subscribe: () => () => {} }, cardSettings: [] });
+      const bar = shell.root.querySelector('.platform-bar');
+      const settingsEl = shell.root.getElementById('companion-settings');
+      const barBottomBorder = getComputedStyle(bar).borderBottomWidth;
+      const withBarMarginTop = getComputedStyle(stack).marginTop;
+      settingsEl.hidden = false;
+      const settingsTopBorder = getComputedStyle(settingsEl).borderTopWidth;
+      const settingsBottomBorder = getComputedStyle(settingsEl).borderBottomWidth;
+      shell.dispose();
+      return { emptyShadow, noBarMarginTop, cTopBorder, aTopBorder, aBottomBorder, barBottomBorder, withBarMarginTop, settingsTopBorder, settingsBottomBorder };
+    })()`);
+    assert.deepEqual(unifiedCheck, {
+      emptyShadow: "none",
+      noBarMarginTop: "-1px",
+      cTopBorder: "1px",
+      aTopBorder: "1px",
+      aBottomBorder: "0px",
+      barBottomBorder: "0px",
+      withBarMarginTop: "0px",
+      settingsTopBorder: "1px",
+      settingsBottomBorder: "0px"
+    }, "统一面板在重排、隐藏、设置开合与空态下分隔线均应干净无双线");
 
     // dispose 清理干净
     await evaluate("adapter.dispose(); threads.dispose(); unsubscribe()");

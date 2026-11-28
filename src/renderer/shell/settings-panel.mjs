@@ -231,46 +231,49 @@ export function createSettingsPanel({ document: doc, call, connection, onClose =
   // 颜色优先取 Codex 设计变量（随宿主明暗切换），缺失时回退到 currentColor 混色。
   // Codex 的开关选中色和焦点色是黑白的，「更新」提醒要醒目，单独用 Codex 调色板里的蓝 / 绿。
   style.textContent = `
-    .cc-settings { --fg:var(--color-token-text-primary,currentColor);
+    .cc-settings { --fg:var(--cc-card-fg,var(--color-token-text-primary,currentColor));
       --fg2:var(--color-token-text-secondary,color-mix(in srgb,currentColor 65%,transparent));
-      --fg3:var(--color-token-text-tertiary,color-mix(in srgb,currentColor 50%,transparent));
-      --line:var(--color-token-border,color-mix(in srgb,currentColor 9%,transparent));
-      --line2:var(--color-token-border-heavy,color-mix(in srgb,currentColor 14%,transparent));
-      --hover:var(--color-token-list-hover-background,color-mix(in srgb,currentColor 6%,transparent));
-      --surface:var(--color-token-main-surface-primary,Canvas);
-      --accent:var(--switch-track-color-checked,#3a83f7);
-      --focus:var(--color-token-focus-border,#3a83f7);
+      --fg3:var(--cc-card-fg-muted,var(--color-token-text-tertiary,color-mix(in srgb,currentColor 50%,transparent)));
+      --line:var(--color-token-border,var(--cc-card-border,color-mix(in srgb,currentColor 9%,transparent)));
+      --line2:var(--color-token-border-heavy,var(--cc-card-border,color-mix(in srgb,currentColor 14%,transparent)));
+      --hover:var(--cc-card-hover,var(--color-token-list-hover-background,color-mix(in srgb,currentColor 6%,transparent)));
+      --surface:var(--color-token-main-surface-primary,var(--cc-card-bg,Canvas));
+      --accent:var(--cc-card-accent,var(--switch-track-color-checked,#3a83f7));
+      --focus:var(--cc-card-focus,var(--color-token-focus-border,#3a83f7));
       --ease:var(--cubic-move,cubic-bezier(.65,0,.35,1));
-      box-sizing:border-box;min-width:0;width:100%;margin:0 0 12px;padding:14px 14px 12px;
-      border:0;border-radius:var(--hg-panel-radius,20px);
-      background:var(--cc-card-bg,var(--surface));color:var(--cc-card-fg,var(--fg));
-      font:13px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;overflow-wrap:anywhere;
-      box-shadow:var(--hg-panel-shadow,var(--elevation-prominent,0 0 0 .5px var(--line2),0 3px 7.5px #0000000a,0 0 20px #0000000d)); }
+      box-sizing:border-box;min-width:0;width:100%;margin:0 0 var(--cc-card-gap,12px);padding:14px 14px 12px;
+      border:0;border-radius:var(--cc-card-radius,var(--hg-panel-radius,20px));
+      background:var(--cc-card-surface,var(--hg-card-bg,var(--cc-card-bg,var(--surface))));color:var(--cc-card-fg,var(--fg));
+      font:13px/1.45 var(--cc-card-font,var(--hg-font-family,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif));overflow-wrap:anywhere;
+      box-shadow:var(--cc-card-shadow,var(--hg-panel-shadow,var(--elevation-prominent,0 0 0 .5px var(--line2),0 3px 7.5px #0000000a,0 0 20px #0000000d))); }
     .cc-settings *, .cc-settings *::before, .cc-settings *::after { box-sizing:border-box; }
     .cc-settings [hidden], .cc-settings[hidden] { display:none !important; }
     .cc-settings svg { width:16px;height:16px;flex:none;fill:none;stroke:currentColor;stroke-width:1.15;
       stroke-linecap:round;stroke-linejoin:round; }
     .cc-settings svg .dots { fill:currentColor;stroke:none; }
     .cc-settings header { display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 2px 2px; }
-    .cc-settings h2 { margin:0;font-size:14px;font-weight:600;letter-spacing:-.01em; }
-    .cc-settings fieldset { min-width:0;margin:14px 0 0;padding:0;border:0; }
-    .cc-settings legend { float:left;width:100%;padding:0 2px;margin:0 0 6px;font-size:12px;font-weight:500;color:var(--fg3); }
+    .cc-settings h2 { margin:0;font-size:var(--cc-section-title-size,13px);font-weight:var(--cc-section-title-weight,600);
+      color:var(--cc-section-title-color,var(--fg));letter-spacing:-.01em; }
+    .cc-settings fieldset { min-width:0;margin:12px 0 0;padding:0;border:0; }
+    .cc-settings legend { float:left;width:100%;padding:0 2px;margin:0 0 5px;font-size:11.5px;font-weight:500;color:var(--fg3); }
     .cc-settings legend + * { clear:both; }
-    .cc-group { border:1px solid var(--line);border-radius:12px;background:var(--surface);overflow:hidden; }
+    .cc-group { border:1px solid var(--line);border-radius:10px;background:var(--surface);overflow:hidden; }
     .cc-group > * + *, .cc-list > * + * { border-top:1px solid var(--line); }
-    .cc-settings-row { display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:40px;
-      padding:8px 12px;min-width:0; }
+    .cc-settings-row { display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:38px;
+      padding:7px 11px;min-width:0; }
     .cc-settings-row > span { flex:1;min-width:0; }
-    .cc-settings-row small { display:block;margin-top:1px;font-size:12px;color:var(--fg3); }
+    .cc-settings-row small { display:block;margin-top:1px;font-size:11.5px;color:var(--fg3); }
     .cc-switch { appearance:none;-webkit-appearance:none;position:relative;flex:none;margin:0;cursor:pointer;
-      width:var(--switch-track-width,32px);height:var(--switch-track-height,19px);border-radius:999px;
-      background:var(--switch-track-color,color-mix(in oklab,currentColor 12%,transparent));
-      transition:background-color .175s linear 50ms; }
-    .cc-switch::before { content:"";position:absolute;top:3px;left:3px;width:13px;height:13px;border-radius:50%;
-      background:var(--switch-thumb-color,#fff);box-shadow:var(--switch-thumb-shadow,0 1px 2px #0003);
-      transition:transform .25s var(--ease); }
-    .cc-switch:checked { background:var(--accent); }
-    .cc-switch:checked::before { transform:translateX(13px); }
+      width:var(--switch-track-width,30px);height:var(--switch-track-height,17px);border-radius:999px;
+      background:var(--switch-track-color,color-mix(in srgb,currentColor 30%,transparent));
+      transition:background-color .15s ease; }
+    .cc-switch::before { content:"";position:absolute;top:2px;left:2px;
+      width:calc(var(--switch-track-height,17px) - 4px);height:calc(var(--switch-track-height,17px) - 4px);border-radius:50%;
+      background:var(--switch-thumb-color,var(--surface));
+      box-shadow:var(--switch-thumb-shadow,0 1px 2px rgba(0,0,0,.22),0 0 0 .5px color-mix(in srgb,currentColor 18%,transparent));
+      transition:transform .2s var(--ease); }
+    .cc-switch:checked { background:var(--switch-track-color-checked,var(--fg)); }
+    .cc-switch:checked::before { transform:translateX(calc(var(--switch-track-width,30px) - var(--switch-track-height,17px))); }
     .cc-list[data-off] .cc-settings-card { opacity:.45; }
     .cc-settings-card { position:relative;display:flex;align-items:center;min-width:0;background:var(--surface);
       transition:transform .2s var(--ease),opacity .15s linear; }
@@ -358,10 +361,10 @@ export function createSettingsPanel({ document: doc, call, connection, onClose =
       border:solid var(--surface);border-width:0 1.5px 1.5px 0;transform:rotate(45deg); }
     .cc-status { display:flex;align-items:center;gap:8px;padding:8px 8px 8px 12px;min-height:40px; }
     .cc-status p { flex:1;color:var(--fg);font-size:13px; }
-    .cc-status p::before { content:"";display:inline-block;width:7px;height:7px;margin:0 8px 1px 0;border-radius:50%;
+    .cc-status p::before { content:"";display:inline-block;width:6px;height:6px;margin:0 7px 1px 0;border-radius:50%;
       background:var(--fg3);vertical-align:middle; }
-    .cc-status[data-state="ok"] p::before { background:#30a46c;box-shadow:0 0 0 3px color-mix(in srgb,#30a46c 18%,transparent); }
-    .cc-status[data-state="bad"] p::before { background:#e5484d; }
+    .cc-status[data-state="ok"] p::before { background:var(--cc-ok,#238559); }
+    .cc-status[data-state="bad"] p::before { background:var(--cc-danger,#c42b25); }
     .cc-settings dl { display:grid;grid-template-columns:auto minmax(0,1fr);gap:6px 12px;margin:0;padding:10px 12px;font-size:12px; }
     .cc-settings dl:empty { display:none; }
     .cc-settings dt { color:var(--fg3); } .cc-settings dd { margin:0;text-align:right;overflow-wrap:anywhere;font-variant-numeric:tabular-nums; }
@@ -381,7 +384,7 @@ export function createSettingsPanel({ document: doc, call, connection, onClose =
     .cc-settings fieldset[data-attention] .cc-status p { font-weight:600; }
     .cc-settings fieldset[data-attention] button.cc-primary,
     .cc-settings fieldset[data-attention] button.cc-primary:hover:not(:disabled) { background:color-mix(in srgb,var(--attn) 78%,#000);color:#fff; }
-    @media (prefers-reduced-motion:reduce) { .cc-settings * { transition:none !important; } }
+    @media (prefers-reduced-motion:reduce) { .cc-settings *, .cc-settings *::before, .cc-settings *::after { transition:none !important; animation:none !important; } }
   `;
   const header = node("header");
   const closeButton = button("", close, "关闭 Companion 设置", "cc-ghost");

@@ -335,9 +335,20 @@ export function createCodexAdapter({ host, placement = "standalone-button", onVi
     host.style.setProperty(name, value);
   };
 
+  const isVisibleColor = (value) => Boolean(value && value !== "transparent" && value !== "rgba(0, 0, 0, 0)");
+  const isPositiveRadius = (value) => Boolean(value && value !== "0px" && Number.parseFloat(value) > 0);
+  const detectDark = (rootStyle) => {
+    const html = document.documentElement;
+    const theme = (html.getAttribute("data-theme") || html.dataset?.theme || "").toLowerCase();
+    if (html.classList.contains("dark") || theme === "dark" || rootStyle.colorScheme === "dark") return true;
+    if (html.classList.contains("light") || theme === "light" || rootStyle.colorScheme === "light") return false;
+    return Boolean(matchMedia("(prefers-color-scheme: dark)").matches);
+  };
+
   const syncNativeStyles = (nativeColumn) => {
     const rootStyle = getComputedStyle(document.documentElement);
-    const dark = matchMedia("(prefers-color-scheme: dark)").matches;
+    const dark = detectDark(rootStyle);
+    const token = (name) => rootStyle.getPropertyValue(name).trim();
     const nativePanel = nativeColumn ? findSummarySurface(nativeColumn) : null;
     const nativeHeader = nativePanel?.querySelector("header");
     const nativeSection = nativePanel?.querySelector("section");
@@ -345,25 +356,78 @@ export function createCodexAdapter({ host, placement = "standalone-button", onVi
     const headerStyle = nativeHeader ? getComputedStyle(nativeHeader) : null;
     const dividerStyle = nativeSection ? getComputedStyle(nativeSection, "::after") : null;
 
-    setHostVariable("--hg-panel-bg", panelStyle?.backgroundColor || rootStyle.getPropertyValue("--color-token-dropdown-background").trim() || (dark ? "#252525" : "#fff"));
-    setHostVariable("--hg-panel-color", panelStyle?.color || rootStyle.getPropertyValue("--color-token-text-primary").trim() || (dark ? "#ececec" : "#1a1c1f"));
-    setHostVariable("--hg-panel-radius", panelStyle?.borderRadius || "20px");
+    const bg = (isVisibleColor(panelStyle?.backgroundColor) ? panelStyle.backgroundColor : "")
+      || token("--color-token-dropdown-background")
+      || (dark ? "#252525" : "#fff");
+    const fg = (isVisibleColor(panelStyle?.color) ? panelStyle.color : "")
+      || token("--color-token-text-primary")
+      || (dark ? "#ececec" : "#1a1c1f");
+    const radius = (isPositiveRadius(panelStyle?.borderRadius) ? panelStyle.borderRadius : "") || "20px";
     // 独立模式没有原生面板可读，回退到 Codex 的 elevation token（随明暗主题切换）。
-    setHostVariable("--hg-panel-shadow",
-      panelStyle?.boxShadow && panelStyle.boxShadow !== "none"
-        ? panelStyle.boxShadow
-        : rootStyle.getPropertyValue("--elevation-prominent").trim()
-          || "0 0 0 .5px var(--color-token-border-heavy, rgba(26, 28, 31, .117)), 0 3px 7.5px rgba(0, 0, 0, .04), 0 0 20px rgba(0, 0, 0, .05)");
-    setHostVariable("--hg-header-bg", headerStyle?.backgroundColor || rootStyle.getPropertyValue("--color-token-dropdown-background").trim() || (dark ? "#252525" : "#fff"));
-    setHostVariable("--hg-header-color", headerStyle?.color || rootStyle.getPropertyValue("--color-token-text-tertiary").trim() || (dark ? "#aaa" : "#666"));
-    setHostVariable("--hg-divider", dividerStyle?.backgroundColor || rootStyle.getPropertyValue("--color-token-border-default").trim());
-    setHostVariable("--hg-font-family", panelStyle?.fontFamily || "-apple-system, system-ui, \"Segoe UI\", sans-serif");
+    const shadow = panelStyle?.boxShadow && panelStyle.boxShadow !== "none"
+      ? panelStyle.boxShadow
+      : token("--elevation-prominent")
+        || "0 0 0 .5px var(--color-token-border-heavy, rgba(26, 28, 31, .117)), 0 3px 7.5px rgba(0, 0, 0, .04), 0 0 20px rgba(0, 0, 0, .05)";
+    const headerBg = (isVisibleColor(headerStyle?.backgroundColor) ? headerStyle.backgroundColor : "")
+      || token("--color-token-dropdown-background")
+      || (dark ? "#252525" : "#fff");
+    const muted = (isVisibleColor(headerStyle?.color) ? headerStyle.color : "")
+      || token("--color-token-text-tertiary")
+      || (dark ? "#aaa" : "#666");
+    const border = token("--color-token-border-default")
+      || (dark ? "rgba(255,255,255,.10)" : "rgba(26,28,31,.09)");
+    const borderStrong = `color-mix(in srgb, ${fg} ${dark ? "16%" : "14%"}, transparent)`;
+    const inputBg = `color-mix(in srgb, ${fg} ${dark ? "5%" : "3.5%"}, transparent)`;
+    const divider = (isVisibleColor(dividerStyle?.backgroundColor) ? dividerStyle.backgroundColor : "") || border;
+    const font = panelStyle?.fontFamily || getComputedStyle(document.body).fontFamily || '-apple-system, system-ui, "Segoe UI", sans-serif';
+    const hover = token("--color-token-list-hover-background") || (dark ? "rgba(255,255,255,.06)" : "rgba(0,0,0,.042)");
+    const active = dark ? "rgba(255,255,255,.10)" : "rgba(0,0,0,.075)";
+    const focus = token("--color-token-focus-border") || "#3a83f7";
+    const accent = token("--switch-track-color-checked") || (dark ? "#19c37d" : "#10a37f");
+    const barTrack = `color-mix(in srgb, ${fg} ${dark ? "11%" : "8%"}, transparent)`;
+    const barFill = dark ? "#dcdcdc" : "#1f1f1f";
+    const warn = dark ? "#f09c42" : "#9f4f0c";
+    const danger = dark ? "#f06d67" : "#c42b25";
+    const ok = dark ? "#19c37d" : "#10a37f";
+
+    host.dataset.surface = "cards";
+    setHostVariable("--hg-panel-bg", bg);
+    setHostVariable("--hg-panel-color", fg);
+    setHostVariable("--hg-panel-radius", radius);
+    setHostVariable("--hg-panel-shadow", shadow);
+    setHostVariable("--hg-header-bg", headerBg);
+    setHostVariable("--hg-header-color", muted);
+    setHostVariable("--hg-divider", divider);
+    setHostVariable("--hg-font-family", font);
     setHostVariable("--hg-font-weight", panelStyle?.fontWeight || "445");
     // 通用 Shell token 与迁移期媒体 token 共用同一原生视觉来源。
-    setHostVariable("--cc-card-bg", host.style.getPropertyValue("--hg-panel-bg"));
-    setHostVariable("--cc-card-fg", host.style.getPropertyValue("--hg-panel-color"));
-    setHostVariable("--cc-card-border", rootStyle.getPropertyValue("--color-token-border-default").trim()
-      || (dark ? "rgba(255,255,255,.12)" : "rgba(26,28,31,.117)"));
+    setHostVariable("--cc-card-bg", bg);
+    setHostVariable("--cc-card-surface", bg);
+    setHostVariable("--cc-card-fg", fg);
+    setHostVariable("--cc-card-fg-muted", muted);
+    setHostVariable("--cc-card-border", border);
+    setHostVariable("--cc-card-border-strong", borderStrong);
+    setHostVariable("--cc-card-input-bg", inputBg);
+    setHostVariable("--cc-card-radius", radius);
+    setHostVariable("--cc-card-row-radius", "10px");
+    setHostVariable("--cc-card-shadow", shadow);
+    setHostVariable("--cc-card-font", font);
+    setHostVariable("--cc-card-hover", hover);
+    setHostVariable("--cc-card-active", active);
+    setHostVariable("--cc-card-focus", focus);
+    setHostVariable("--cc-card-accent", accent);
+    setHostVariable("--cc-card-gap", "24px");
+    setHostVariable("--cc-section-title-size", "13px");
+    setHostVariable("--cc-section-title-weight", "600");
+    setHostVariable("--cc-section-title-color", fg);
+    setHostVariable("--cc-bar-track", barTrack);
+    setHostVariable("--cc-bar-fill", barFill);
+    setHostVariable("--cc-warn", warn);
+    setHostVariable("--cc-danger", danger);
+    setHostVariable("--cc-ok", ok);
+    const scheme = dark ? "dark" : "light";
+    setHostVariable("color-scheme", scheme);
+    if (shell.style.colorScheme !== scheme) shell.style.colorScheme = scheme;
   };
 
   const createRail = (summary) => {
@@ -1273,6 +1337,8 @@ export function createCodexAdapter({ host, placement = "standalone-button", onVi
     resizeObserved = next;
     for (const element of resizeObserved) resizeObserver.observe(element);
   };
+  const colorScheme = matchMedia("(prefers-color-scheme: dark)");
+  colorScheme?.addEventListener?.("change", schedulePlacement);
   window.addEventListener("resize", schedulePlacement);
 
   // 关键：ensurePlacement 自身会改 DOM（隐藏原生面板、写 rail 定位、同步样式等），
@@ -1306,7 +1372,7 @@ export function createCodexAdapter({ host, placement = "standalone-button", onVi
         observer.takeRecords();
         observer.observe(document.documentElement, {
           childList: true, subtree: true, attributes: true,
-          attributeFilter: ["style", "class", "aria-pressed", "aria-expanded", "aria-controls", "data-state"]
+          attributeFilter: ["style", "class", "data-theme", "aria-pressed", "aria-expanded", "aria-controls", "data-state"]
         });
       }
     }
@@ -1378,6 +1444,7 @@ export function createCodexAdapter({ host, placement = "standalone-button", onVi
       observer.disconnect();
       resizeObserver.disconnect();
       layoutResizeObserver.disconnect();
+      colorScheme?.removeEventListener?.("change", schedulePlacement);
       window.removeEventListener("resize", schedulePlacement);
       document.removeEventListener("click", onNativeSummaryClick, true);
       shell.removeEventListener("keydown", onCompanionKeyDown);
@@ -1389,6 +1456,7 @@ export function createCodexAdapter({ host, placement = "standalone-button", onVi
         if (value) host.style.setProperty(property, value, priority);
         else host.style.removeProperty(property);
       }
+      delete host.dataset.surface;
       hostStyles.clear();
       notifyVisibility(false, "disposed");
     }

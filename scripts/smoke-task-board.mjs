@@ -308,47 +308,84 @@ try {
     { threadId: ids.a24, title: '发布 v0.2 检查清单', projectId: '/Users/me/projects/agent-companion' }
   ]); handle.visibilityChanged({ visible: true })`);
   await waitFor(`card.querySelectorAll('.task').length === 5`, "刷新出 5 个任务");
-  // 当前会话 a3 的新回复视为已读；需要人处理且没看过的排最前并跳动，其次是没看过的回复。
+  // 当前会话 a3 的新回复视为已读；需要人处理且没看过的排最前并触发同速脉冲，其次是没看过的回复。
   await evaluate(`unsee(ids.a3); handle.visibilityChanged({ visible: true })`);
-  await waitFor(`rpcCalls.includes('seen') && ${task("a3")}?.querySelector('.status').dataset.icon === 'reply'`, "停在当前会话即已读");
-  assert.deepEqual(await evaluate(`[...card.querySelectorAll('.task')].map((item) => item.querySelector('.status').dataset.icon)`), ["ask", "unread", "alert", "spin", "reply"], "按需要处理的程度排序");
-  assert.equal(await evaluate(`${task("bHidden")}.hasAttribute('data-hop')`), true, "没看过的提问会跳动");
-  assert.equal(await evaluate(`${task("s1")}.hasAttribute('data-hop')`), false, "看过的中断不跳");
-  assert.equal(await evaluate(`${task("a10")}.hasAttribute('data-shake')`), true, "没看过的新回复会摇晃");
-  assert.equal(await evaluate(`${task("a3")}.hasAttribute('data-shake')`), false, "看过的回复不摇");
-  assert.equal(await evaluate(`getComputedStyle(${task("a10")}).backgroundColor`), "rgba(0, 0, 0, 0)", "条目不铺任务色底");
-  assert.notEqual(await evaluate(`getComputedStyle(${task("a10")}, '::before').backgroundColor`), "rgba(0, 0, 0, 0)", "任务色是最左侧的竖条");
-  assert.equal(await evaluate(`getComputedStyle(${task("a10")}.querySelector('.status')).backgroundColor`), "rgba(0, 0, 0, 0)", "图标不铺底块");
-  assert.equal(await evaluate(`${task("a10")}.querySelector('.when').textContent`), "25 分钟前", "时间在标题行右侧");
+  await waitFor(`rpcCalls.includes('seen') && ${task("a3")}?.querySelector('.state').dataset.icon === 'reply'`, "停在当前会话即已读");
+  assert.deepEqual(await evaluate(`[...card.querySelectorAll('.task')].map((item) => item.querySelector('.state').dataset.icon)`), ["ask", "unread", "alert", "spin", "reply"], "按需要处理的程度排序");
+  assert.equal(await evaluate(`${task("bHidden")}.hasAttribute('data-urgent')`), true, "没看过的提问触发提醒脉冲");
+  assert.equal(await evaluate(`${task("s1")}.hasAttribute('data-urgent')`), false, "看过的中断不再闪烁");
+  assert.equal(await evaluate(`${task("a10")}.hasAttribute('data-unread')`), true, "没看过的新回复标记未读");
+  assert.equal(await evaluate(`${task("a3")}.hasAttribute('data-unread')`), false, "看过的回复不标未读");
+  assert.equal(await evaluate(`getComputedStyle(${task("a10")}).backgroundColor`), "rgba(0, 0, 0, 0)", "普通条目不铺彩色底");
+  assert.notEqual(await evaluate(`getComputedStyle(${task("a10")}, '::before').backgroundColor`), "rgba(0, 0, 0, 0)", "任务色是左侧居中短指示线");
+  assert.equal(await evaluate(`${task("a10")}.querySelector('.when').textContent`), "25m", "时间采用紧凑格式放在标题行右侧");
+  assert.equal(await evaluate(`${task("a10")}.querySelector('.when').title`), "25 分钟前", "紧凑时间提供完整中文 tooltip");
+  assert.equal(await evaluate(`${task("a10")}.querySelector('.state').getAttribute('role')`), "img", "状态徽章带 role=img 供辅助技术朗读");
+  // 减少动效模式：含 ::before 左侧指示线和右侧涟漪在内，所有紧急脉冲动画均应停止。
+  await connection.send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] });
+  const reducedMotion = await evaluate(`(() => {
+    const urgent = ${task("bHidden")};
+    const beforeAnim = getComputedStyle(urgent, '::before').animationName;
+    const ringAnim = getComputedStyle(urgent.querySelector('.beacon-ring')).animationName;
+    const running = urgent.getAnimations({ subtree: true }).filter((a) => a.playState === 'running').length;
+    return { beforeAnim, ringAnim, running };
+  })()`);
+  await connection.send("Emulation.setEmulatedMedia", { features: [] });
+  assert.deepEqual(reducedMotion, { beforeAnim: "none", ringAnim: "none", running: 0 }, "prefers-reduced-motion 应关闭含伪元素在内的全部动画");
   assert.equal(await evaluate(`${task("a10")}.querySelector('.meta').textContent`), "已升级到 1.6.2，播放冒烟通过", "第二行是最后一句回复");
-  // 用 offsetLeft 量：图标在摇晃（rotate），外框会随角度变宽。
-  assert.equal(await evaluate(`(() => { const row = ${task("a10")}; return row.querySelector('.meta').offsetLeft - row.querySelector('.status').offsetLeft; })()`), 0, "第二行与图标左对齐");
+  assert.equal(await evaluate(`(() => { const row = ${task("a10")}; return row.querySelector('.meta').offsetLeft - row.querySelector('.name').offsetLeft; })()`), 0, "第二行与标题左对齐");
+  // 右侧状态列纵向对齐：待确认 / 新回复 / 已中断 / 进行中的右边缘应一致。
+  const alignedRight = await evaluate(`(() => {
+    const rights = [${task("bHidden")}, ${task("a10")}, ${task("s1")}, ${task("a24")}].map((row) => Math.round(row.querySelector('.state').getBoundingClientRect().right));
+    return Math.max(...rights) - Math.min(...rights);
+  })()`);
+  assert.ok(alignedRight <= 1, `状态列右边缘应对齐，实际偏差 ${alignedRight}px`);
   assert.equal(await evaluate(`card.querySelector('h2').children.length`), 0, "标题前没有图标");
   assert.equal(await evaluate(`${task("a24")}.querySelector('.meta .live')?.textContent`), "运行 npm test", "进行中显示当前动作");
-  assert.equal(await evaluate(`${task("bHidden")}.querySelector('.tag')?.textContent`), "需要你");
-  assert.deepEqual(await evaluate(`[...card.querySelectorAll('.chip')].map((chip) => chip.textContent)`), ["1 进行中", "2 需要你"]);
+  assert.equal(await evaluate(`${task("bHidden")}.querySelector('.state-text')?.textContent`), "待确认");
+  assert.equal(await evaluate(`${task("s1")}.querySelector('.state-text')?.textContent`), "已中断");
+  assert.deepEqual(await evaluate(`[...card.querySelectorAll('.chip')].map((chip) => chip.textContent)`), ["2 待处理", "1 进行中"]);
   // 实时：进度一变，原条目原地换文字（不重建），旧文字淡出、新文字浮入。
   await evaluate(`globalThis.liveNode = ${task("a24")}; activityOf[ids.a24] = '修改 renderer.mjs'; bump()`);
   await waitFor(`${task("a24")}.querySelector('.meta .label:not(.out)')?.textContent === '修改 renderer.mjs'`, "进度实时更新");
   assert.equal(await evaluate(`${task("a24")} === liveNode`), true, "条目节点被复用");
   await screenshot("task-board-1d-live.png");
   assert.equal(await evaluate(marked("a24")), "4");
-  await evaluate(`(() => { for (const node of card.querySelectorAll('[data-hop], [data-hop] .status')) node.getAnimations().forEach((animation) => { animation.pause(); animation.currentTime = 3200 * 0.22; }); })()`);
-  await screenshot("task-board-1b-hop.png");
-  await evaluate(`card.querySelectorAll('[data-hop], [data-hop] .status').forEach((node) => node.getAnimations().forEach((animation) => { animation.currentTime = 3200 * 0.37; }))`);
-  await screenshot("task-board-1c-knock.png");
-  await evaluate(`card.querySelectorAll('[data-hop], [data-hop] .status').forEach((node) => node.getAnimations().forEach((animation) => { animation.currentTime = 0; animation.play(); }))`);
   await screenshot("task-board-1-light.png");
   await evaluate(`document.documentElement.dataset.theme = 'dark'`);
   await screenshot("task-board-2-dark.png");
   await evaluate(`delete document.documentElement.dataset.theme`);
 
-  // Trace 浮层：悬停任务一会儿，在看板左侧弹出该会话的 Trace；进行中的最后一段随时间生长。
+  // Trace 浮层：悬停任务一会儿，在看板左侧弹出该会话的 Trace；且悬停时不隐藏第一行时间。
   const pointAt = async (expression) => {
     const { x, y } = await evaluate(`(() => { const rect = ${expression}.getBoundingClientRect(); return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }; })()`);
     await connection.send("Input.dispatchMouseEvent", { type: "mouseMoved", x, y });
   };
+  // 260px 窄宽悬停校验：时间保持可见，第二行右侧 actions 与第一行 .when 及第二行 .meta 均不重叠。
+  await evaluate(`document.getElementById('companion').style.width = '260px'`);
+  await pointAt(`${task("a10")}.querySelector('.name')`);
+  await waitFor(`Number.parseFloat(getComputedStyle(${task("a10")}.querySelector('.actions')).opacity) > 0.9`, "悬停后显示操作按钮");
+  const narrowHover = await evaluate(`(() => {
+    const row = ${task("a10")};
+    const when = row.querySelector('.when');
+    const meta = row.querySelector('.meta');
+    const actions = row.querySelector('.actions');
+    const wr = when.getBoundingClientRect();
+    const mr = meta.getBoundingClientRect();
+    const ar = actions.getBoundingClientRect();
+    const intersects = (a, b) => a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+    return {
+      whenVisible: getComputedStyle(when).display !== 'none' && wr.width > 0,
+      actionsVisible: Number.parseFloat(getComputedStyle(actions).opacity) > 0.9,
+      hitWhen: intersects(ar, wr),
+      hitMeta: intersects(ar, mr)
+    };
+  })()`);
+  await evaluate(`document.getElementById('companion').style.width = '332px'`);
+  assert.deepEqual(narrowHover, { whenVisible: true, actionsVisible: true, hitWhen: false, hitMeta: false }, "窄宽悬停时 actions 不遮挡时间或第二行");
+
   await pointAt(`${task("a3")}.querySelector('.name')`);
+  assert.notEqual(await evaluate(`getComputedStyle(${task("a3")}.querySelector('.when')).display`), "none", "悬停时不隐藏时间");
   await waitFor(`card.querySelector('.peek').matches(':popover-open') && card.querySelectorAll('.seg-bar').length === 18`, "悬停打开 Trace 浮层");
   // 内容画出来后浮层变高，ResizeObserver 在下一帧重新贴位置。
   await waitFor(`(() => { const peek = card.querySelector('.peek').getBoundingClientRect(); return peek.top >= 0 && peek.bottom <= innerHeight; })()`, "浮层重新贴位置");
@@ -399,7 +436,7 @@ try {
   await waitFor(`${task("a24")}.querySelector('.progress-count')?.textContent === '2/4'`, "条目显示计划进度");
   assert.deepEqual(await evaluate(`[...${task("a24")}.querySelectorAll('.progress-bar i')].map((cell) => cell.dataset.status)`), ["completed", "completed", "in_progress", "pending"]);
   await waitFor(`${task("a24")}.querySelector('.meta .label:not(.out)')?.textContent === '跑冒烟并截图确认'`, "第二行显示正在做的那一步");
-  assert.equal(await evaluate(`(() => { const row = ${task("a24")}; return row.querySelector('.progress').offsetLeft - row.querySelector('.status').offsetLeft; })()`), 0, "进度条与图标左对齐");
+  assert.equal(await evaluate(`(() => { const row = ${task("a24")}; return row.querySelector('.progress').offsetLeft - row.querySelector('.name').offsetLeft; })()`), 0, "进度条与标题左对齐");
   await screenshot("task-board-6-plan-row.png");
   await pointAt(`${task("a24")}.querySelector('.name')`);
   await waitFor(`card.querySelector('.trace-title')?.textContent === ${task("a24")}.querySelector('.name').textContent && ${task("a24")}.hasAttribute('data-peek')`, "移到别的任务直接切换");
@@ -438,6 +475,13 @@ try {
   await waitFor(`threads.current()?.id === ids.a24 && !document.querySelector('.agent-companion-thread-flow')`, "动画结束并打开会话");
   assert.ok(await evaluate(`flowAtClick.at(-1) >= 3`), "打开会话时落点铺开、液流淡出、整体淡出都已交给 WAAPI");
   const frameStats = await evaluate(`(() => { const list = frames.slice(1, 40); return { max: Math.round(Math.max(...list)), avg: Math.round(list.reduce((a, b) => a + b, 0) / list.length * 10) / 10, slow: list.filter((gap) => gap > 25).length }; })()`);
+  // 点击「已回复且已读」行（.state 为空）：动画起点应退回 .name，照常播放飞向侧栏的动画。
+  await evaluate(`${task("a3")}.querySelector('.main').click()`);
+  await waitFor(`document.querySelectorAll('.agent-companion-thread-flow').length === 1`, "点击已回复已读行也应播放指向动画");
+  await waitFor(`threads.current()?.id === ids.a3 && !document.querySelector('.agent-companion-thread-flow')`, "已读行动画结束并打开会话");
+  // 再切回 a24 保持后续用例的访问顺序（a3、a24、bHidden、s1）。
+  await evaluate(`${task("a24")}.querySelector('.main').click()`);
+  await waitFor(`threads.current()?.id === ids.a24 && !document.querySelector('.agent-companion-thread-flow')`, "切回 a24");
 
   // 折叠项目 + 「显示全部」：按加入时记录的项目精确展开。
   await evaluate(`${task("bHidden")}.querySelector('.main').click()`);
@@ -639,7 +683,7 @@ try {
 
   // 找不到记录的会话切过去也打不开，不列。
   await evaluate(`statusOf['01a18216-3b02-7db0-b394-999999999999'] = 'missing'; bump()`);
-  await waitFor(`card.querySelector('.task[data-id="01a18216-3b02-7db0-b394-999999999999"] .status')?.dataset.icon === 'gone'`, "看板显示找不到记录");
+  await waitFor(`card.querySelector('.task[data-id="01a18216-3b02-7db0-b394-999999999999"] .state')?.dataset.icon === 'gone'`, "看板显示找不到记录");
   await altDown();
   await tab();
   await waitFor(panelOpen, "弹出面板（找不到记录）");
@@ -712,10 +756,11 @@ try {
   await renameS1("准备周五分享");
   await new Promise((resolve) => setTimeout(resolve, 800));
   assert.ok(await evaluate(`Boolean(${task("s1")})`), "撤销放回的归档任务不再被自动移出");
-  // 自己点停止：灰色「已停止」，没有「已中断」标签。
+  // 自己点停止：灰色「已停止」，没有需要你处理的色调。
   await evaluate(`statusOf[ids.s1] = 'stopped'; bump()`);
-  await waitFor(`${task("s1")}?.querySelector('.status')?.dataset.icon === 'stopped'`, "自己停止显示已停止");
-  assert.equal(await evaluate(`${task("s1")}.querySelector('.tag')`), null, "已停止不带需要你处理的标签");
+  await waitFor(`${task("s1")}?.querySelector('.state')?.dataset.icon === 'stopped'`, "自己停止显示已停止");
+  assert.equal(await evaluate(`${task("s1")}.hasAttribute('data-tone')`), false, "已停止不带需要你处理的告警色调");
+  assert.equal(await evaluate(`${task("s1")}.querySelector('.state-text')?.textContent`), "已停止");
   await screenshot("task-board-9-stopped.png");
   await evaluate(`statusOf[ids.s1] = 'interrupted'; bump()`);
 

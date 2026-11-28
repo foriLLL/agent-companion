@@ -9,37 +9,85 @@ export function createCardShell({ document: doc = document, hostId = "agent-comp
   const root = host.attachShadow({ mode: "open" });
   const style = doc.createElement("style");
   style.textContent = `
-    :host { font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
-    .stack { display:flex;flex-direction:column;gap:24px;min-width:0;reading-flow:flex-visual; }
+    :host { font-family:var(--cc-card-font,var(--hg-font-family,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif));
+      -webkit-font-smoothing:antialiased;letter-spacing:-.006em; }
+    .shell { display:block;min-width:0; }
+    .stack { display:flex;flex-direction:column;gap:var(--cc-card-gap,24px);min-width:0;reading-flow:flex-visual; }
     .slot { display:block;flex:none;min-width:0;width:100%;box-sizing:border-box;
-      border:0;border-radius:var(--hg-panel-radius,20px);
-      background:var(--hg-card-bg,var(--cc-card-bg,Canvas));color:var(--cc-card-fg,CanvasText);
-      box-shadow:var(--hg-panel-shadow,var(--elevation-prominent,0 0 0 .5px rgba(26,28,31,.117),0 3px 7.5px #0000000a,0 0 20px #0000000d));
+      border:0;border-radius:var(--cc-card-radius,var(--hg-panel-radius,20px));
+      background:var(--cc-card-surface,var(--hg-card-bg,var(--cc-card-bg,Canvas)));color:var(--cc-card-fg,CanvasText);
+      box-shadow:var(--cc-card-shadow,var(--hg-panel-shadow,var(--elevation-prominent,0 0 0 .5px rgba(26,28,31,.117),0 3px 7.5px #0000000a,0 0 20px #0000000d)));
       overflow:clip;contain:layout style; }
     .slot[hidden] { display:none; }
     .content { display:block;min-width:0; }
-    .error { padding:28px 18px;min-height:160px;box-sizing:border-box; }
+    .error { padding:24px 16px;min-height:140px;box-sizing:border-box; }
     .error[hidden],.content[hidden] { display:none; }
-    .error p { font-size:13px;line-height:1.6;overflow-wrap:anywhere; }
-    .error button { font:inherit;cursor:pointer;padding:8px 14px;border:0;border-radius:10px; }
+    .error p { font-size:12.5px;line-height:1.6;overflow-wrap:anywhere;color:var(--cc-card-fg-muted,inherit); }
+    .error button { font:inherit;font-size:12px;font-weight:500;cursor:pointer;padding:6px 12px;
+      border:1px solid var(--cc-card-border,color-mix(in srgb,currentColor 14%,transparent));
+      border-radius:8px;background:transparent;color:inherit; }
+    .error button:hover { background:var(--cc-card-hover,color-mix(in srgb,currentColor 7%,transparent)); }
     .platform-bar { display:flex;align-items:center;justify-content:flex-end;gap:8px;margin-bottom:8px;
       min-width:0;color:var(--cc-card-fg,CanvasText); }
     .platform-bar[hidden], .platform-bar [hidden] { display:none; }
-    .platform-bar p { margin:0 auto 0 0;font-size:12px;opacity:.7; }
-    .settings-entry { position:relative;display:flex;align-items:center;justify-content:center;gap:4px;height:28px;padding:0 6px 0 8px;
-      border:0;border-radius:12.5px;cursor:pointer;background:transparent;font:inherit;font-size:12px;line-height:1;white-space:nowrap;
-      color:var(--color-token-text-tertiary,color-mix(in srgb,currentColor 50%,transparent));transition:background-color .15s,color .15s; }
+    .platform-bar .brand { display:none;align-items:center;gap:6px;margin-right:auto;min-width:0;
+      font-size:12px;font-weight:600;color:var(--cc-card-fg,CanvasText); }
+    .platform-bar .brand svg { flex:none;width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.2;
+      stroke-linecap:round;stroke-linejoin:round;opacity:.75; }
+    .platform-bar p { margin:0 auto 0 0;font-size:12px;color:var(--cc-card-fg-muted,currentColor); }
+    .settings-entry { position:relative;display:flex;align-items:center;justify-content:center;gap:4px;height:26px;padding:0 6px 0 8px;
+      border:0;border-radius:8px;cursor:pointer;background:transparent;font:inherit;font-size:11.5px;line-height:1;white-space:nowrap;
+      color:var(--cc-card-fg-muted,var(--hg-header-color,var(--color-token-text-tertiary,color-mix(in srgb,currentColor 50%,transparent))));
+      transition:background-color .14s,color .14s; }
     .settings-entry:hover, .settings-entry[aria-expanded="true"] {
-      background:var(--color-token-list-hover-background,color-mix(in srgb,currentColor 7%,transparent));
-      color:var(--color-token-text-primary,currentColor); }
-    .settings-entry:focus-visible { outline:2px solid var(--color-token-focus-border,#3a83f7);outline-offset:2px; }
+      background:var(--cc-card-hover,var(--color-token-list-hover-background,color-mix(in srgb,currentColor 7%,transparent)));
+      color:var(--cc-card-fg,var(--color-token-text-primary,currentColor)); }
+    .settings-entry:focus-visible { outline:2px solid var(--cc-card-focus,var(--color-token-focus-border,#3a83f7));outline-offset:2px; }
     .settings-entry[data-update]::after { content:"";position:absolute;top:4px;right:3px;width:6px;height:6px;border-radius:50%;
       background:#e5484d;box-shadow:0 0 0 1.5px var(--cc-card-bg,Canvas); }
-    .settings-entry svg { flex:none;width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.1;stroke-linecap:round; }
+    .settings-entry svg { flex:none;width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.15;stroke-linecap:round; }
+    /* 统一面板模式（如 Antigravity）：所有启用卡片收拢进一张细边大面板，由各区块自身 border-top 分隔，
+       与 CSS order / DOM 顺序解耦，且空态或仅开设置页时底边不叠双线。 */
+    :host([data-surface="unified"]) .shell {
+      border-radius:var(--cc-card-radius,var(--hg-panel-radius,14px));
+      background:var(--cc-card-surface,var(--cc-card-bg,Canvas));
+      color:var(--cc-card-fg,CanvasText);
+      box-shadow:var(--cc-card-shadow,0 0 0 1px var(--cc-card-border,rgba(17,24,39,.09)));
+      overflow:clip;
+    }
+    :host([data-surface="unified"]) .shell:not(:has(> .platform-bar:not([hidden]), > #companion-settings:not([hidden]), > .stack > .slot:not([hidden]))) {
+      background:transparent;box-shadow:none;
+    }
+    :host([data-surface="unified"]) .platform-bar {
+      margin:0;padding:7px 8px 7px 12px;
+      background:color-mix(in srgb,var(--cc-card-fg,currentColor) 2.5%,transparent);
+    }
+    :host([data-surface="unified"]) .platform-bar .brand { display:inline-flex; }
+    :host([data-surface="unified"]) .platform-bar p { margin:0;font-size:11.5px; }
+    :host([data-surface="unified"]) .settings-entry { width:24px;height:24px;padding:0;border-radius:6px; }
+    :host([data-surface="unified"]) .settings-entry span { display:none; }
+    :host([data-surface="unified"]) .stack { gap:0; }
+    :host([data-surface="unified"]) .platform-bar[hidden] + .stack,
+    :host([data-surface="unified"]) .platform-bar[hidden] + #companion-settings[hidden] + .stack { margin-top:-1px; }
+    :host([data-surface="unified"]) .slot {
+      border-radius:0;background:transparent;box-shadow:none;
+      border-top:1px solid var(--cc-card-border,rgba(17,24,39,.09));
+    }
+    :host([data-surface="unified"]) #companion-settings {
+      margin:0;border-radius:0;box-shadow:none;background:transparent;
+      border-top:1px solid var(--cc-card-border,rgba(17,24,39,.09));
+    }
+    :host([data-surface="unified"]) .platform-bar[hidden] ~ #companion-settings { border-top:0; }
   `;
+  const shell = doc.createElement("div");
+  shell.className = "shell";
   const platformBar = doc.createElement("div");
   platformBar.className = "platform-bar";
   platformBar.hidden = true;
+  const brand = doc.createElement("span");
+  brand.className = "brand";
+  brand.setAttribute("aria-hidden", "true");
+  brand.innerHTML = '<svg viewBox="0 0 16 16"><rect x="2.25" y="2.25" width="4.75" height="4.75" rx="1.4"/><rect x="2.25" y="9" width="4.75" height="4.75" rx="1.4"/><rect x="9" y="9" width="4.75" height="4.75" rx="1.4"/><path d="M11.4 1.9c.2 1.55.8 2.15 2.35 2.35-1.55.2-2.15.8-2.35 2.35-.2-1.55-.8-2.15-2.35-2.35 1.55-.2 2.15-.8 2.35-2.35Z"/></svg><span>Companion</span>';
   const empty = doc.createElement("p");
   empty.hidden = true;
   const settingsButton = doc.createElement("button");
@@ -50,10 +98,11 @@ export function createCardShell({ document: doc = document, hostId = "agent-comp
   settingsButton.setAttribute("aria-controls", "companion-settings");
   settingsButton.title = "Companion 设置";
   settingsButton.innerHTML = '<span>卡片配置</span><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 5h5.25m3.5 0h2.25M2.5 11h2.25m3.5 0h5.25"/><circle cx="9.5" cy="5" r="1.75"/><circle cx="6.5" cy="11" r="1.75"/></svg>';
-  platformBar.append(empty, settingsButton);
+  platformBar.append(brand, empty, settingsButton);
   const stack = doc.createElement("div");
   stack.className = "stack";
-  root.append(style, platformBar, stack);
+  shell.append(platformBar, stack);
+  root.append(style, shell);
   const slots = new Map();
   let settings;
   let updateTimer = null;
@@ -159,7 +208,7 @@ export function createCardShell({ document: doc = document, hostId = "agent-comp
         doc.removeEventListener?.("visibilitychange", refreshVisible);
       };
       settings.element.id = "companion-settings";
-      root.insertBefore(settings.element, stack);
+      shell.insertBefore(settings.element, stack);
       platformBar.hidden = false;
     },
     // 后送来的卡片带着自己的设置时，在设置面板里补上它那一节。

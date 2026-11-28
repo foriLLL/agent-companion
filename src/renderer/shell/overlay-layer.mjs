@@ -1,13 +1,18 @@
+import { createThemeMirror } from "./mirror-theme.mjs";
+
 // 卡片抽屉之外、页面最顶层的浮层，例如快捷键唤出的面板。抽屉收起时整块 display:none + inert，
 // 放在卡片自己 ShadowRoot 里的浮层（含 popover）都显示不出来，所以由平台在文档根上另开一层。
 // 宿主节点第一次取 root 时才创建，被移走后下次取时重建；卡片卸载时由 effects 移除。
 // 宿主本身不接收指针事件，业务在浮层里需要交互的元素自行设置 pointer-events。
-export function createOverlayLayer({ document: doc, cardId, effects }) {
+export function createOverlayLayer({ document: doc, cardId, effects, source = null }) {
   let host = null;
   let root = null;
   let disposed = false;
+  const mirror = createThemeMirror({ doc, source });
+
   effects.add(() => {
     disposed = true;
+    mirror.disconnect();
     host?.remove();
     host = null;
     root = null;
@@ -25,6 +30,7 @@ export function createOverlayLayer({ document: doc, cardId, effects }) {
         root = host.attachShadow({ mode: "open" });
         doc.documentElement.append(host);
       }
+      mirror.attach(host);
       return root;
     }
   });

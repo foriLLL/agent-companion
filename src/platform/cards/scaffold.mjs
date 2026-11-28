@@ -14,7 +14,7 @@ export function mount(ctx) {
   const document = ctx.root.ownerDocument;
   const body = document.createElement("section");
   const style = document.createElement("style");
-  style.textContent = ":host{display:block}.body{padding:20px;font:13px/1.5 system-ui;color:inherit}.body h2{margin:0 0 12px;font-size:16px}.body button{font:inherit;padding:6px 10px;margin:0 8px 8px 0}.body [role=status]{min-height:1.5em}";
+  style.textContent = ":host{display:block}.body{padding:10px 13px 12px;font:12.5px/1.45 var(--cc-card-font,inherit);color:inherit}.body h2{margin:0 0 8px;font-size:var(--cc-section-title-size,13px);font-weight:var(--cc-section-title-weight,600);color:var(--cc-section-title-color,inherit)}.body button{font:inherit;font-size:11.5px;font-weight:500;padding:5px 10px;margin:0 8px 8px 0;border:1px solid var(--cc-card-border,color-mix(in srgb,currentColor 14%,transparent));border-radius:8px;background:transparent;color:inherit;cursor:pointer}.body [role=status]{min-height:1.5em}";
   body.className = "body";
   const heading = document.createElement("h2");
   const increment = document.createElement("button");

@@ -13,6 +13,19 @@ export function createAntigravityAdapter({ host, placement = "standalone-button"
   const RAIL_ID = "agent-companion-rail";
   const ENTRY_MARK = "data-agent-companion-entry";
   const OVERVIEW_SELECTOR = '[data-testid="toggle-overview-panel"]';
+  const ROUTE_ID = /\/c\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:[/?#]|$)/i;
+  const CLIP_OVERFLOW = new Set(["hidden", "clip", "scroll", "auto"]);
+  const REPLACED_TAGS = new Set(["IFRAME", "WEBVIEW", "CANVAS", "VIDEO", "IMG", "OBJECT", "EMBED"]);
+  const LAYOUT_TRANSITIONS = new Set([
+    "width", "min-width", "max-width", "height", "min-height", "max-height",
+    "flex", "flex-basis", "flex-grow", "flex-shrink", "grid-template-columns", "grid-template-rows",
+    "left", "right", "top", "bottom", "inset", "margin-left", "margin-right", "padding-left", "padding-right",
+    "transform", "translate", "opacity", "visibility", "clip-path"
+  ]);
+  const OPEN_MUTATION_OPTIONS = { childList: true, subtree: true, attributes: true, attributeFilter: ["class", "style", "hidden", "data-state", "aria-hidden"] };
+  // 弹层关闭时无需监听全页属性变化，避免流式输出期间频繁触发重检。
+  const IDLE_MUTATION_OPTIONS = { childList: true, subtree: true };
+  const IDLE_CHECK_MS = 120;
   const PANEL_WIDTH = 380;
   // 标题栏按钮正常态与选中态的 class（Antigravity 的 HeaderButtonIcon：选中时换成 secondary 底色）。
   const NORMAL_CLASSES = ["bg-transparent", "text-secondary-foreground"];
@@ -29,6 +42,8 @@ export function createAntigravityAdapter({ host, placement = "standalone-button"
   let open = false;
   let anchor = null;
   let frame = 0;
+  let throttleTimer = 0;
+  let lastEntryCheck = 0;
   let lastVisibility = null;
   const hostStyles = new Map();
 
@@ -91,27 +106,77 @@ export function createAntigravityAdapter({ host, placement = "standalone-button"
   const syncStyles = () => {
     const root = window.getComputedStyle(document.documentElement);
     const token = (name) => root.getPropertyValue(name).trim();
-    const dark = window.matchMedia?.("(prefers-color-scheme: dark)").matches
-      || document.documentElement.classList.contains("dark");
-    const bg = token("--card") || token("--background") || (dark ? "#1e1f22" : "#fff");
-    const surface = token("--background") || bg;
-    const fg = token("--foreground") || (dark ? "#e8e8ea" : "#1f1f1f");
-    const border = token("--border") || (dark ? "rgba(255,255,255,.12)" : "rgba(0,0,0,.1)");
+    const colorToken = (name) => {
+      const value = token(name);
+      return value && (!window.CSS?.supports || window.CSS.supports("color", value)) ? value : "";
+    };
+    const html = document.documentElement;
+    const themeAttr = (html.getAttribute("data-theme") || html.dataset?.theme || "").toLowerCase();
+    const dark = html.classList.contains("dark") || themeAttr === "dark" || root.colorScheme === "dark"
+      ? true
+      : html.classList.contains("light") || themeAttr === "light" || root.colorScheme === "light"
+        ? false
+        : Boolean(window.matchMedia?.("(prefers-color-scheme: dark)").matches);
+    const bg = colorToken("--card") || colorToken("--popover") || colorToken("--background") || (dark ? "#1e1f22" : "#fff");
+    const surface = colorToken("--background") || bg;
+    const fg = colorToken("--card-foreground") || colorToken("--foreground") || (dark ? "#e8e8ea" : "#1f1f1f");
+    const muted = colorToken("--muted-foreground") || (dark ? "#9aa0a6" : "#656c76");
+    const border = colorToken("--border") || (dark ? "rgba(255,255,255,.12)" : "rgba(17,24,39,.09)");
+    const borderStrong = `color-mix(in srgb, ${fg} ${dark ? "16%" : "15%"}, transparent)`;
+    const inputBg = `color-mix(in srgb, ${fg} ${dark ? "4.5%" : "3.5%"}, transparent)`;
+    const focus = colorToken("--ring") || "#3a83f7";
+    const hover = `color-mix(in srgb, ${fg} ${dark ? "6%" : "4.5%"}, transparent)`;
+    const active = `color-mix(in srgb, ${fg} ${dark ? "10%" : "8%"}, transparent)`;
+    const barTrack = `color-mix(in srgb, ${fg} ${dark ? "11%" : "8%"}, transparent)`;
+    const barFill = dark ? "#d4d8e1" : "#2c313a";
+    const accent = dark ? "#60a5fa" : "#2563eb";
+    const warn = dark ? "#f09c42" : "#9f4f0c";
+    const danger = dark ? "#f06d67" : "#c42b25";
+    const ok = dark ? "#46b984" : "#238559";
+    const font = window.getComputedStyle(document.body).fontFamily || "system-ui, -apple-system, sans-serif";
+    const radius = "14px";
+    const shadow = `0 0 0 1px ${border}`;
+    const cardSurface = `color-mix(in srgb, ${bg} ${dark ? "94%" : "92%"}, transparent)`;
+    host.dataset.surface = "unified";
     setHostVariable("--hg-panel-bg", bg);
     setHostVariable("--hg-panel-color", fg);
-    setHostVariable("--hg-panel-radius", "14px");
-    // 毛玻璃底板上的卡片只要一圈细边，避免多层投影显得脏。
-    setHostVariable("--hg-panel-shadow", `0 0 0 1px ${border}`);
-    // 卡片区顶部「卡片配置」直接落在毛玻璃底板上，本身保持透明。
+    setHostVariable("--hg-panel-radius", radius);
+    // 毛玻璃底板上的统一容器只要一圈细边，避免多层投影显得脏。
+    setHostVariable("--hg-panel-shadow", shadow);
     setHostVariable("--hg-header-bg", "transparent");
-    setHostVariable("--hg-header-color", token("--muted-foreground") || (dark ? "#9aa0a6" : "#80868b"));
+    setHostVariable("--hg-header-color", muted);
     setHostVariable("--hg-divider", border);
-    setHostVariable("--hg-font-family", window.getComputedStyle(document.body).fontFamily || "system-ui, -apple-system, sans-serif");
+    setHostVariable("--hg-font-family", font);
     setHostVariable("--hg-font-weight", "400");
     setHostVariable("--cc-card-bg", bg);
-    setHostVariable("--hg-card-bg", `color-mix(in srgb, ${bg} ${dark ? "82%" : "82%"}, transparent)`);
+    setHostVariable("--cc-card-surface", cardSurface);
+    setHostVariable("--hg-card-bg", cardSurface);
     setHostVariable("--cc-card-fg", fg);
+    setHostVariable("--cc-card-fg-muted", muted);
     setHostVariable("--cc-card-border", border);
+    setHostVariable("--cc-card-border-strong", borderStrong);
+    setHostVariable("--cc-card-input-bg", inputBg);
+    setHostVariable("--cc-card-radius", radius);
+    setHostVariable("--cc-card-row-radius", "8px");
+    setHostVariable("--cc-card-shadow", shadow);
+    setHostVariable("--cc-card-font", font);
+    setHostVariable("--cc-card-hover", hover);
+    setHostVariable("--cc-card-active", active);
+    setHostVariable("--cc-card-focus", focus);
+    setHostVariable("--cc-card-accent", accent);
+    setHostVariable("--cc-card-gap", "0px");
+    setHostVariable("--cc-section-title-size", "11.5px");
+    setHostVariable("--cc-section-title-weight", "500");
+    setHostVariable("--cc-section-title-color", muted);
+    setHostVariable("--cc-bar-track", barTrack);
+    setHostVariable("--cc-bar-fill", barFill);
+    setHostVariable("--cc-warn", warn);
+    setHostVariable("--cc-danger", danger);
+    setHostVariable("--cc-ok", ok);
+    const scheme = dark ? "dark" : "light";
+    setHostVariable("color-scheme", scheme);
+    if (rail.style.colorScheme !== scheme) rail.style.colorScheme = scheme;
+    if (floating.style.colorScheme !== scheme) floating.style.colorScheme = scheme;
     // 弹层与羽化背板的外观跟着主题变化（它们在 host 外面，读不到 host 上的变量）。
     backdrop.style.setProperty("--hg-rail-bg", `color-mix(in srgb, ${surface} ${dark ? "54%" : "48%"}, transparent)`);
     for (const name of ["--hg-panel-bg", "--hg-panel-color", "--hg-panel-radius", "--hg-panel-shadow"]) {
@@ -119,6 +184,123 @@ export function createAntigravityAdapter({ host, placement = "standalone-button"
       floating.style.setProperty(name, host.style.getPropertyValue(name));
     }
     syncEntryColors();
+  };
+
+  const setStyle = (node, property, value) => {
+    if (node.style[property] !== value) node.style[property] = value;
+  };
+  const isOwnNode = (node) => {
+    if (!node) return false;
+    if (node === rail || node === backdrop || node === floating) return true;
+    const el = node.nodeType === 1 ? node : node.parentElement;
+    if (!el) return false;
+    return rail.contains(el) || floating.contains(el) || el.hasAttribute?.(ENTRY_MARK)
+      || Boolean(el.closest?.(`[${ENTRY_MARK}]`))
+      || (typeof el.id === "string" && el.id.startsWith("agent-companion"));
+  };
+  const colorAlpha = (value) => {
+    if (!value || value === "transparent" || value === "none") return 0;
+    const slash = /\/\s*([\d.]+)(%?)\s*\)$/.exec(value);
+    if (slash) {
+      const num = Number.parseFloat(slash[1]);
+      return Number.isFinite(num) ? (slash[2] ? num / 100 : num) : 0;
+    }
+    const rgba = /^(?:rgba|hsla)\([^,]+,[^,]+,[^,]+,\s*([\d.]+)(%?)\s*\)$/i.exec(value);
+    if (rgba) {
+      const num = Number.parseFloat(rgba[1]);
+      return Number.isFinite(num) ? (rgba[2] ? num / 100 : num) : 0;
+    }
+    return /^(?:rgb|hsl|hwb|lab|lch|oklab|oklch|color)\(/i.test(value) ? 1 : 0;
+  };
+  const isOpaqueCover = (el) => {
+    const style = window.getComputedStyle(el);
+    if (style.display === "none" || style.visibility === "hidden" || style.visibility === "collapse") return false;
+    if (!REPLACED_TAGS.has(el.tagName) && colorAlpha(style.backgroundColor) < 0.9) return false;
+    for (let node = el; node && node !== document.documentElement; node = node.parentElement) {
+      if (Number.parseFloat(window.getComputedStyle(node).opacity) < 0.9) return false;
+    }
+    return true;
+  };
+  // 计算节点经视口与祖先 overflow 裁剪后的可见矩形；隐藏、零尺寸、透明或被折叠容器裁没时返回 null。
+  const visibleRect = (node) => {
+    if (!node?.isConnected) return null;
+    const style = window.getComputedStyle(node);
+    if (style.display === "none" || style.visibility === "hidden" || style.visibility === "collapse" || Number.parseFloat(style.opacity) <= 0.01) {
+      return null;
+    }
+    const rect = node.getBoundingClientRect();
+    let left = Math.max(0, rect.left);
+    let top = Math.max(0, rect.top);
+    let right = Math.min(window.innerWidth, rect.right);
+    let bottom = Math.min(window.innerHeight, rect.bottom);
+    if (right <= left || bottom <= top) return null;
+    let fixed = style.position === "fixed";
+    for (let parent = node.parentElement; parent && parent !== document.documentElement; parent = parent.parentElement) {
+      const parentStyle = window.getComputedStyle(parent);
+      if (parentStyle.display === "none" || Number.parseFloat(parentStyle.opacity) <= 0.01) return null;
+      if (!fixed) {
+        const clipX = CLIP_OVERFLOW.has(parentStyle.overflowX);
+        const clipY = CLIP_OVERFLOW.has(parentStyle.overflowY);
+        if (clipX || clipY) {
+          const parentRect = parent.getBoundingClientRect();
+          if (clipX) {
+            left = Math.max(left, parentRect.left);
+            right = Math.min(right, parentRect.right);
+          }
+          if (clipY) {
+            top = Math.max(top, parentRect.top);
+            bottom = Math.min(bottom, parentRect.bottom);
+          }
+          if (right <= left || bottom <= top) return null;
+        }
+        if (parentStyle.position === "fixed") fixed = true;
+      }
+    }
+    return { left, top, right, bottom, width: right - left, height: bottom - top };
+  };
+  const isPointExposed = (node, x, y, { allowDialogs = false } = {}) => {
+    if (typeof document.elementsFromPoint !== "function") return true;
+    const allowAncestor = window.getComputedStyle(node).pointerEvents === "none";
+    const px = Math.min(Math.max(0, x), Math.max(0, window.innerWidth - 1));
+    const py = Math.min(Math.max(0, y), Math.max(0, window.innerHeight - 1));
+    for (const el of document.elementsFromPoint(px, py)) {
+      if (el === node || node.contains(el) || (allowAncestor && el.contains(node))) return true;
+      if (isOwnNode(el)) continue;
+      if (el.closest?.('[role="tooltip"]')) continue;
+      if (allowDialogs && el.closest?.('[role="menu"], [role="listbox"], [role="dialog"], [role="alertdialog"]')) return true;
+      if (isOpaqueCover(el)) return false;
+    }
+    return false;
+  };
+  const isAnchorVisible = (button) => {
+    const rect = visibleRect(button);
+    return Boolean(rect && rect.width >= 1 && rect.height >= 1
+      && isPointExposed(button, rect.left + rect.width / 2, rect.top + rect.height / 2, { allowDialogs: true }));
+  };
+  // 找当前真正可见且未被全屏侧栏盖住的正文对话容器。
+  const findVisiblePane = (minWidth) => {
+    const currentId = ROUTE_ID.exec(window.location.pathname)?.[1]?.toLowerCase() ?? null;
+    const candidates = [];
+    for (const node of document.querySelectorAll("[data-cascade-id]")) {
+      if (node.closest("[data-sidebar-row-id]")) continue;
+      const rect = visibleRect(node);
+      if (!rect || rect.width < minWidth || rect.height < 1) continue;
+      const points = [
+        [rect.left + rect.width * 0.2, rect.top + rect.height * 0.5],
+        [rect.left + rect.width * 0.5, rect.top + rect.height * 0.5],
+        [rect.left + rect.width * 0.8, rect.top + rect.height * 0.5],
+        [rect.left + rect.width * 0.5, rect.top + rect.height * 0.2],
+        [rect.left + rect.width * 0.5, rect.top + rect.height * 0.8]
+      ];
+      if (!points.some(([x, y]) => isPointExposed(node, x, y))) continue;
+      const id = node.getAttribute("data-cascade-id")?.toLowerCase() ?? "";
+      candidates.push({ node, rect, current: Boolean(currentId && id === currentId) });
+    }
+    if (!candidates.length) return null;
+    const preferred = candidates.filter((item) => item.current);
+    const pool = preferred.length ? preferred : candidates;
+    pool.sort((a, b) => (b.rect.width - a.rect.width) || (b.rect.height - a.rect.height));
+    return pool[0];
   };
 
   // ---------- 标题栏入口 ----------
@@ -153,27 +335,28 @@ export function createAntigravityAdapter({ host, placement = "standalone-button"
     for (const button of entries()) {
       const svg = button.querySelector("svg");
       if (open) {
-        button.style.removeProperty("color");
-        svg?.style.removeProperty("opacity");
+        if (button.style.color) button.style.removeProperty("color");
+        if (svg?.style.opacity) svg.style.removeProperty("opacity");
         continue;
       }
       const { color, opacity } = readNativeIconStyle(button);
-      if (color) button.style.color = color;
-      else button.style.removeProperty("color");
+      if (color) setStyle(button, "color", color);
+      else if (button.style.color) button.style.removeProperty("color");
       if (svg) {
-        if (opacity) svg.style.opacity = opacity;
-        else svg.style.removeProperty("opacity");
+        if (opacity) setStyle(svg, "opacity", opacity);
+        else if (svg.style.opacity) svg.style.removeProperty("opacity");
       }
     }
   };
   const setEntriesExpanded = () => {
+    const expanded = String(open);
     for (const button of entries()) {
       button.classList.remove(...(open ? NORMAL_CLASSES : SELECTED_CLASSES));
       button.classList.add(...(open ? SELECTED_CLASSES : NORMAL_CLASSES));
-      button.setAttribute("aria-expanded", String(open));
+      if (button.getAttribute("aria-expanded") !== expanded) button.setAttribute("aria-expanded", expanded);
     }
     syncEntryColors();
-    floatingButton.setAttribute("aria-expanded", String(open));
+    if (floatingButton.getAttribute("aria-expanded") !== expanded) floatingButton.setAttribute("aria-expanded", expanded);
   };
   const makeEntry = (reference, tier) => {
     const button = document.createElement("button");
@@ -190,14 +373,16 @@ export function createAntigravityAdapter({ host, placement = "standalone-button"
     button.addEventListener("click", onEntryClick);
     return button;
   };
-  // 第二级锚点：没有 Overview 开关（新建会话、首页等）时，找右上角标题栏里最右侧的原生图标按钮（如 ⋮）。
+  // 第二级锚点：没有可见的 Overview 开关（新建会话、首页、全屏侧栏等）时，找右上角标题栏里最右侧的原生图标按钮（如 ⋮）。
   const findTrailingAnchor = () => {
     const candidates = [...document.querySelectorAll("button")].filter((button) => {
       if (button.hasAttribute(ENTRY_MARK) || !button.querySelector("svg") || button.textContent.trim()) return false;
       if (button.closest('[data-sidebar-row-id], [role="dialog"], [role="menu"]')) return false;
-      const rect = button.getBoundingClientRect();
-      return rect.width > 0 && rect.height > 0 && rect.width <= 48 && rect.height <= 48
-        && rect.top >= 0 && rect.bottom <= 64 && rect.left >= window.innerWidth / 2;
+      const box = button.getBoundingClientRect();
+      if (box.width < 1 || box.height < 1 || box.width > 48 || box.height > 48 || box.top < 0 || box.bottom > 64 || box.left < window.innerWidth / 2) return false;
+      const rect = visibleRect(button);
+      if (!rect || rect.width > 48 || rect.height > 48 || rect.top < 0 || rect.bottom > 64 || rect.left < window.innerWidth / 2) return false;
+      return isPointExposed(button, rect.left + rect.width / 2, rect.top + rect.height / 2, { allowDialogs: true });
     });
     if (!candidates.length) return null;
     candidates.sort((a, b) => b.getBoundingClientRect().right - a.getBoundingClientRect().right);
@@ -215,11 +400,11 @@ export function createAntigravityAdapter({ host, placement = "standalone-button"
   };
   let entryTier = "floating";
   const ensureEntries = () => {
-    const overviews = [...document.querySelectorAll(OVERVIEW_SELECTOR)];
+    const overviews = [...document.querySelectorAll(OVERVIEW_SELECTOR)].filter(isAnchorVisible);
     if (overviews.length > 0) {
-      // Overview 开关被 React 移除或切回会话页时，清理其它层级或孤立入口。
+      // Overview 开关被 React 移除、遮挡或切回会话页时，清理其它层级或孤立入口。
       for (const entry of entries()) {
-        if (entry.getAttribute(ENTRY_MARK) !== "overview" || !entry.nextElementSibling?.matches?.(OVERVIEW_SELECTOR)) entry.remove();
+        if (entry.getAttribute(ENTRY_MARK) !== "overview" || !overviews.includes(entry.nextElementSibling)) entry.remove();
       }
       for (const overview of overviews) {
         if (overview.previousElementSibling?.hasAttribute?.(ENTRY_MARK)) continue;
@@ -238,7 +423,7 @@ export function createAntigravityAdapter({ host, placement = "standalone-button"
     }
     const anchored = entries().length > 0;
     floating.hidden = disposed || anchored || !(hasCards || hasSettings);
-    if (anchor && !anchor.isConnected) anchor = null;
+    if (anchor && (!anchor.isConnected || !isAnchorVisible(anchor))) anchor = null;
     setEntriesExpanded();
   };
 
@@ -251,47 +436,103 @@ export function createAntigravityAdapter({ host, placement = "standalone-button"
     const top = Math.max(0, rect.top - 14);
     const right = Math.min(window.innerWidth, rect.right + 8);
     const bottom = Math.min(window.innerHeight, rect.bottom + 14);
-    backdrop.style.left = `${left}px`;
-    backdrop.style.top = `${top}px`;
-    backdrop.style.width = `${Math.max(0, right - left)}px`;
-    backdrop.style.height = `${Math.max(0, bottom - top)}px`;
+    setStyle(backdrop, "left", `${left}px`);
+    setStyle(backdrop, "top", `${top}px`);
+    setStyle(backdrop, "width", `${Math.max(0, right - left)}px`);
+    setStyle(backdrop, "height", `${Math.max(0, bottom - top)}px`);
+  };
+
+  let layoutObserved = [];
+  let layoutResizeObserver = null;
+  const syncLayoutObservation = (pane, target) => {
+    if (!layoutResizeObserver) return;
+    const next = [];
+    const add = (node) => {
+      if (!node || node === document.documentElement || isOwnNode(node) || next.includes(node)) return;
+      next.push(node);
+    };
+    if (!disposed && !rail.hidden) {
+      // 盯住对话容器、它的祖先链（含可能做 width:0 + overflow:hidden 折叠的外层）以及同级分栏，
+      // 侧栏展开、拖拽、动画关闭或全屏切换期间每帧都能同步更新弹层位置。
+      const trackedPanes = pane ? [pane] : [...document.querySelectorAll("[data-cascade-id]")].filter((node) => !node.closest("[data-sidebar-row-id]")).slice(0, 3);
+      for (const node of trackedPanes) {
+        add(node);
+        let ancestor = node.parentElement;
+        for (let depth = 0; ancestor && ancestor !== document.documentElement && depth < 12; depth += 1) {
+          add(ancestor);
+          if (depth < 2) {
+            let siblings = 0;
+            for (const child of ancestor.children) {
+              if (siblings >= 8) break;
+              if (!isOwnNode(child)) { add(child); siblings += 1; }
+            }
+          }
+          ancestor = ancestor.parentElement;
+        }
+      }
+      if (target?.isConnected) {
+        add(target);
+        add(target.parentElement);
+      }
+      add(document.body);
+    }
+    if (next.length === layoutObserved.length && next.every((el, index) => el === layoutObserved[index])) return;
+    for (const el of layoutObserved) layoutResizeObserver.unobserve(el);
+    layoutObserved = next;
+    for (const el of layoutObserved) layoutResizeObserver.observe(el);
   };
 
   const position = () => {
-    if (rail.hidden) { syncBackdrop(); return; }
-    const target = anchor?.isConnected ? anchor : entries()[0] ?? null;
+    if (rail.hidden) { syncLayoutObservation(null, null); syncBackdrop(); return; }
+    const target = (anchor?.isConnected && isAnchorVisible(anchor)) ? anchor : entries().find(isAnchorVisible) ?? null;
+    const targetRect = target ? visibleRect(target) : null;
     const width = Math.min(PANEL_WIDTH, window.innerWidth - 16);
-    if (target) {
-      const rect = target.getBoundingClientRect();
-      // 卡片右边贴着对话区的右边框留 16px（rail 自身右内边距 10px，再让 6px），而不是跟着标题栏按钮：
-      // 按钮离对话区右边框还有一段，跟着它右边会空出一大块。对话区取正文的对话容器（带 data-cascade-id、
-      // 不在侧栏条目里）；没有会话页时退到窗口右边。
-      const pane = [...document.querySelectorAll("[data-cascade-id]")].find((node) => !node.closest("[data-sidebar-row-id]"));
-      const paneRight = pane?.getBoundingClientRect().right;
-      const edge = Number.isFinite(paneRight) && paneRight > width ? Math.min(paneRight, window.innerWidth) : Math.max(rect.right, window.innerWidth - 8);
-      rail.style.left = `${Math.max(8, Math.min(edge - 6 - width, window.innerWidth - width - 8))}px`;
-      rail.style.right = "auto";
-      rail.style.top = `${Math.round(rect.bottom + 6)}px`;
-      rail.style.bottom = "auto";
-      rail.style.maxHeight = `calc(100vh - ${Math.round(rect.bottom + 18)}px)`;
+    // 卡片右边贴着对话区的右边框留 16px（rail 自身右内边距 10px，再让 6px），而不是跟着标题栏按钮：
+    // 按钮离对话区右边框还有一段，跟着它右边会空出一大块。对话区取当前可见且未被全屏侧栏盖住的正文容器
+    // （带 data-cascade-id、不在侧栏条目里）；没有可见对话区（如首页或侧栏全屏）时退到窗口右边。
+    const pane = findVisiblePane(Math.min(200, Math.floor(width * 0.6)));
+    syncLayoutObservation(pane?.node ?? null, target);
+    if (targetRect) {
+      const paneRight = pane?.rect.right;
+      const edge = Number.isFinite(paneRight) && paneRight > width ? Math.min(paneRight, window.innerWidth) : Math.max(targetRect.right, window.innerWidth - 8);
+      setStyle(rail, "left", `${Math.max(8, Math.min(edge - 6 - width, window.innerWidth - width - 8))}px`);
+      setStyle(rail, "right", "auto");
+      setStyle(rail, "top", `${Math.round(targetRect.bottom + 6)}px`);
+      setStyle(rail, "bottom", "auto");
+      setStyle(rail, "maxHeight", `calc(100vh - ${Math.round(targetRect.bottom + 18)}px)`);
     } else {
-      rail.style.left = "auto";
-      rail.style.right = "16px";
-      rail.style.top = "94px";
-      rail.style.bottom = "auto";
-      rail.style.maxHeight = "calc(100vh - 110px)";
+      setStyle(rail, "left", "auto");
+      setStyle(rail, "right", "16px");
+      setStyle(rail, "top", "94px");
+      setStyle(rail, "bottom", "auto");
+      setStyle(rail, "maxHeight", "calc(100vh - 110px)");
     }
     syncBackdrop();
   };
 
+  let observer = null;
+  const observeDom = () => {
+    if (disposed || !observer) return;
+    observer.takeRecords();
+    observer.observe(document.documentElement, open ? OPEN_MUTATION_OPTIONS : IDLE_MUTATION_OPTIONS);
+  };
+  const withObserverPaused = (fn) => {
+    observer?.disconnect();
+    try { return fn(); }
+    finally { observeDom(); }
+  };
+
   const render = () => {
     if (disposed) return;
+    if (throttleTimer) { window.clearTimeout(throttleTimer); throttleTimer = 0; }
     const available = hasCards || hasSettings;
     const visible = open && available;
-    rail.hidden = !visible;
-    if (visible) { syncStyles(); position(); }
-    else syncBackdrop();
-    setEntriesExpanded();
+    withObserverPaused(() => {
+      rail.hidden = !visible;
+      if (visible) { syncStyles(); ensureEntries(); lastEntryCheck = Date.now(); position(); }
+      else { syncLayoutObservation(null, null); syncBackdrop(); }
+      setEntriesExpanded();
+    });
     notifyVisibility(visible, visible ? "popover" : available ? "closed" : "no-cards");
   };
   const setOpen = (value, source = null) => {
@@ -310,8 +551,7 @@ export function createAntigravityAdapter({ host, placement = "standalone-button"
 
   // 卡片是叠在对话旁的浮层，点对话、点输入框都不收起；只由入口按钮、⌥⌘J 开关。
   // Esc 只在焦点落在卡片里时收起：输入框里的 Esc 是 Antigravity 自己的（例如停止生成）。
-  const ownsEvent = (event) => event.composedPath().some((node) => node === rail || node === floating
-    || node?.hasAttribute?.(ENTRY_MARK) || (typeof node?.id === "string" && node.id.startsWith("agent-companion")));
+  const ownsEvent = (event) => event.composedPath().some((node) => isOwnNode(node));
   // ⌥⌘J 在 window 捕获阶段处理，先于页面里的任何快捷键。
   const onToggleKeyDown = (event) => {
     if (event.code !== "KeyJ" || !event.metaKey || !event.altKey || event.shiftKey || event.ctrlKey) return;
@@ -329,16 +569,45 @@ export function createAntigravityAdapter({ host, placement = "standalone-button"
     event.stopPropagation();
     setOpen(false);
   };
-  const schedule = () => {
-    if (frame || disposed) return;
-    frame = window.requestAnimationFrame(() => {
-      frame = 0;
-      try { ensureEntries(); position(); } catch (error) { reportError(error); }
-    });
+  const hasStableEntry = () => {
+    const list = entries();
+    return list.length > 0 && list.every((node) => node.isConnected && Boolean(node.nextElementSibling));
   };
-  const onThemeChange = () => { if (!rail.hidden) syncStyles(); };
-  const observer = new MutationObserver(schedule);
-  observer.observe(document.documentElement, { childList: true, subtree: true });
+  const flush = () => {
+    frame = 0;
+    if (disposed) return;
+    lastEntryCheck = Date.now();
+    try { withObserverPaused(() => { ensureEntries(); position(); }); } catch (error) { reportError(error); }
+  };
+  const schedule = ({ immediate = false } = {}) => {
+    if (frame || disposed) return;
+    if (!open && !immediate && hasStableEntry()) {
+      const wait = IDLE_CHECK_MS - (Date.now() - lastEntryCheck);
+      if (wait > 0) {
+        if (!throttleTimer) {
+          throttleTimer = window.setTimeout(() => {
+            throttleTimer = 0;
+            schedule({ immediate: true });
+          }, wait);
+        }
+        return;
+      }
+    }
+    if (throttleTimer) { window.clearTimeout(throttleTimer); throttleTimer = 0; }
+    frame = window.requestAnimationFrame(flush);
+  };
+  const onResize = () => schedule({ immediate: true });
+  const onThemeChange = () => { if (!disposed) withObserverPaused(syncStyles); };
+  const onMotionEnd = (event) => {
+    if (disposed || ownsEvent(event)) return;
+    if (event.type !== "animationend" && event.propertyName && !LAYOUT_TRANSITIONS.has(event.propertyName)) return;
+    schedule();
+  };
+  observer = new MutationObserver((records) => {
+    if (records.some((record) => !isOwnNode(record.target))) schedule();
+  });
+  observeDom();
+  layoutResizeObserver = window.ResizeObserver ? new window.ResizeObserver(() => schedule({ immediate: true })) : null;
   const resizeObserver = window.ResizeObserver ? new window.ResizeObserver(syncBackdrop) : null;
   resizeObserver?.observe(rail);
   const themeObserver = new MutationObserver(onThemeChange);
@@ -347,10 +616,12 @@ export function createAntigravityAdapter({ host, placement = "standalone-button"
   colorScheme?.addEventListener?.("change", onThemeChange);
   window.addEventListener("keydown", onToggleKeyDown, true);
   keyRoot.addEventListener("keydown", onEscapeKeyDown);
-  window.addEventListener("resize", schedule);
+  window.addEventListener("resize", onResize);
+  document.addEventListener("transitionend", onMotionEnd, true);
+  document.addEventListener("transitioncancel", onMotionEnd, true);
+  document.addEventListener("animationend", onMotionEnd, true);
 
-  syncStyles();
-  ensureEntries();
+  withObserverPaused(() => { syncStyles(); ensureEntries(); lastEntryCheck = Date.now(); });
   render();
 
   return Object.freeze({
@@ -362,7 +633,7 @@ export function createAntigravityAdapter({ host, placement = "standalone-button"
     setHasCards(value) {
       if (disposed || hasCards === Boolean(value)) return;
       hasCards = Boolean(value);
-      ensureEntries();
+      withObserverPaused(ensureEntries);
       render();
     },
     setOpen(value) { setOpen(value); },
@@ -371,25 +642,33 @@ export function createAntigravityAdapter({ host, placement = "standalone-button"
     getDiagnostics: () => ({
       placement, mode: !disposed && !rail.hidden ? "popover" : "hidden", visible: !disposed && !rail.hidden,
       hasCards, hasSettings, disposed, entry: entries().length > 0 ? entryTier : "floating",
-      page: /\/c\/[0-9a-f-]{36}/i.test(window.location.pathname) ? "conversation" : "other"
+      page: ROUTE_ID.test(window.location.pathname) ? "conversation" : "other"
     }),
     dispose() {
       if (disposed) return;
       disposed = true;
       if (frame) window.cancelAnimationFrame(frame);
+      if (throttleTimer) window.clearTimeout(throttleTimer);
+      throttleTimer = 0;
       observer.disconnect();
+      layoutResizeObserver?.disconnect();
+      layoutObserved = [];
       resizeObserver?.disconnect();
       themeObserver.disconnect();
       colorScheme?.removeEventListener?.("change", onThemeChange);
       window.removeEventListener("keydown", onToggleKeyDown, true);
       keyRoot.removeEventListener("keydown", onEscapeKeyDown);
-      window.removeEventListener("resize", schedule);
+      window.removeEventListener("resize", onResize);
+      document.removeEventListener("transitionend", onMotionEnd, true);
+      document.removeEventListener("transitioncancel", onMotionEnd, true);
+      document.removeEventListener("animationend", onMotionEnd, true);
       floatingButton.removeEventListener("click", onEntryClick);
       for (const entry of entries()) entry.remove();
       for (const [property, { value, priority }] of hostStyles) {
         if (value) host.style.setProperty(property, value, priority);
         else host.style.removeProperty(property);
       }
+      delete host.dataset.surface;
       hostStyles.clear();
       host.remove();
       rail.remove();

@@ -68,10 +68,10 @@ function statusLabel(task) {
 // 看板颜色名，与 threads.colors 下标一一对应。
 const COLOR_NAMES = ["薄荷", "天空蓝", "杏橙", "樱粉", "薰衣草", "湖青", "柠檬黄", "深靛"];
 const ICONS = {
-  plus: '<path d="M8 3.5v9M3.5 8h9"/>',
-  edit: '<path d="M10.6 3.2l2.2 2.2-7 7H3.6v-2.2z"/>',
-  done: '<path d="M3.5 8.4l2.9 2.9 6.1-6.6"/>',
-  color: '<path d="M8 2.6s4 4.2 4 6.9a4 4 0 0 1-8 0c0-2.7 4-6.9 4-6.9z"/>',
+  plus: '<path d="M8 3.2v9.6M3.2 8h9.6"/>',
+  edit: '<path d="M10.8 3.1l2.1 2.1-6.9 6.9H3.9V10z"/>',
+  done: '<path d="M3.5 8.3l2.9 2.9 6.1-6.5"/>',
+  color: '<circle cx="8" cy="8" r="5.1"/><circle cx="8" cy="8" r="1.8" fill="currentColor" stroke="none"/>',
   archive: '<path d="M2.8 3.6h10.4v2.6H2.8zM3.8 6.2v5.9a1 1 0 0 0 1 1h6.4a1 1 0 0 0 1-1V6.2M6.6 8.8h2.8"/>'
 };
 // 撤销提示里的会话名最多这么多字：长名字（比如整段首条消息）只留开头，动作本身始终看得见。
@@ -80,67 +80,76 @@ const clipName = (name) => {
   const chars = Array.from(String(name ?? "").replace(/\s+/g, " ").trim());
   return chars.length > TOAST_NAME_MAX ? `${chars.slice(0, TOAST_NAME_MAX).join("")}…` : chars.join("");
 };
-// 状态图标 20×20，彩色渐变实心：状态色与任务色分开，图标底块表示是哪个任务，图标表示它在干什么。
-// 渐变 id 带 cc-task- 前缀，渲染时替换成每个图标唯一的 id。
-const gradient = (id, from, to) => `<defs><linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${from}"/><stop offset="1" stop-color="${to}"/></linearGradient></defs>`;
-const BUBBLE = '<path d="M3 6.2A3.2 3.2 0 0 1 6.2 3h7.6A3.2 3.2 0 0 1 17 6.2v4.6a3.2 3.2 0 0 1-3.2 3.2H9.6l-3.4 2.7c-.4.3-.9 0-.9-.5V14h-.1A2.2 2.2 0 0 1 3 11.8z" fill="url(#cc-task-reply)" stroke="none"/><path d="M7 7.6h6M7 10.2h3.8" stroke="#fff" stroke-width="1.5"/>';
-const disc = (id) => `<circle cx="10" cy="10" r="7.6" fill="url(#${id})" stroke="none"/>`;
+// 细线单色状态图标（主要用于 Option+Tab 切换面板与行内编辑器），去掉渐变填充与投影以贴合宿主原生风格。
+const SPINNER_THIN = '<svg viewBox="0 0 16 16" width="12.5" height="12.5" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="5.5" stroke="currentColor" stroke-opacity=".2" stroke-width="1.5"/><path class="arc" d="M8 2.5A5.5 5.5 0 0 1 13.5 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>';
+const BUBBLE_OUTLINE = '<path d="M3.6 6.4A2.8 2.8 0 0 1 6.4 3.6h7.2a2.8 2.8 0 0 1 2.8 2.8v4.2a2.8 2.8 0 0 1-2.8 2.8H9.8l-3.3 2.5V13.4h-.1a2.8 2.8 0 0 1-2.8-2.8z"/>';
 const STATUS_ICONS = {
-  ask: `${gradient("cc-task-ask", "#ffb347", "#f07c1e")}${disc("cc-task-ask")}<path d="M8 8a2.1 2.1 0 1 1 2.9 1.9c-.6.3-.9.7-.9 1.3v.2" stroke="#fff" stroke-width="1.7"/><circle cx="10" cy="13.7" r="1" fill="#fff" stroke="none"/>`,
-  alert: `${gradient("cc-task-alert", "#ff7b72", "#e2443a")}${disc("cc-task-alert")}<path d="M10 6.2v4.6" stroke="#fff" stroke-width="1.9"/><circle cx="10" cy="13.6" r="1.05" fill="#fff" stroke="none"/>`,
-  // 一段渐变弧线旋转，比实心图标轻，进行中的条目不抢眼。
-  spin: `${gradient("cc-task-spin", "#6aa8ff", "#3b6ff0")}<circle cx="10" cy="10" r="6.8" stroke="color-mix(in srgb,#3b82f6 16%,transparent)" stroke-width="2.2"/><path class="arc" d="M10 3.2a6.8 6.8 0 0 1 6.8 6.8" stroke="url(#cc-task-spin)" stroke-width="2.2"/>`,
-  reply: `${gradient("cc-task-reply", "#8fb4ff", "#5b7cf0")}${BUBBLE}`,
-  unread: `${gradient("cc-task-reply", "#8fb4ff", "#5b7cf0")}${BUBBLE}<circle cx="16" cy="4.4" r="3" fill="#ff4d4f" stroke="var(--cc-card-bg,#fff)" stroke-width="1.4"/>`,
-  gone: '<circle cx="10" cy="10" r="6.8" stroke-dasharray="2.2 2.6" opacity=".45"/>',
-  stopped: '<circle cx="10" cy="10" r="6.8" opacity=".5"/><rect x="7.4" y="7.4" width="5.2" height="5.2" rx="1" fill="currentColor" stroke="none" opacity=".6"/>',
-  // 不在看板上的会话（切换面板可选列出）：空心气泡，没有状态。
-  outside: '<path d="M3.6 6.4A2.8 2.8 0 0 1 6.4 3.6h7.2a2.8 2.8 0 0 1 2.8 2.8v4.2a2.8 2.8 0 0 1-2.8 2.8H9.8l-3.3 2.5V13.4h-.1a2.8 2.8 0 0 1-2.8-2.8z" opacity=".55"/>'
+  ask: '<circle cx="10" cy="10" r="6.8"/><path d="M8.3 8.1a1.9 1.9 0 1 1 2.7 1.7c-.55.28-.95.68-.95 1.25"/><circle cx="10" cy="13.8" r=".85" fill="currentColor" stroke="none"/>',
+  alert: '<circle cx="10" cy="10" r="6.8"/><path d="M10 6.5v4.2"/><circle cx="10" cy="13.7" r=".85" fill="currentColor" stroke="none"/>',
+  spin: '<circle cx="10" cy="10" r="6.6" stroke="currentColor" stroke-opacity=".2" stroke-width="1.9"/><path class="arc" d="M10 3.4a6.6 6.6 0 0 1 6.6 6.6" stroke="currentColor" stroke-width="1.9"/>',
+  reply: `<g opacity=".62">${BUBBLE_OUTLINE}</g>`,
+  unread: `${BUBBLE_OUTLINE}<circle cx="15.8" cy="4.4" r="2.4" fill="var(--running)" stroke="var(--cc-card-bg,#fff)" stroke-width="1.2"/>`,
+  gone: '<circle cx="10" cy="10" r="6.6" stroke-dasharray="2.2 2.5" opacity=".48"/>',
+  stopped: '<circle cx="10" cy="10" r="6.6" opacity=".52"/><rect x="7.5" y="7.5" width="5" height="5" rx="1" fill="currentColor" stroke="none" opacity=".62"/>',
+  outside: `<g opacity=".48">${BUBBLE_OUTLINE}</g>`
 };
-let gradientSeq = 0;
-const icon = (name) => `<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name]}</svg>`;
+const icon = (name) => `<svg viewBox="0 0 16 16" width="13.5" height="13.5" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name]}</svg>`;
 
 // 看板与 Option+Tab 切换面板共用：颜色变量，以及条目的状态图标、名字、标签、第二行与计划进度条。
-const TOKENS = `--text:color-mix(in srgb,currentColor 64%,transparent);--muted:color-mix(in srgb,currentColor 46%,transparent);
-      --line:color-mix(in srgb,currentColor 10%,transparent);--hover:color-mix(in srgb,currentColor 5%,transparent);
-      --attention:#d9661b;--danger:#d4483e;--running:#3b82f6;--ease:cubic-bezier(.22,1,.36,1)`;
+const TOKENS = `--text:color-mix(in srgb,currentColor 66%,transparent);--muted:var(--cc-card-fg-muted,color-mix(in srgb,currentColor 48%,transparent));
+      --line:var(--cc-card-border,color-mix(in srgb,currentColor 9%,transparent));--line-strong:var(--cc-card-border-strong,color-mix(in srgb,currentColor 16%,transparent));
+      --hover:var(--cc-card-hover,color-mix(in srgb,currentColor 4.5%,transparent));--active:var(--cc-card-active,color-mix(in srgb,currentColor 8%,transparent));
+      --bar-track:var(--cc-bar-track,color-mix(in srgb,currentColor 9%,transparent));--bar-fill:var(--cc-bar-fill,color-mix(in srgb,currentColor 78%,transparent));
+      --attention:var(--cc-warn,#9f4f0c);--danger:var(--cc-danger,#c42b25);--ok:var(--cc-ok,#238559);--running:var(--cc-card-accent,#2563eb);
+      --urgent-dur:1.6s;--ease:cubic-bezier(.22,1,.36,1)`;
 const ROW_STYLE = `
     .status{position:relative;z-index:2;display:grid;place-items:center;width:28px;height:28px;border-radius:8px;
-      background:color-mix(in srgb,var(--task) 16%,transparent);transform-origin:50% 100%;color:var(--muted)}
-    .status svg{display:block;overflow:visible;width:18px;height:18px;filter:drop-shadow(0 1px 1px rgba(0,0,0,.08))}
-    .status[data-icon=spin] svg{filter:none}
-    .status[data-icon=spin] .arc{transform-origin:10px 10px;animation:turn .9s linear infinite}
+      background:color-mix(in srgb,var(--task) 13%,transparent);color:var(--muted)}
+    .status svg{display:block;overflow:visible;width:16px;height:16px}
+    .status[data-icon=ask]{color:var(--attention)}
+    .status[data-icon=alert]{color:var(--danger)}
+    .status[data-icon=unread]{color:var(--running)}
+    .status[data-icon=spin] .arc{transform-origin:10px 10px;animation:turn .95s linear infinite}
     .text{min-width:0}
     .title{display:flex;align-items:center;gap:6px;min-width:0}
     .name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500}
-    .tag{flex:none;display:inline-flex;align-items:center;gap:3px;padding:1px 6px;border-radius:6px;font-size:11px;font-weight:500;
-      color:var(--attention);background:color-mix(in srgb,var(--attention) 13%,transparent)}
-    .tag[data-tone=danger]{color:var(--danger);background:color-mix(in srgb,var(--danger) 12%,transparent)}
-    .meta{position:relative;display:block;height:1.4em;margin-top:2px;overflow:hidden;font-size:12px}
+    .tag{flex:none;display:inline-flex;align-items:center;gap:3px;padding:0 5px;border-radius:5px;font-size:11px;font-weight:500;line-height:17px;
+      color:var(--attention);background:color-mix(in srgb,var(--attention) 11%,transparent)}
+    .tag[data-tone=danger]{color:var(--danger);background:color-mix(in srgb,var(--danger) 11%,transparent)}
+    .meta{position:relative;display:block;height:var(--meta-h,18px);line-height:var(--meta-h,18px);margin-top:var(--meta-gap,2px);overflow:hidden;font-size:11.5px}
     .meta:empty{display:none}
     .label{position:absolute;inset:0 auto 0 0;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text)}
     /* 进行中：文字整体压暗，一道亮带（文字本色）从左扫到右；用遮罩实现，深浅色主题都成立。
        内容变化时新文字从下方模糊浮入，旧文字向上淡出。 */
-    .label.live{color:inherit;-webkit-mask-image:linear-gradient(90deg,rgba(0,0,0,.42) 40%,#000 50%,rgba(0,0,0,.42) 60%);
-      mask-image:linear-gradient(90deg,rgba(0,0,0,.42) 40%,#000 50%,rgba(0,0,0,.42) 60%);-webkit-mask-size:300% 100%;mask-size:300% 100%;
-      animation:sweep 1.8s linear infinite}
-    .label.live.in{animation:roll-in .46s var(--ease) both,sweep 1.8s linear infinite}
+    .label.live{color:inherit;-webkit-mask-image:linear-gradient(90deg,rgba(0,0,0,.44) 38%,#000 50%,rgba(0,0,0,.44) 62%);
+      mask-image:linear-gradient(90deg,rgba(0,0,0,.44) 38%,#000 50%,rgba(0,0,0,.44) 62%);-webkit-mask-size:280% 100%;mask-size:280% 100%;
+      animation:sweep 2s linear infinite}
+    .label.live.in{animation:roll-in .46s var(--ease) both,sweep 2s linear infinite}
     .label.in{animation:roll-in .46s var(--ease) both}
     .label.out{animation:roll-out .32s var(--ease) both}
-    /* 计划进度：一格一步，做完的填任务色，进行中的那格明暗呼吸；右侧是完成数。 */
-    .progress{display:flex;align-items:center;gap:8px;min-width:0}
-    .progress-bar{flex:1;min-width:0;display:flex;gap:2px;height:4px}
-    .progress-bar i{flex:1;min-width:2px;border-radius:2px;background:color-mix(in srgb,currentColor 11%,transparent)}
-    .progress-bar i[data-status=completed],.progress-bar i[data-status=in_progress]{background:color-mix(in srgb,var(--task) 80%,currentColor 20%)}
-    .progress-bar i[data-status=in_progress]{animation:breathe 1.6s ease-in-out infinite}
-    .progress-count{flex:none;font-size:11px;line-height:1;color:var(--muted);font-variant-numeric:tabular-nums}
-    @keyframes breathe{0%,100%{opacity:.3}50%{opacity:1}}
+    /* 计划进度：2.5px 细线分段，中性灰阶为主，进行中的那格明暗呼吸；右侧是完成数。 */
+    .progress{display:flex;align-items:center;gap:7px;min-width:0}
+    .progress-bar{flex:1;min-width:0;display:flex;gap:3px;height:2.5px}
+    .progress-bar i{flex:1;min-width:2px;border-radius:99px;background:var(--bar-track)}
+    .progress-bar i[data-status=completed],.progress-bar i[data-status=in_progress]{background:var(--bar-fill)}
+    .progress-bar i[data-status=in_progress]{animation:breathe 1.8s ease-in-out infinite}
+    .progress-count{flex:none;font-size:10.5px;line-height:1;color:var(--muted);font-variant-numeric:tabular-nums}
+    @keyframes breathe{0%,100%{opacity:.35}50%{opacity:1}}
     @keyframes turn{to{transform:rotate(360deg)}}
     @keyframes sweep{from{-webkit-mask-position:100% 0;mask-position:100% 0}to{-webkit-mask-position:0 0;mask-position:0 0}}
     @keyframes roll-in{from{opacity:0;transform:translateY(70%);filter:blur(3px)}to{opacity:1;transform:none;filter:none}}
     @keyframes roll-out{from{opacity:1;transform:none;filter:none}to{opacity:0;transform:translateY(-70%);filter:blur(3px)}}`;
 
 function ago(ms, now = Date.now()) {
+  if (!Number.isFinite(ms)) return "";
+  const minutes = Math.floor((now - ms) / 60_000);
+  if (minutes < 1) return "刚刚";
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h`;
+  return `${Math.floor(hours / 24)}d`;
+}
+function agoFull(ms, now = Date.now()) {
   if (!Number.isFinite(ms)) return "";
   const minutes = Math.floor((now - ms) / 60_000);
   if (minutes < 1) return "刚刚";
@@ -159,114 +168,121 @@ export function mount({ root, rpc, effects, signal, threads, isVisible, overlay,
   const doc = root.ownerDocument;
   root.innerHTML = `<style>
     :host{display:block;${TOKENS};
-      font-family:"Inter",ui-sans-serif,system-ui,-apple-system,"PingFang SC",sans-serif;letter-spacing:-.006em;-webkit-font-smoothing:antialiased}
+      font-family:var(--cc-card-font,var(--hg-font-family,inherit));letter-spacing:-.006em;-webkit-font-smoothing:antialiased}
     *{box-sizing:border-box}
-    .board{padding:14px 8px 8px;font-size:13.5px;line-height:1.4}
-    header{display:flex;align-items:center;gap:10px;padding:0 6px 10px 9px;min-height:22px}
-    h2{flex:none;margin:0;font-size:14px;font-weight:600;white-space:nowrap}
-    .chips{min-width:0;display:flex;gap:9px;overflow:hidden;font-size:12px;color:var(--text);font-variant-numeric:tabular-nums}
-    .chip{display:inline-flex;align-items:center;gap:5px;white-space:nowrap}
-    .chip::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--dot)}
-    .chip[data-kind=running]{--dot:var(--running)}
-    .chip[data-kind=human]{--dot:var(--attention);color:var(--attention)}
+    .board{padding:10px 6px 8px;font-size:12.5px;line-height:1.4}
+    header{display:flex;align-items:center;gap:6px;padding:0 8px 7px;min-height:22px}
+    h2{flex:none;margin:0;font-size:var(--cc-section-title-size,13px);font-weight:var(--cc-section-title-weight,600);
+      color:var(--cc-section-title-color,inherit);white-space:nowrap}
+    .count{font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
+    .count:empty{display:none}
+    .chips{min-width:0;margin-left:auto;display:flex;align-items:center;gap:8px;overflow:hidden;font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
+    .chip{display:inline-flex;align-items:center;white-space:nowrap}
+    .chip[data-kind=human]{color:var(--attention)}
     button{font:inherit;color:inherit;border:0;background:none;padding:0;cursor:pointer;letter-spacing:inherit}
-    .add{display:flex;align-items:center;gap:8px;width:100%;padding:9px 10px 9px 20px;border-radius:9px;color:var(--muted);text-align:left;transition:background-color .16s ease,color .16s ease}
-    .add:hover{background:var(--hover);color:var(--text)}
-    .add svg{flex:none;margin:0 2px}
+    .add{display:flex;align-items:center;gap:7px;width:calc(100% - 8px);margin:0 4px 5px;padding:6px 9px;
+      border:1px dashed var(--line-strong);border-radius:var(--cc-card-row-radius,8px);color:var(--muted);font-size:12px;text-align:left;
+      transition:background-color .14s ease,color .14s ease,border-color .14s ease}
+    .add:hover{background:var(--hover);color:inherit;border-color:var(--muted)}
+    .add svg{flex:none}
     .add .title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-    .add b{font-weight:500;color:currentColor}
-    ul{list-style:none;margin:0;padding:0;display:grid}
-    /* 条目紧挨着排列，不铺底色；最左侧一道任务色竖条，和左侧侧栏会话条目上的标记呼应。
-       状态图标放在标题最前面，时间在标题行右侧，第二行从图标左边开始；悬停时整行浅浅地铺一层任务色。 */
-    .task{--task:#8b8d98;position:relative;display:flex;align-items:center;border-radius:9px;
-      transition:background-color .16s ease;transform-origin:50% 60%}
-    .task::before{content:"";position:absolute;left:9px;top:9px;bottom:9px;width:3px;border-radius:2px;background:var(--task);pointer-events:none}
-    .task:hover,.task:focus-within,.task[data-peek]{background:color-mix(in srgb,var(--task) 10%,transparent)}
-    .main{flex:1;min-width:0;display:grid;grid-template-columns:18px minmax(0,1fr) auto;grid-template-areas:"status title when" "meta meta meta" "plan plan plan";
-      column-gap:8px;align-items:center;padding:7px 10px 7px 20px;text-align:left;border-radius:9px}
-    .main:focus-visible{outline:2px solid color-mix(in srgb,var(--task) 55%,transparent);outline-offset:-2px}
+    .add b{font-weight:500;color:var(--text)}
+    ul{list-style:none;margin:0;padding:0;display:grid;gap:1px}
+    /* 条目：左侧 2.2px 短促居中指示线呼应侧栏颜色；需要人处理且未读时，指示线与右侧状态圆点同速脉冲。 */
+    .task{--task:#8b8d98;--row-pad-y:7.5px;--line1-h:19px;--meta-gap:2px;--meta-h:18px;--action-size:20px;
+      position:relative;display:flex;align-items:stretch;border-radius:var(--cc-card-row-radius,8px);
+      transition:background-color .12s ease}
+    .task::before{content:"";position:absolute;left:3.5px;top:10px;height:15px;width:2.2px;border-radius:2px;
+      background:var(--task);opacity:.72;transform-origin:center;pointer-events:none;
+      transition:opacity .15s ease,height .15s ease,top .15s ease}
+    .task:hover::before,.task:focus-within::before,.task[data-peek]::before{opacity:1;top:8px;height:calc(100% - 16px)}
+    .task:hover,.task:focus-within,.task[data-peek]{background:var(--hover)}
+    .task[data-tone=warn]::before{background:var(--attention);opacity:.94}
+    .task[data-tone=danger]::before{background:var(--danger);opacity:.96}
+    .task[data-tone=warn][data-urgent]{background:color-mix(in srgb,var(--attention) 4.5%,transparent)}
+    .task[data-tone=warn][data-urgent]:hover,.task[data-tone=warn][data-urgent]:focus-within,.task[data-tone=warn][data-urgent][data-peek]{
+      background:color-mix(in srgb,var(--attention) 8.5%,transparent)}
+    .task[data-tone=danger][data-urgent]{background:color-mix(in srgb,var(--danger) 5%,transparent)}
+    .task[data-tone=danger][data-urgent]:hover,.task[data-tone=danger][data-urgent]:focus-within,.task[data-tone=danger][data-urgent][data-peek]{
+      background:color-mix(in srgb,var(--danger) 9%,transparent)}
+    /* 待确认 / 已中断 / 没动静统一节奏的快速双拍脉冲（纯 GPU 合成，与右侧涟漪同周期，已读自动静止）。 */
+    .task[data-urgent]::before{width:2.5px;animation:edge-urgent var(--urgent-dur) ease-in-out infinite;will-change:transform,opacity}
+    .task[data-status=stopped]{opacity:.8}
+    .task[data-status=archived],.task[data-status=missing]{opacity:.72}
+    .main{flex:1;min-width:0;display:flex;flex-direction:column;padding:var(--row-pad-y) 9px var(--row-pad-y) 13px;text-align:left;border-radius:var(--cc-card-row-radius,8px)}
+    .main:focus-visible{outline:2px solid var(--cc-card-focus,color-mix(in srgb,currentColor 35%,transparent));outline-offset:-2px}
 ${ROW_STYLE}
-    /* 看板里图标不铺底块，和标题排在同一行；ROW_STYLE 里的底块留给 Option+Tab 切换面板。 */
-    .main .status,.editor .status{grid-area:status;width:18px;height:18px;border-radius:0;background:none}
-    .main .text{display:contents}
-    .main .title{grid-area:title}
-    .main .meta{grid-area:meta}
-    .when{grid-area:when;justify-self:end;font-size:11.5px;color:var(--muted);white-space:nowrap;font-variant-numeric:tabular-nums}
-    .when:empty{display:none}
-    .main .progress{grid-area:plan;margin-top:5px}
-    /* 需要人处理且还没看过：图标跳出条目，落下时砸得条目轻晃一下。常驻动画只动 transform，交给合成器。 */
-    .task[data-hop]{animation:knock 3.2s infinite;will-change:transform}
-    .task[data-hop] .status{animation:hop 3.2s infinite;will-change:transform}
-    /* 有新回复还没看：图标像来消息的手机一样隔一会儿摇一下。 */
-    .task[data-shake] .status{transform-origin:50% 50%;animation:shake 2.6s infinite;will-change:transform}
-    /* 悬停时右侧浮出一组按钮：共用一块底板，按钮本身不带边框；时间收起，标题和第二行让出位置。 */
-    .actions{position:absolute;right:8px;top:50%;z-index:3;display:flex;padding:2px;border-radius:9px;background:var(--cc-card-bg,Canvas);
-      box-shadow:0 0 0 .5px color-mix(in srgb,currentColor 18%,transparent),0 3px 10px rgba(0,0,0,.1);
-      opacity:0;transform:translate(4px,-50%);pointer-events:none;transition:opacity .15s ease,transform .22s var(--ease)}
-    .task:hover .actions,.task:focus-within .actions{opacity:1;transform:translate(0,-50%);pointer-events:auto}
-    .task:hover .when,.task:focus-within .when{display:none}
-    .task:hover .title,.task:focus-within .title{padding-right:70px}
-    .task:hover .meta,.task:focus-within .meta,.task:hover .progress,.task:focus-within .progress{margin-right:76px}
-    .icon{display:grid;place-items:center;width:24px;height:24px;border-radius:7px;color:var(--text)}
-    .icon:hover{color:currentColor;background:var(--hover)}
-    .icon[data-action=done]:hover{color:#2f9e6a;background:color-mix(in srgb,#2f9e6a 13%,transparent)}
-    .palette{flex:1;display:flex;align-items:center;justify-content:space-between;gap:4px;padding:12px 10px 12px 20px;min-height:52px}
-    .palette button{width:22px;height:22px;border-radius:50%;background:var(--swatch);box-shadow:inset 0 0 0 1px rgba(0,0,0,.08);transition:transform .2s var(--ease)}
-    .palette button:hover{transform:scale(1.15)}
-    .palette button[aria-checked=true]{box-shadow:0 0 0 2px currentColor}
-    .editor{flex:1;display:grid;grid-template-columns:18px 1fr;column-gap:8px;align-items:center;padding:7px 10px 7px 20px;min-height:52px}
-    input{width:100%;font:inherit;font-weight:500;color:inherit;background:transparent;border:0;border-radius:6px;padding:2px 6px;margin:-2px -6px;
-      outline:none;box-shadow:inset 0 0 0 1px color-mix(in srgb,currentColor 30%,transparent)}
-    .empty{margin:6px 8px 6px;font-size:12.5px;line-height:1.55;color:var(--muted)}
-    .note{margin:6px 8px 2px;font-size:12.5px;color:var(--danger)}
-    /* 撤销提示：与条目同一套浅底细边，不用反色；底边一道细线随倒计时缩短，到头自动收起。 */
-    .toast{position:relative;display:flex;align-items:center;gap:8px;margin:8px 0 0;padding:5px 5px 5px 10px;border-radius:10px;
-      overflow:hidden;font-size:12.5px;color:var(--text);background:var(--hover);box-shadow:inset 0 0 0 1px var(--line);
-      animation:toast-in .26s var(--ease) both}
-    .toast::after{content:"";position:absolute;left:10px;right:10px;bottom:0;height:1.5px;border-radius:1px;
-      background:color-mix(in srgb,currentColor 18%,transparent);transform-origin:left;animation:toast-drain ${UNDO_MS}ms linear both}
+    /* 第一行严格三列网格：[标题] [右对齐 3 字状态] [固定 34px 右对齐时间]，纵向严丝合缝对齐且悬停不隐藏时间。 */
+    .line1{display:grid;grid-template-columns:minmax(0,1fr) auto 34px;align-items:center;column-gap:7px;height:var(--line1-h)}
+    .main .name{font-size:12.5px;font-weight:450}
+    .task[data-unread] .main .name,.task[data-tone] .main .name{font-weight:550}
+    .state{display:inline-flex;align-items:center;justify-content:flex-end;gap:5px;font-size:11px;font-weight:500;line-height:1;white-space:nowrap}
+    .state[data-tone=warn]{color:var(--attention)}
+    .state[data-tone=warn-read]{color:var(--attention);font-weight:400}
+    .state[data-tone=danger]{color:var(--danger)}
+    .state[data-tone=accent]{color:var(--running)}
+    .state[data-tone=muted]{color:var(--muted)}
+    .state[data-tone=quiet]{color:var(--muted);font-weight:400}
+    .beacon{position:relative;display:inline-flex;align-items:center;justify-content:center;width:6px;height:6px;flex:none}
+    .beacon-core{width:5.5px;height:5.5px;border-radius:999px;background:currentColor}
+    .beacon-ring{position:absolute;inset:0;border-radius:999px;background:currentColor;pointer-events:none;
+      animation:ripple-urgent var(--urgent-dur) cubic-bezier(0,0,.2,1) infinite;will-change:transform,opacity}
+    .unread-dot{width:5.5px;height:5.5px;border-radius:999px;background:currentColor;flex:none;
+      animation:unread-breathe 2.4s ease-in-out infinite;will-change:transform,opacity}
+    .spin-glyph{display:inline-flex;align-items:center}
+    .spin-glyph .arc{transform-origin:8px 8px;animation:turn .95s linear infinite}
+    .when{text-align:right;font-size:11px;color:var(--muted);white-space:nowrap;font-variant-numeric:tabular-nums}
+    .task[data-tone=danger] .meta .label{color:var(--danger)}
+    .main .progress{margin-top:5px}
+    /* 悬停操作放在第二行右侧：与行高变量联动定位，无底板无阴影，透明融入行背景，第一行标题/状态/时间纹丝不动。 */
+    .actions{position:absolute;right:7px;top:calc(var(--row-pad-y) + var(--line1-h) + var(--meta-gap) + (var(--meta-h) - var(--action-size)) / 2);
+      z-index:3;height:var(--action-size);display:inline-flex;align-items:center;gap:1px;
+      background:transparent;opacity:0;pointer-events:none;transition:opacity .12s ease}
+    .task:hover .actions,.task:focus-within .actions{opacity:1;pointer-events:auto}
+    .task:hover .meta,.task:focus-within .meta{margin-right:66px}
+    .icon{display:grid;place-items:center;width:var(--action-size);height:var(--action-size);border-radius:6px;color:var(--muted);transition:background-color .12s ease,color .12s ease}
+    .icon:hover{color:currentColor;background:var(--active)}
+    .icon[data-action=done]:hover{color:var(--ok);background:color-mix(in srgb,var(--ok) 12%,transparent)}
+    .palette{flex:1;display:flex;align-items:center;justify-content:space-between;gap:4px;padding:10px 10px 10px 16px;min-height:46px}
+    .palette button{width:18px;height:18px;border-radius:50%;background:var(--swatch);box-shadow:inset 0 0 0 1px rgba(0,0,0,.12);transition:transform .16s var(--ease)}
+    .palette button:hover{transform:scale(1.16)}
+    .palette button[aria-checked=true]{box-shadow:0 0 0 2px var(--cc-card-bg,Canvas),0 0 0 3.5px currentColor}
+    .editor{flex:1;display:flex;align-items:center;padding:8px 10px 8px 13px;min-height:46px}
+    input{width:100%;font:inherit;font-size:12.5px;font-weight:500;color:inherit;background:var(--cc-card-input-bg,transparent);border:1px solid var(--line-strong);
+      border-radius:6px;padding:3px 7px;outline:none}
+    input:focus{border-color:var(--cc-card-focus,currentColor)}
+    .empty{margin:6px 10px;font-size:12px;line-height:1.55;color:var(--muted)}
+    .note{margin:6px 8px 2px;padding:7px 9px;border-radius:8px;font-size:11.5px;line-height:1.4;
+      color:var(--danger);background:color-mix(in srgb,var(--danger) 10%,transparent);border:1px solid color-mix(in srgb,var(--danger) 24%,transparent)}
+    /* 撤销提示：与条目同一套浅底细边，底边细线随倒计时缩短。 */
+    .toast{position:relative;display:flex;align-items:center;gap:8px;margin:8px 4px 0;padding:5px 6px 5px 10px;border-radius:8px;
+      overflow:hidden;font-size:12px;color:var(--text);background:var(--hover);box-shadow:inset 0 0 0 1px var(--line);
+      animation:toast-in .22s var(--ease) both}
+    .toast::after{content:"";position:absolute;left:8px;right:8px;bottom:0;height:1.5px;border-radius:1px;
+      background:color-mix(in srgb,currentColor 20%,transparent);transform-origin:left;animation:toast-drain ${UNDO_MS}ms linear both}
     .toast .glyph{flex:none;display:grid;place-items:center}
     .toast span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-    .toast button{flex:none;font-weight:600;padding:3px 9px;border-radius:7px;color:inherit;
-      background:color-mix(in srgb,currentColor 7%,transparent);transition:background-color .12s ease}
-    .toast button:hover{background:color-mix(in srgb,currentColor 12%,transparent)}
+    .toast button{flex:none;font-size:11.5px;font-weight:500;padding:2px 8px;border-radius:6px;color:inherit;
+      background:var(--active);transition:opacity .12s ease}
+    .toast button:hover{opacity:.82}
     @keyframes toast-in{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
     @keyframes toast-drain{from{transform:scaleX(1)}to{transform:scaleX(0)}}
     [hidden]{display:none!important}
     /* Trace 浮层放在顶层（popover），不受卡片宽度和裁剪限制，贴在看板左侧展开。 */
-    .peek{position:fixed;inset:auto;margin:0;padding:14px 12px 12px;border:0;border-radius:14px;overflow:auto;max-height:calc(100vh - 24px);
-      color:inherit;background:var(--cc-card-bg,Canvas);font:inherit;font-size:13.5px;line-height:1.4;
-      box-shadow:0 0 0 .5px rgba(0,0,0,.14),0 12px 32px rgba(0,0,0,.16),0 2px 6px rgba(0,0,0,.06);
+    .peek{position:fixed;inset:auto;margin:0;padding:14px 12px 12px;border:0;border-radius:var(--cc-card-radius,var(--hg-panel-radius,14px));overflow:auto;max-height:calc(100vh - 24px);
+      color:inherit;background:var(--cc-card-bg,Canvas);font:inherit;font-size:13px;line-height:1.4;
+      box-shadow:0 0 0 1px var(--cc-card-border,color-mix(in srgb,currentColor 14%,transparent)),0 12px 32px rgba(0,0,0,.14),0 2px 6px rgba(0,0,0,.05);
       opacity:0;transform:translateX(6px);transition:opacity .16s ease,transform .2s var(--ease),overlay .2s allow-discrete,display .2s allow-discrete}
     .peek:popover-open{opacity:1;transform:none}
     @starting-style{.peek:popover-open{opacity:0;transform:translateX(6px)}}
 ${TRACE_STYLE}
     @keyframes ray{0%{opacity:1}100%{opacity:.18}}
-    @keyframes hop{
-      0%{transform:none;animation-timing-function:ease-out}
-      6%{transform:scale(1.14,.82);animation-timing-function:cubic-bezier(.2,.7,.3,1)}
-      22%{transform:translateY(-26px) scale(.94,1.08);animation-timing-function:cubic-bezier(.6,0,.9,.5)}
-      34%{transform:translateY(0) scale(.92,1.1)}
-      38%{transform:scale(1.22,.78);animation-timing-function:ease-out}
-      45%{transform:translateY(-4px) scale(.97,1.04);animation-timing-function:ease-in}
-      51%,100%{transform:none}}
-    @keyframes shake{
-      0%,30%,100%{transform:none}
-      4%{transform:rotate(-14deg)}
-      8%{transform:rotate(12deg)}
-      12%{transform:rotate(-10deg)}
-      16%{transform:rotate(7deg)}
-      20%{transform:rotate(-4deg)}
-      24%{transform:rotate(2deg)}}
-    @keyframes knock{
-      0%,33.5%,60%,100%{transform:none}
-      36%{transform:translateY(1.6px) rotate(-.7deg)}
-      42%{transform:translateY(-.4px) rotate(.55deg)}
-      48%{transform:rotate(-.3deg)}
-      54%{transform:rotate(.12deg)}}
-    @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+    @keyframes ripple-urgent{0%{transform:scale(1);opacity:.72}60%,100%{transform:scale(2.9);opacity:0}}
+    @keyframes edge-urgent{0%,100%{opacity:.42;transform:scaleY(.8)}14%{opacity:1;transform:scaleY(1.22)}28%{opacity:.45;transform:scaleY(.84)}44%{opacity:1;transform:scaleY(1.22)}60%{opacity:.42;transform:scaleY(.8)}}
+    @keyframes unread-breathe{0%,100%{opacity:.48;transform:scale(.92)}50%{opacity:1;transform:scale(1.08)}}
+    @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
   </style><section class="board" aria-label="任务看板">
-    <header><h2>任务看板</h2><span class="chips"></span></header>
+    <header><h2>任务看板</h2><span class="count"></span><span class="chips"></span></header>
     <button type="button" class="add" hidden>${icon("plus")}<span class="title">加入当前会话 · <b></b></span></button>
     <ul></ul>
     <div class="peek" popover="manual" aria-label="会话 Trace"></div>
@@ -274,6 +290,7 @@ ${TRACE_STYLE}
     <p class="note" hidden></p>
     <div class="toast" role="status" hidden><i class="glyph"></i><span></span><button type="button">撤销</button></div>
   </section>`;
+  const count = root.querySelector(".count");
   const chips = root.querySelector(".chips");
   const addButton = root.querySelector(".add");
   const addTitle = addButton.querySelector("b");
@@ -346,9 +363,11 @@ ${TRACE_STYLE}
     addButton.hidden = !board || !current || added;
     addTitle.textContent = current?.title ?? "未命名会话";
     addButton.title = current?.title ?? "";
+    const total = board?.tasks.length ?? 0;
+    count.textContent = total ? String(total) : "";
     const running = board?.tasks.filter((task) => task.status === "running").length ?? 0;
     const human = board?.tasks.filter((task) => STATUS[task.status]?.human).length ?? 0;
-    const nextChips = [running ? ["running", `${running} 进行中`] : null, human ? ["human", `${human} 需要你`] : null].filter(Boolean);
+    const nextChips = [human ? ["human", `${human} 待处理`] : null, running ? ["running", `${running} 进行中`] : null].filter(Boolean);
     if (chips.dataset.value !== JSON.stringify(nextChips)) {
       chips.dataset.value = JSON.stringify(nextChips);
       chips.replaceChildren(...nextChips.map(([kind, text]) => {
@@ -406,7 +425,7 @@ ${TRACE_STYLE}
       else if (event.key === "Escape") { event.preventDefault(); finish(false); }
     });
     input.addEventListener("blur", () => finish(true));
-    editor.append(statusIcon(task), input);
+    editor.append(input);
     item.append(editor);
     queueMicrotask(() => { input.focus(); input.select(); });
   }
@@ -437,11 +456,54 @@ ${TRACE_STYLE}
   const BOARD_META = { withTime: false };
   // 看板标题行右侧的时间；进行中的第二行本身在实时变化，归档或找不到的没有可信时间，都不显示。
   const whenOf = (task) => (["running", "archived", "missing"].includes(task.status) ? "" : ago(task.turnAt ?? task.updatedAt));
+  const whenTitleOf = (task) => (["running", "archived", "missing"].includes(task.status) ? "" : agoFull(task.turnAt ?? task.updatedAt));
   function tagOf(task) {
     if (!STATUS[task.status]?.human) return null;
-    return task.status === "asking" ? { text: "需要你" } : { text: task.status === "stalled" ? "没动静" : "已中断", tone: "danger" };
+    return task.status === "asking" ? { text: task.unread ? "待确认" : "待回复" } : { text: task.status === "stalled" ? "没动静" : "已中断", tone: "danger" };
   }
   const iconOf = (task) => (task.status === "idle" && task.unread ? "unread" : STATUS[task.status]?.icon ?? "gone");
+
+  // 看板行右侧的对齐状态单元：统一 3 字（待确认 / 待回复 / 已中断 / 没动静 / 进行中 / 新回复 / 已停止 / 已归档 / 找不到），
+  // 去掉中间多余小图标，待确认与已中断/没动静使用同速涟漪圆点，已读后自动静止。
+  function boardState(task) {
+    const node = element("span", "state");
+    node.dataset.icon = iconOf(task);
+    node.title = statusLabel(task);
+    node.setAttribute("role", "img");
+    node.setAttribute("aria-label", statusLabel(task));
+    const beacon = () => {
+      const wrap = element("span", "beacon");
+      wrap.setAttribute("aria-hidden", "true");
+      wrap.append(element("i", "beacon-ring"), element("i", "beacon-core"));
+      return wrap;
+    };
+    if (task.status === "asking") {
+      node.dataset.tone = task.unread ? "warn" : "warn-read";
+      if (task.unread) node.append(beacon());
+      node.append(element("span", "state-text", task.unread ? "待确认" : "待回复"));
+    } else if (task.status === "interrupted" || task.status === "stalled") {
+      node.dataset.tone = "danger";
+      if (task.unread) node.append(beacon());
+      node.append(element("span", "state-text", task.status === "stalled" ? "没动静" : "已中断"));
+    } else if (task.status === "running") {
+      node.dataset.tone = "muted";
+      const spin = element("span", "spin-glyph");
+      spin.innerHTML = SPINNER_THIN;
+      node.append(spin, element("span", "state-text", "进行中"));
+    } else if (task.status === "idle" && task.unread) {
+      node.dataset.tone = "accent";
+      const dot = element("i", "unread-dot");
+      dot.setAttribute("aria-hidden", "true");
+      node.append(dot, element("span", "state-text", "新回复"));
+    } else if (task.status === "stopped") {
+      node.dataset.tone = "quiet";
+      node.append(element("span", "state-text", "已停止"));
+    } else if (task.status === "archived" || task.status === "missing") {
+      node.dataset.tone = "quiet";
+      node.append(element("span", "state-text", task.status === "archived" ? "已归档" : "找不到"));
+    }
+    return node;
+  }
 
   function statusIcon(task) {
     const node = element("span", "status");
@@ -449,9 +511,8 @@ ${TRACE_STYLE}
     node.title = statusLabel(task);
     node.setAttribute("role", "img");
     node.setAttribute("aria-label", statusLabel(task));
-    // 渐变 id 每个图标唯一：同名 id 只认第一个，所在节点隐藏后其它图标会丢失填色。
-    const glyph = STATUS_ICONS[node.dataset.icon].replaceAll("cc-task-", `cc-task-${++gradientSeq}-`);
-    node.innerHTML = `<svg viewBox="0 0 20 20" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${glyph}</svg>`;
+    const glyph = STATUS_ICONS[node.dataset.icon];
+    node.innerHTML = `<svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${glyph}</svg>`;
     return node;
   }
 
@@ -539,8 +600,10 @@ ${TRACE_STYLE}
     item.dataset.status = task.status;
     item.dataset.id = task.threadId;
     if (colors[task.color]) item.style.setProperty("--task", colors[task.color]);
-    if (STATUS[task.status]?.human && task.unread) item.dataset.hop = "";
-    else if (task.status === "idle" && task.unread) item.dataset.shake = "";
+    if (task.status === "asking") item.dataset.tone = "warn";
+    else if (task.status === "interrupted" || task.status === "stalled") item.dataset.tone = "danger";
+    if (STATUS[task.status]?.human && task.unread) item.dataset.urgent = "";
+    if (task.unread) item.dataset.unread = "";
     if (editing === task.threadId) {
       renderEditor(task, item);
       return item;
@@ -552,7 +615,14 @@ ${TRACE_STYLE}
     const main = element("button", "main");
     main.type = "button";
     main.title = "在左侧定位并打开这个会话";
-    main.append(statusIcon(task), taskText(task, BOARD_META), element("span", "when", whenOf(task)));
+    const line1 = element("span", "line1");
+    const whenNode = element("span", "when", whenOf(task));
+    const whenTip = whenTitleOf(task);
+    if (whenTip) whenNode.title = whenTip;
+    line1.append(element("span", "name", displayName(task)), boardState(task), whenNode);
+    const meta = element("span", "meta");
+    setLabel(meta, metaOf(task, BOARD_META));
+    main.append(line1, meta);
     syncProgress(main, task.plan);
     const latest = () => taskFor(task.threadId) ?? task;
     main.addEventListener("click", () => { closePeek(); void reveal(latest(), item); });
@@ -612,7 +682,12 @@ ${TRACE_STYLE}
         const meta = previous.querySelector(".meta");
         if (meta) setLabel(meta, metaOf(task, BOARD_META));
         const when = previous.querySelector(".when");
-        if (when && when.textContent !== whenOf(task)) when.textContent = whenOf(task);
+        if (when) {
+          const nextWhen = whenOf(task);
+          if (when.textContent !== nextWhen) when.textContent = nextWhen;
+          const nextWhenTip = whenTitleOf(task);
+          if (when.title !== nextWhenTip) when.title = nextWhenTip;
+        }
         const main = previous.querySelector(".main");
         if (main) syncProgress(main, task.plan);
         return previous;
@@ -769,7 +844,7 @@ ${TRACE_STYLE}
   async function reveal(task, item = null) {
     if (!threads) return;
     const id = idsOf(task).find((item) => threads.has(item)) ?? task.threadId;
-    const result = await threads.reveal(id, { source: item ? item.querySelector(".status") ?? item : null, projectId: task.projectId });
+    const result = await threads.reveal(id, { source: item ? (item.querySelector(".state:not(:empty), .status") ?? item.querySelector(".name") ?? item) : null, projectId: task.projectId });
     if (signal.aborted || result.ok) return;
     // 侧栏里找不到（例如会话不在当前列表中）时，交给 Codex 深链打开。
     try { await rpc("open", { threadId: task.threadId }); } catch (error) { fail(error); }
