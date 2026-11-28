@@ -23,7 +23,8 @@ test("normalizeRuntimeState 丢弃无效端口", () => {
     port: 5000,
     codexPid: null,
     daemonPid: 3,
-    startedAt: null, agentPid: null, lastAttemptAt: 0, lastEvent: null, codexKey: null
+    startedAt: null, agentPid: null, lastAttemptAt: 0, lastEvent: null, codexKey: null,
+    handledKeys: [], antigravityHandledKeys: []
   });
 });
 
@@ -37,7 +38,7 @@ test("save 写入 0600 并可 load 回读", async () => {
     assertMode(info, 0o600);
 
     const loaded = await state.load();
-    assert.deepEqual(loaded, { port: 51234, codexPid: 42, daemonPid: 7, startedAt: 1000, agentPid: null, lastAttemptAt: 0, lastEvent: null, codexKey: null });
+    assert.deepEqual(loaded, { port: 51234, codexPid: 42, daemonPid: 7, startedAt: 1000, agentPid: null, lastAttemptAt: 0, lastEvent: null, codexKey: null, handledKeys: [], antigravityHandledKeys: [] });
   });
 });
 
@@ -96,5 +97,14 @@ test("agent 无 Codex 时仍保存 agentPid/冷却时间/事件；读取旧文�
     await writeFile(state.path, JSON.stringify({ port: 51234, daemonPid: 9 }));
     assert.equal((await state.load()).lastAttemptAt, 0);
     assert.equal((await state.load()).agentPid, null);
+    assert.deepEqual((await state.load()).handledKeys, []);
+    // handledKeys 与 antigravityHandledKeys 过滤非法值、去重并保留最近 32 条。
+    const many = Array.from({ length: 40 }, (_, i) => `${i + 1}:1000`);
+    await state.save({ port: null, agentPid: 8, handledKeys: ["bad", "1:1000", ...many, "1:1000"], antigravityHandledKeys: ["99:2000", "invalid"] });
+    const withKeys = await state.load();
+    assert.equal(withKeys.handledKeys.length, 32);
+    assert.equal(withKeys.handledKeys[0], "9:1000");
+    assert.equal(withKeys.handledKeys.at(-1), "40:1000");
+    assert.deepEqual(withKeys.antigravityHandledKeys, ["99:2000"]);
   });
 });

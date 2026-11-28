@@ -350,6 +350,7 @@ export async function runAgent(options = {}) {
     await adapter.initialize(lock.startedAt);
     controller = new AgentController({ adapter, now, sleep: pause,
       lastAttemptAt: initialState?.lastAttemptAt ?? 0,
+      seenKeys: initialState?.handledKeys ?? [],
       autoRelaunch: () => Boolean(deps.nativeBridge && config.agent.autoRelaunch),
       notifyWhenManual: deps.hostPlatform === "linux" });
     for (const signal of ["SIGTERM", "SIGINT"]) processRef.once(signal, onSignal);
@@ -384,6 +385,8 @@ export async function runAgent(options = {}) {
           execFileImpl: options.execFileImpl, spawnImpl: options.spawnImpl,
           ...(options.notifyImpl ? { notifyImpl: options.notifyImpl } : {}),
           now, setTimer, clearTimer,
+          seenKeys: initialState?.antigravityHandledKeys ?? [],
+          onHandledKey: (key) => adapter.rememberAntigravityKey(key),
           ...(typeof options.antigravity === "object" ? options.antigravity : {})
         });
         await antigravity.start();

@@ -2,7 +2,7 @@ import AppKit
 import ApplicationServices
 import Darwin
 
-let version = "0.0.1"
+let version = "0.0.2"
 
 func emit(_ value: [String: Any]) {
   guard let data = try? JSONSerialization.data(withJSONObject: value, options: [.sortedKeys]) else {
@@ -19,15 +19,16 @@ struct Options {
   let appURL: URL
   var values: [String: String] = [:]
   var hidden = false
+  var background = false
   var pid: Int32 { Int32(values["--pid"] ?? "") ?? 0 }
   var key: String { values["--key"] ?? "" }
-  var maxAgeMs: Int64 { Int64(values["--max-age-ms"] ?? "8000")! }
+  var maxAgeMs: Int64 { Int64(values["--max-age-ms"] ?? "30000")! }
 
   init(_ args: [String]) throws {
     let allowed: [String: Set<String>] = [
       "snapshot": [], "watch": [],
       "quit": ["--pid", "--key", "--mode", "--max-age-ms"],
-      "launch": ["--args-json", "--env-json", "--unset-env-json", "--hidden"],
+      "launch": ["--args-json", "--env-json", "--unset-env-json", "--hidden", "--background"],
       "show": ["--pid", "--key"]
     ]
     guard let action = args.first, let flags = allowed[action] else {
@@ -42,6 +43,10 @@ struct Options {
       }
       if flag == "--hidden" {
         hidden = true
+        values[flag] = "true"
+        index += 1
+      } else if flag == "--background" {
+        background = true
         values[flag] = "true"
         index += 1
       } else {
@@ -61,7 +66,7 @@ struct Options {
     }
     if action == "quit" {
       guard ["fresh", "user"].contains(values["--mode"] ?? ""),
-            let age = Int64(values["--max-age-ms"] ?? "8000"), age >= 0 else {
+            let age = Int64(values["--max-age-ms"] ?? "30000"), age >= 0 else {
         throw UsageError(message: "invalid-quit-options")
       }
     }
@@ -182,7 +187,7 @@ func launchApp(_ options: Options) throws -> [String: Any] {
   configuration.arguments = arguments
   // 原始 API 冒烟证实会合并默认环境，这里只传覆盖项。
   configuration.environment = environment
-  configuration.activates = !options.hidden
+  configuration.activates = !options.hidden && !options.background
   configuration.hides = options.hidden
   configuration.addsToRecentItems = false
   configuration.promptsUserIfNeeded = false

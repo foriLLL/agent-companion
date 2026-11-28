@@ -117,19 +117,23 @@ test("record 原子状态保存失败必须向控制器传播，冷却信息可�
   assert.equal(instance.state.lastAttemptAt, 1234);
 });
 
-test("三种中文通知各自限频十分钟，失败也限频，不调用真实 osascript", async () => {
+test("中文通知各自限频十分钟，失败也限频，不调用真实 osascript", async () => {
   let now = 0;
   const calls = [];
-  const instance = adapter({ now: () => now, notifyImpl: async (...args) => { calls.push(args); throw new Error("fake failure"); } });
-  for (const kind of Object.keys(AGENT_NOTIFICATIONS)) await Promise.all([instance.notify(kind), instance.notify(kind)]);
-  assert.equal(calls.length, 3);
+  const state = stateStore();
+  const instance = adapter({ runtimeState: state, now: () => now, notifyImpl: async (...args) => { calls.push(args); throw new Error("fake failure"); } });
+  await instance.initialize();
+  const kinds = Object.keys(AGENT_NOTIFICATIONS);
+  for (const kind of kinds) await Promise.all([instance.notify(kind, { processKey: "10:100" }), instance.notify(kind, { processKey: "10:100" })]);
+  assert.equal(calls.length, kinds.length);
   assert.deepEqual(calls.map(call => call[1]), Object.values(AGENT_NOTIFICATIONS));
+  assert.deepEqual(state.value.handledKeys, ["10:100"]);
   now = 599_999;
   await instance.notify("needs-restart");
-  assert.equal(calls.length, 3);
+  assert.equal(calls.length, kinds.length);
   now = 600_000;
   await instance.notify("needs-restart");
-  assert.equal(calls.length, 4);
+  assert.equal(calls.length, kinds.length + 1);
   await instance.close();
 });
 

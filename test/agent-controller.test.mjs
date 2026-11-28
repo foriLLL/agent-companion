@@ -167,15 +167,16 @@ test("C2.4：同一组多实例忽略顺序与属性变化，集合变化后才�
   assert.equal(h.count("quit") + h.count("launch"), 0);
 });
 
-test("C2.5：基线已有 plain 仅通知一次，之后守卫变好也永不自动退出", async () => {
+test("C2.5：基线已有旧 plain 仅保护并通知一次，绝不在 agent 重启/更新时退出", async () => {
   for (const change of [
-    { app: { launchedAt: 900000 } },
+    { app: { launchedAt: 969999 } },
     { app: { launchedAt: 1000001 } },
-    { app: { launchedAt: 991999, finishedLaunching: false } }
+    { app: { launchedAt: NaN } },
+    { app: { launchedAt: 969999, finishedLaunching: false } }
   ]) {
     const h = harness();
     const app = h.app(change.app);
-    await h.feed(h.snapshot([app]));
+    await h.feed(h.snapshot([app], change.snapshot));
     await h.feed(h.snapshot([h.app({ key: app.key })]));
     await h.feed(h.snapshot());
     await h.feed(h.snapshot([h.app({ key: app.key })]));
@@ -184,41 +185,68 @@ test("C2.5：基线已有 plain 仅通知一次，之后守卫变好也永不自
   }
 });
 
-test("C2.5：基线登录竞态已经就绪时允许 fresh 退出", async () => {
-  const h = harness();
-  const app = h.app({ launchedAt: h.clock.now() - 8000 });
-  h.impl.quit = async () => ({ accepted: false, reason: "native-check" });
-  await h.feed(h.snapshot([app], { inputIdleMs: 0 }));
-  assert.deepEqual(h.events(), ["attempt", "quit-refused"]);
-  assert.equal(h.count("quit"), 1);
-  assert.equal(h.count("notify"), 0);
-  await h.feed(h.snapshot([app]));
-  assert.equal(h.count("quit"), 1);
+test("C2.5：重启后从持久化 seenKeys 恢复，已处理或受保护的实例绝不重复退出或重复提醒", async () => {
+  // 场景 1：刚启动但上次已被拒绝/超时的实例，agent 重启后仍在 30s 窗口内也不再退出。
+  const fresh = harness({ seenKeys: ["11:999000"] });
+  await fresh.feed(fresh.snapshot([fresh.app({ pid: 11, key: "11:999000", launchedAt: 999000 })]));
+  assert.equal(fresh.count("quit"), 0);
+  assert.equal(fresh.count("notify"), 0);
+
+  // 场景 2：基线旧实例上次已提醒过，agent 自动更新/看门狗重启后不重复弹提醒也不退出。
+  const stale = harness({ seenKeys: ["11:500000"] });
+  await stale.feed(stale.snapshot([stale.app({ pid: 11, key: "11:500000", launchedAt: 500000 })]));
+  assert.equal(stale.count("quit"), 0);
+  assert.equal(stale.count("notify"), 0);
 });
 
-test("C2.5：基线登录竞态尚未启动完成或尚未前台时先 pending，就绪后处理一次", async () => {
-  for (const change of [
-    { app: { finishedLaunching: false } },
-    { snapshot: { frontmostPid: 99 } },
-    { app: { finishedLaunching: false }, snapshot: { frontmostPid: 99 } }
-  ]) {
+test("C2.5：基线登录竞态（30s 内刚启动的单实例）就绪时允许 fresh 退出，支持前后台", async () => {
+  for (const snapshotOverrides of [{ inputIdleMs: 0 }, { frontmostPid: 99 }]) {
     const h = harness();
-    const app = h.app(change.app);
-    await h.feed(h.snapshot([app], change.snapshot));
-    await h.feed(h.snapshot([app], change.snapshot));
+    const app = h.app({ launchedAt: h.clock.now() - 30_000 });
+    h.impl.quit = async () => ({ accepted: false, reason: "native-check" });
+    await h.feed(h.snapshot([app], snapshotOverrides));
+    assert.deepEqual(h.events(), ["attempt", "quit-refused"]);
+    assert.equal(h.count("quit"), 1);
+    assert.deepEqual(h.args("notify"), [["needs-restart", { processKey: app.key }]]);
+    await h.feed(h.snapshot([app]));
+    assert.equal(h.count("quit"), 1);
+  }
+});
+
+test("C2.5：quit 被拒时，进程已消失或已带调试端口不误报通知；超窗归为 skipped", async () => {
+  for (const reason of ["instance-mismatch", "key-mismatch", "debug-port-present"]) {
+    const h = harness();
+    const app = h.app();
+    h.impl.quit = async () => ({ accepted: false, reason });
+    await h.feed(h.snapshot([app]));
+    assert.deepEqual(h.events(), ["attempt", "quit-refused"]);
+    assert.equal(h.count("notify"), 0, reason);
+  }
+  const stale = harness();
+  const app = stale.app();
+  stale.impl.quit = async () => ({ accepted: false, reason: "age-out-of-range" });
+  await stale.feed(stale.snapshot([app]));
+  assert.deepEqual(stale.args("notify"), [["skipped", { processKey: app.key }]]);
+});
+
+test("C2.5：基线刚启动尚未完成时先 pending，30s 窗口内就绪后自动重开一次", async () => {
+  for (const snapshotOverrides of [{}, { frontmostPid: 99 }]) {
+    const h = harness();
+    const app = h.app({ finishedLaunching: false });
+    await h.feed(h.snapshot([app], snapshotOverrides));
+    await h.feed(h.snapshot([app], snapshotOverrides));
     assert.equal(h.controller.pendingLaunch, true);
     assert.equal(h.count("quit"), 0);
     assert.equal(h.count("notify"), 0);
     assert.deepEqual(h.events(), []);
 
-    h.clock.advance(300);
+    h.clock.advance(20_000);
     h.impl.quit = async () => ({ accepted: false, reason: "native-check" });
     const ready = { ...app, finishedLaunching: true };
-    await h.feed(h.snapshot([ready]));
-    await h.feed(h.snapshot([ready]));
+    await h.feed(h.snapshot([ready], snapshotOverrides));
+    await h.feed(h.snapshot([ready], snapshotOverrides));
     assert.equal(h.controller.pendingLaunch, false);
     assert.equal(h.count("quit"), 1);
-    assert.equal(h.count("notify"), 0);
     assert.deepEqual(h.events(), ["attempt", "quit-refused"]);
   }
 });
@@ -279,22 +307,55 @@ test("不能自动重开的平台（Linux）对基线与新出现的普通实例
   for (const h of [baseline, fresh]) assert.equal(h.count("quit") + h.count("launch"), 0);
 });
 
-test("C2.6：age 守卫逐项拒绝且不重试", async () => {
+test("C2.6：超龄或无效 launchedAt 的普通实例记录 skipped-stale 并提醒，绝不退出", async () => {
   for (const change of [
     { app: { launchedAt: 1000001 } },
-    { app: { launchedAt: 991999 } },
+    { app: { launchedAt: 969999 } },
     { app: { launchedAt: NaN } }
   ]) {
     const h = harness();
     await h.feed(h.snapshot());
     const app = h.app(change.app);
-    await h.feed(h.snapshot([app], change.snapshot));
+    await h.feed(h.snapshot([app]));
     await h.feed(h.snapshot([h.app({ key: app.key })]));
     assert.deepEqual(h.events(), ["skipped-stale"]);
     assert.deepEqual(h.args("notify"), [["skipped", { processKey: app.key }]]);
-    assert.equal(h.count("quit"), 0);
-    assert.equal(h.controller.pendingLaunch, false);
+    assert.equal(h.count("quit") + h.count("launch"), 0);
   }
+});
+
+test("C2.6：刚启动的后台无 CDP 实例照常退出，且在后台重开不抢焦点", async () => {
+  const h = harness();
+  await h.feed(h.snapshot());
+  const app = h.app({ launchedAt: h.clock.now() - 10_000 });
+  const done = h.feed(h.snapshot([app], { frontmostPid: 99 }));
+  await flush();
+  assert.deepEqual(h.args("quit"), [[{ pid: app.pid, key: app.key, mode: "fresh", maxAgeMs: 30000 }]]);
+  await exitFresh(h, { frontmostPid: 99 });
+  await done;
+  assert.deepEqual(h.events(), ["attempt", "reopened"]);
+  assert.deepEqual(h.args("launch"), [[{ background: true }]]);
+  assert.equal(h.count("show"), 0);
+  assert.deepEqual(h.args("record").at(-1), ["reopened", { processKey: app.key, key: "22:1000500", shown: false }]);
+  assert.equal(h.count("notify"), 0);
+
+  // 竞态：启动快照先到（尚未成为前台），激活快照在 attempt 落盘期间排队到达 → 按前台恢复显示，不留在后台。
+  const race = harness();
+  await race.feed(race.snapshot());
+  const gate = deferred();
+  race.impl.record = (event) => event === "attempt" ? gate.promise : Promise.resolve();
+  const dock = race.app();
+  const raceDone = race.feed(race.snapshot([dock], { frontmostPid: 99 }));
+  await flush();
+  const queued = race.controller.handleSnapshot(race.snapshot([dock], { frontmostPid: dock.pid }));
+  gate.resolve();
+  await flush();
+  race.impl.snapshot = async () => race.snapshot([], { frontmostPid: 99 });
+  await race.tick(200);
+  await race.tick(250);
+  await Promise.all([raceDone, queued]);
+  assert.deepEqual(race.args("launch"), [[{ hidden: true }]]);
+  assert.equal(race.count("show"), 1);
 });
 
 test("C2.6：刚打开就点击或输入也照常重开，退出与重开期间的输入不取消", async () => {
@@ -303,7 +364,7 @@ test("C2.6：刚打开就点击或输入也照常重开，退出与重开期间�
   const app = h.app();
   const done = h.feed(h.snapshot([app], { inputStamp: "9:9:9:9:9", inputIdleMs: 0 }));
   await flush();
-  assert.deepEqual(h.args("quit"), [[{ pid: app.pid, key: app.key, mode: "fresh" }]]);
+  assert.deepEqual(h.args("quit"), [[{ pid: app.pid, key: app.key, mode: "fresh", maxAgeMs: 30000 }]]);
   await exitFresh(h, { inputStamp: "10:10:10:10:10", inputIdleMs: 0, frontmostPid: 77 });
   await done;
   assert.deepEqual(h.events(), ["attempt", "reopened"]);
@@ -312,36 +373,39 @@ test("C2.6：刚打开就点击或输入也照常重开，退出与重开期间�
   assert.equal(h.count("notify"), 0);
 });
 
-test("C2.6：未完成启动或尚未前台先等待，满足守卫后仅处理一次", async () => {
-  for (const change of [{ app: { finishedLaunching: false } }, { snapshot: { frontmostPid: 99 } }]) {
-    const h = harness();
-    await h.feed(h.snapshot());
-    const app = h.app(change.app);
-    await h.feed(h.snapshot([app], change.snapshot));
-    assert.equal(h.controller.pendingLaunch, true);
-    assert.equal(h.count("quit"), 0);
-    h.impl.quit = async () => ({ accepted: false, reason: "guard" });
-    await h.feed(h.snapshot([h.app({ key: app.key })]));
-    assert.equal(h.controller.pendingLaunch, false);
-    assert.equal(h.count("quit"), 1);
-  }
+test("C2.6：未完成启动在 30s 窗口内等待，完成即重开；超窗或中途退出即结束等待", async () => {
+  const h = harness();
+  await h.feed(h.snapshot());
+  const app = h.app({ finishedLaunching: false });
+  await h.feed(h.snapshot([app]));
+  assert.equal(h.controller.pendingLaunch, true);
+  assert.equal(h.count("quit"), 0);
+  h.clock.advance(20_000);
+  h.impl.quit = async () => ({ accepted: false, reason: "guard" });
+  await h.feed(h.snapshot([{ ...app, finishedLaunching: true }]));
+  assert.equal(h.controller.pendingLaunch, false);
+  assert.equal(h.count("quit"), 1);
+
+  const expired = harness();
+  await expired.feed(expired.snapshot());
+  const slow = expired.app({ finishedLaunching: false });
+  await expired.feed(expired.snapshot([slow]));
+  expired.clock.advance(31_000);
+  await expired.feed(expired.snapshot([{ ...slow, finishedLaunching: true }]));
+  assert.equal(expired.controller.pendingLaunch, false);
+  assert.equal(expired.count("quit"), 0);
+  assert.deepEqual(expired.events(), ["skipped-stale"]);
+
+  const exited = harness();
+  await exited.feed(exited.snapshot());
+  await exited.feed(exited.snapshot([exited.app({ finishedLaunching: false })]));
+  await exited.feed(exited.snapshot([]));
+  assert.equal(exited.controller.pendingLaunch, false);
+  assert.equal(exited.count("quit"), 0);
+  assert.deepEqual(exited.events(), []);
 });
 
-test("C2.6：等待前台或启动完成期间超龄或退出即结束等待", async () => {
-  for (const change of ["expired", "exited"]) {
-    const h = harness();
-    await h.feed(h.snapshot());
-    const app = h.app({ finishedLaunching: false });
-    await h.feed(h.snapshot([app], { frontmostPid: 99 }));
-    if (change === "expired") h.clock.advance(8000);
-    await h.feed(h.snapshot(change === "exited" ? [] : [app], { frontmostPid: 99 }));
-    assert.equal(h.controller.pendingLaunch, false);
-    assert.equal(h.count("quit"), 0);
-    assert.deepEqual(h.events(), change === "exited" ? [] : ["skipped-stale"]);
-  }
-});
-
-test("C2.6：冷却期内只记录一次，边界时刻允许尝试", async () => {
+test("C2.6：冷却期内只记录一次并发送 cooldown 提示，边界时刻允许尝试；稳定接上 30s 后退出才清零冷却", async () => {
   for (const elapsed of [119999, 120000]) {
     const h = harness({ lastAttemptAt: 1000000 - elapsed });
     await h.feed(h.snapshot());
@@ -351,7 +415,36 @@ test("C2.6：冷却期内只记录一次，边界时刻允许尝试", async () =
     await h.feed(h.snapshot([app]));
     assert.equal(h.count("quit"), elapsed === 120000 ? 1 : 0);
     assert.deepEqual(h.events(), elapsed === 120000 ? ["attempt", "quit-refused"] : ["skipped-cooldown"]);
+    assert.deepEqual(h.args("notify"), [[elapsed === 120000 ? "needs-restart" : "cooldown", { processKey: app.key }]]);
   }
+
+  // 重开后 ours 稳定运行 >= 30s 再退出（例如客户端自动更新重启）：不受 120s 冷却限制，立刻重开。
+  const stable = harness();
+  const { done } = await startFresh(stable);
+  await exitFresh(stable);
+  await done;
+  await stable.feed(stable.snapshot([stable.ours({ pid: 22, key: "22:1000500" })]));
+  stable.clock.advance(30_000);
+  await stable.feed(stable.snapshot([]));
+  const updated = stable.app({ pid: 33, key: "33:1030500", launchedAt: stable.clock.now() });
+  const done2 = stable.feed(stable.snapshot([updated], { frontmostPid: 99 }));
+  await flush();
+  assert.equal(stable.count("quit"), 2, "稳定会话后的更新重启不被 120s 冷却拦住");
+  await exitFresh(stable, { frontmostPid: 99 });
+  await done2;
+
+  // 若 ours 接上不足 30s（例如 10s 闪退循环）就退出：仍受 120s 冷却保护。
+  const crash = harness();
+  const first = await startFresh(crash);
+  await exitFresh(crash);
+  await first.done;
+  await crash.feed(crash.snapshot([crash.ours({ pid: 22, key: "22:1000500" })]));
+  crash.clock.advance(10_000);
+  await crash.feed(crash.snapshot([]));
+  await crash.feed(crash.snapshot([crash.app({ pid: 44, key: "44:1010500", launchedAt: crash.clock.now() })]));
+  assert.equal(crash.count("quit"), 1, "短命会话不清除冷却，防止 5-10 秒闪退重启循环");
+  assert.equal(crash.events().at(-1), "skipped-cooldown");
+  assert.equal(crash.args("notify").at(-1)[0], "cooldown");
 });
 
 test("C2.6/8：attempt 必须先成功落盘；写失败不 quit 且候选不重试", async () => {
@@ -386,7 +479,7 @@ test("C2.6：attempt 写成功之后才 quit，时间戳作为下次冷却依据
   write.resolve();
   await done;
   assert.deepEqual(h.args("record")[0], ["attempt", { lastAttemptAt: 1000000, processKey: app.key }]);
-  assert.deepEqual(h.args("quit"), [[{ pid: app.pid, key: app.key, mode: "fresh" }]]);
+  assert.deepEqual(h.args("quit"), [[{ pid: app.pid, key: app.key, mode: "fresh", maxAgeMs: 30000 }]]);
   assert.equal(h.controller.status().lastAttemptAt, 1000000);
   await h.feed(h.snapshot([h.app({ pid: 33, key: "33:1" })]));
   assert.equal(h.count("quit"), 1);
@@ -394,7 +487,7 @@ test("C2.6：attempt 写成功之后才 quit，时间戳作为下次冷却依据
 });
 
 test("C2.4/6：attempt 落盘期间新快照使守卫失效时不能再 quit", async () => {
-  for (const cause of ["multiple", "exited", "foreign", "unknown", "frontmost", "launching", "age"]) {
+  for (const cause of ["multiple", "exited", "foreign", "unknown", "launching", "age"]) {
     const h = harness();
     await h.feed(h.snapshot());
     const gate = deferred();
@@ -406,8 +499,7 @@ test("C2.4/6：attempt 落盘期间新快照使守卫失效时不能再 quit", a
       : cause === "unknown" ? { arguments: null } : cause === "launching" ? { finishedLaunching: false } : {};
     const apps = cause === "exited" ? [] : cause === "multiple" ? [app, h.app({ pid: 22, key: "22:1" })]
       : [{ ...app, ...changed }];
-    const snapshot = h.snapshot(apps, cause === "frontmost" ? { frontmostPid: 99 }
-      : cause === "age" ? { now: h.clock.now() + 8001 } : {});
+    const snapshot = h.snapshot(apps, cause === "age" ? { now: h.clock.now() + 30_001 } : {});
     const queued = h.controller.handleSnapshot(snapshot);
     gate.resolve();
     await Promise.all([done, queued]);
@@ -719,9 +811,9 @@ test("C2 串行化：忙时仅处理最新快照，首个快照仍作基线", as
 
 test("C2 串行化：同一轮同步到达的首个基线不能被后续快照覆盖", async () => {
   const h = harness();
-  const app = h.app({ launchedAt: h.clock.now() - 9000 });
-  const first = h.feed(h.snapshot([app]));
-  const next = h.feed(h.snapshot([h.app({ key: app.key })]));
+  const old = h.app({ launchedAt: h.clock.now() - 31_000 });
+  const first = h.feed(h.snapshot([old]));
+  const next = h.feed(h.snapshot([h.app({ key: old.key })]));
   await Promise.all([first, next]);
   assert.equal(h.count("quit"), 0);
   assert.equal(h.count("notify"), 1);
@@ -763,7 +855,7 @@ test("C2.8：adapter 及配置回调异常均记录 error，后续快照仍能�
     if (method !== "autoRelaunch") h.impl[method] = async () => { throw new Error(method); };
     if (method === "attach") await h.feed(h.snapshot([h.ours()]));
     else if (method === "detach") await h.feed(h.snapshot());
-    else if (method === "notify") await h.feed(h.snapshot([h.app({ launchedAt: 1 })]));
+    else if (method === "notify") await h.feed(h.snapshot([h.app(), h.app({ pid: 22, key: "22:1" })]));
     else {
       const { done } = await startFresh(h);
       if (method === "snapshot") await h.tick(200);
@@ -831,8 +923,8 @@ test("C2.8：stop 在各异步 adapter 边界生效，丢弃排队快照", async
     else if (method !== "attach" && method !== "notify") await h.feed(h.snapshot());
     const gate = deferred();
     h.impl[method] = () => gate.promise;
-    const app = method === "attach" ? h.ours() : h.app(method === "notify" ? { launchedAt: 1 } : {});
-    const done = h.feed(h.snapshot(method === "detach" ? [] : [app]));
+    const app = method === "attach" ? h.ours() : h.app();
+    const done = h.feed(h.snapshot(method === "detach" ? [] : method === "notify" ? [app, h.app({ pid: 22, key: "22:1" })] : [app]));
     await flush();
     if (method === "snapshot") await h.tick(200);
     if (method === "launch" || method === "show") await exitFresh(h);

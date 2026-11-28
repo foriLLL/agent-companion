@@ -6,9 +6,22 @@ import { waitForCodexTargets } from "../targets.mjs";
 import { createCodexSession } from "./session.mjs";
 
 const PROXY_KEYS = ["HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy", "ALL_PROXY", "all_proxy"];
+const PROCESS_KEY = /^\d+:\d+$/;
+const MAX_HANDLED_KEYS = 32;
+function mergeHandledKeys(existing = [], additions = []) {
+  const list = Array.isArray(existing) ? existing.filter(key => typeof key === "string" && PROCESS_KEY.test(key)) : [];
+  let changed = false;
+  for (const key of additions) {
+    if (typeof key !== "string" || !PROCESS_KEY.test(key) || list.includes(key)) continue;
+    list.push(key);
+    changed = true;
+  }
+  return changed ? list.slice(-MAX_HANDLED_KEYS) : null;
+}
 export const AGENT_NOTIFICATIONS = Object.freeze({
   "needs-restart": "Companion 未加载：退出并重新打开 Codex 即可显示卡片。",
   skipped: "本次未自动加载 Companion，下次打开 Codex 时生效。",
+  cooldown: "Companion 刚刚尝试过自动重开，本次已跳过；请稍等两分钟后再重启 Codex 以加载卡片。",
   "relaunch-failed": "Codex 自动重开失败，请手动打开 Codex。"
 });
 // Linux 不自动重开：卡片只在经应用菜单（Companion 覆盖的启动入口）打开时加载。
@@ -46,8 +59,10 @@ export function createAgentAdapter({
   const notifications = new Map();
   const log = error => logger.warn?.(`[agent-companion] 会话连接失败：${error.message ?? error}`);
 
-  function persist(patch) {
+  function persist(patchOrUpdater) {
     const operation = writes.then(async () => {
+      const patch = typeof patchOrUpdater === "function" ? patchOrUpdater(state) : patchOrUpdater;
+      if (!patch) return;
       const next = { ...state, ...patch };
       await runtimeState.save(next);
       state = next;
@@ -145,11 +160,31 @@ export function createAgentAdapter({
     },
     async record(event, details = {}) {
       if (closed) return;
-      await persist({ lastEvent: { event, at: now() },
-        ...(event === "attempt" ? { lastAttemptAt: details.lastAttemptAt } : {}) });
+      const keys = [details.processKey, details.key, ...(Array.isArray(details.processKeys) ? details.processKeys : [])];
+      await persist(currentState => {
+        const handledKeys = mergeHandledKeys(currentState.handledKeys, keys);
+        return {
+          lastEvent: { event, at: now() },
+          ...(event === "attempt" ? { lastAttemptAt: details.lastAttemptAt } : {}),
+          ...(handledKeys ? { handledKeys } : {})
+        };
+      });
       logger.info?.(`[agent-companion] ${event} ${JSON.stringify(details)}`);
     },
-    async notify(kind) {
+    async rememberAntigravityKey(key) {
+      if (closed) return;
+      await persist(currentState => {
+        const antigravityHandledKeys = mergeHandledKeys(currentState.antigravityHandledKeys, [key]);
+        return antigravityHandledKeys ? { antigravityHandledKeys } : null;
+      }).catch(() => {});
+    },
+    async notify(kind, details = {}) {
+      if (!closed && details?.processKey) {
+        await persist(currentState => {
+          const handledKeys = mergeHandledKeys(currentState.handledKeys, [details.processKey]);
+          return handledKeys ? { handledKeys } : null;
+        }).catch(() => {});
+      }
       const message = (hostPlatform === "linux" ? LINUX_NOTIFICATIONS[kind] : null) ?? AGENT_NOTIFICATIONS[kind];
       const previous = notifications.get(kind);
       if (closed || !message || (previous !== undefined && now() - previous < 600_000)) return;

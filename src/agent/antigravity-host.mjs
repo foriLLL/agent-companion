@@ -9,8 +9,8 @@ import { AgentController } from "./controller.mjs";
 import { createNativeBridge } from "./native-bridge.mjs";
 import { createCodexSession } from "./session.mjs";
 
-// Antigravity 宿主：在 macOS 有原生助手时监听 Antigravity 启动，刚打开且未带调试参数（如从图标点开或自动更新重启）
-// 的实例在安全条件下正常退出、以本机随机调试端口重开并注入卡片；已运行中的旧实例绝不强杀，只发提醒。
+// Antigravity 宿主：在 macOS 有原生助手时监听 Antigravity，刚启动且未带调试端口的单实例（含后台启动
+// 与自动更新重启）在启动完成后被正常退出、以本机随机调试端口重开并注入卡片；已在运行的基线旧实例只提醒不退出，绝不强杀。
 // 原生助手缺失时退回定时轮询，只接上带本机调试端口启动的实例。
 // 与 Codex 的会话互不影响：各自一个 injector + 服务注册表，看板文件也分开。
 
@@ -21,6 +21,7 @@ const LOOPBACK = new Set(["127.0.0.1", "localhost", "::1", "[::1]"]);
 export const ANTIGRAVITY_NOTIFICATIONS = Object.freeze({
   "needs-restart": "Companion 未加载：退出并重新打开 Antigravity 即可显示卡片。",
   skipped: "本次未自动加载 Companion，下次打开 Antigravity 时生效。",
+  cooldown: "Companion 刚刚尝试过自动重开，本次已跳过；请稍等两分钟后再重启 Antigravity 以加载卡片。",
   "relaunch-failed": "Antigravity 自动重开失败，请手动打开 Antigravity。"
 });
 
@@ -76,7 +77,7 @@ export function createAntigravityHost({
   notifyImpl = (title, message) => notifyDesktop(title, message, { platform: hostPlatform, execFileImpl }),
   now = Date.now,
   intervalMs = 3000, retryMs = 1000, maxRetryMs = 30_000,
-  freshWindowMs, cooldownMs, quitTimeoutMs,
+  freshWindowMs, cooldownMs, stableAttachMs, quitTimeoutMs, seenKeys = [], onHandledKey = null,
   setTimer = setTimeout, clearTimer = clearTimeout, sleepImpl = (ms, signal) => sleep(ms, undefined, { signal })
 } = {}) {
   const bridge = nativeBridge !== undefined ? nativeBridge
@@ -178,12 +179,19 @@ export function createAntigravityHost({
       },
       attach: ({ pid, key, port }) => { attach({ pid, key, port }); },
       detach: ({ key, reason } = {}) => detach({ key, reason }),
-      record(event, details = {}) {
+      async record(event, details = {}) {
         if (!running) return;
         lastEvent = { event, at: now() };
+        const keys = [details.processKey, details.key, ...(Array.isArray(details.processKeys) ? details.processKeys : [])];
+        for (const key of keys) {
+          if (typeof key === "string" && key) await Promise.resolve(onHandledKey?.(key)).catch(() => {});
+        }
         logger.info?.(`[agent-companion] Antigravity ${event} ${JSON.stringify(details)}`);
       },
-      async notify(kind) {
+      async notify(kind, details = {}) {
+        if (running && typeof details?.processKey === "string" && details.processKey) {
+          await Promise.resolve(onHandledKey?.(details.processKey)).catch(() => {});
+        }
         const message = ANTIGRAVITY_NOTIFICATIONS[kind];
         const previous = notifications.get(kind);
         if (!running || !message || (previous !== undefined && now() - previous < 600_000)) return;
@@ -192,11 +200,12 @@ export function createAntigravityHost({
         catch (error) { log(`通知失败：${error?.message ?? error}`); }
       }
     },
-    now, sleep: pause,
+    now, sleep: pause, seenKeys,
     autoRelaunch: () => config?.agent?.autoRelaunch === true,
     isOurs: isAntigravityDebugInstance,
     ...(freshWindowMs !== undefined ? { freshWindowMs } : {}),
     ...(cooldownMs !== undefined ? { cooldownMs } : {}),
+    ...(stableAttachMs !== undefined ? { stableAttachMs } : {}),
     ...(quitTimeoutMs !== undefined ? { quitTimeoutMs } : {})
   }) : null;
 

@@ -194,19 +194,29 @@ async function main() {
           { accepted: false, reason: "key-mismatch" });
       });
     }
-    await check("fresh age 超窗拒绝", async () => {
+    await check("fresh 显式 maxAgeMs 超窗拒绝", async () => {
       assert.deepEqual(await bridge.quit({ ...launched, mode: "fresh", maxAgeMs: 0 }),
         { accepted: false, reason: "age-out-of-range" });
     });
-    await check("fresh 后台拒绝", async () => {
-      assert.deepEqual(await bridge.quit({ ...launched, mode: "fresh", maxAgeMs: 60_000 }),
-        { accepted: false, reason: "not-frontmost" });
-    });
     const beforeQuit = snapshots.length;
-    await check("quit user 正常退出", () => quitAll());
+    await check("fresh 后台且在 30 秒窗口内正常退出", async () => {
+      assert.deepEqual(await bridge.quit({ ...launched, mode: "fresh" }), { accepted: true });
+      await waitFor(async () => (await bridge.snapshot()).apps.length === 0, "fresh background terminate");
+    });
     await check("watch terminate", async () => {
       await waitFor(() => snapshots.slice(beforeQuit).some((value) => value.apps.length === 0), "watch terminate");
       assert.equal(exits.length, 0);
+    });
+    await check("launch --background 不激活也不隐藏，quit user 正常退出", async () => {
+      const bgRecord = join(root, "background.json");
+      const bg = await bridge.launch({ args: ["--record", bgRecord], background: true });
+      assert.equal(bg.launched, true, JSON.stringify(bg));
+      const value = await record(bgRecord);
+      assert.equal(value.active, false);
+      assert.equal(value.everActive, false);
+      assert.equal(value.hidden, false);
+      assert.notEqual((await bridge.snapshot()).frontmostPid, bg.pid);
+      await quitAll();
     });
     await check("原始 NSWorkspace environment 合并/替换实测", async () => {
       const records = {};

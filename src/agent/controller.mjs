@@ -23,6 +23,7 @@ export class AgentController {
   #notifyWhenManual;
   #freshWindowMs;
   #cooldownMs;
+  #stableAttachMs;
   #quitTimeoutMs;
   #userRestartMinIntervalMs;
   #lastAttemptAt;
@@ -40,8 +41,8 @@ export class AgentController {
   #work = null;
   #stopped = false;
 
-  constructor({ adapter, now = Date.now, sleep, lastAttemptAt = 0,
-    freshWindowMs = 8000, cooldownMs = 120000, quitTimeoutMs = 10000,
+  constructor({ adapter, now = Date.now, sleep, lastAttemptAt = 0, seenKeys = [],
+    freshWindowMs = 30000, cooldownMs = 120000, stableAttachMs = 30000, quitTimeoutMs = 10000,
     userRestartMinIntervalMs = 10000, autoRelaunch = () => true, notifyWhenManual = false,
     isOurs = isCompanionDebugInstance }) {
     if (typeof sleep !== "function") throw new TypeError("必须注入 sleep");
@@ -54,10 +55,14 @@ export class AgentController {
     this.#notifyWhenManual = notifyWhenManual;
     this.#freshWindowMs = freshWindowMs;
     this.#cooldownMs = cooldownMs;
+    this.#stableAttachMs = stableAttachMs;
     this.#quitTimeoutMs = quitTimeoutMs;
     this.#userRestartMinIntervalMs = userRestartMinIntervalMs;
     this.#lastAttemptAt = lastAttemptAt;
     this.#hasAttempt = lastAttemptAt !== 0;
+    for (const key of seenKeys ?? []) {
+      if (typeof key === "string" && key) this.#seen.add(key);
+    }
   }
 
   get pendingLaunch() {
@@ -151,8 +156,11 @@ export class AgentController {
     if (apps.length <= 1) this.#multipleKeys = null;
     try {
       if (this.#attached && !apps.some((app) => app.key === this.#attached.key)) {
-        await this.#call("detach", { key: this.#attached.key, reason: "exited" });
+        const previous = this.#attached;
+        await this.#call("detach", { key: previous.key, reason: "exited" });
         this.#attached = null;
+        // 上一次重开已稳定接上并运行了一段时间：清掉冷却，避免随后触发客户端更新重启被 120s 冷却拦住。
+        if (this.#now() - previous.attachedAt >= this.#stableAttachMs) this.#hasAttempt = false;
       }
       for (const app of apps) {
         if (app.kind === "unknown" || app.kind === "foreign-debug") {
@@ -180,7 +188,7 @@ export class AgentController {
           this.#seen.add(app.key);
           const attached = { pid: app.pid, key: app.key, port: app.parsed.debugPort };
           await this.#call("attach", attached);
-          this.#attached = attached;
+          this.#attached = { ...attached, attachedAt: this.#now() };
         }
       }
       return apps;
@@ -189,14 +197,13 @@ export class AgentController {
     }
   }
 
-  // 只看启动时长：用户刚打开就点击或输入也照常重开，不能因为操作得快就错过注入。
+  #latestSnapshot(snapshot) {
+    return this.#queued && this.#queued.now >= snapshot.now ? this.#queued : snapshot;
+  }
+
   #fresh(app, snapshot) {
     const age = snapshot.now - app.launchedAt;
     return Number.isFinite(age) && age >= 0 && age <= this.#freshWindowMs;
-  }
-
-  #latestSnapshot(snapshot) {
-    return this.#queued && this.#queued.now >= snapshot.now ? this.#queued : snapshot;
   }
 
   #canQuit(app, snapshot, mode) {
@@ -204,8 +211,7 @@ export class AgentController {
     const apps = classify(latest, this.#isOurs);
     if (apps.length !== 1 || apps[0].key !== app.key) return false;
     if (mode === "user") return apps[0].kind === "plain" || apps[0].kind === "ours";
-    return apps[0].kind === "plain" && this.#fresh(apps[0], latest)
-      && apps[0].finishedLaunching === true && latest.frontmostPid === app.pid;
+    return apps[0].kind === "plain" && this.#fresh(apps[0], latest) && apps[0].finishedLaunching === true;
   }
 
   async #processSnapshot(snapshot) {
@@ -216,12 +222,14 @@ export class AgentController {
     const apps = classify(snapshot, this.#isOurs);
     const baseline = !this.#hasBaseline;
     this.#hasBaseline = true;
+    // 基线里已在运行的普通实例（非刚启动的单实例）一律保护：agent 重启、自动更新或重装时绝不打断正在使用的宿主。
     const protectedApps = baseline ? apps.filter((app) => app.kind === "plain"
       && !(apps.length === 1 && this.#fresh(app, snapshot))) : [];
+    const newlyProtected = protectedApps.filter((app) => !this.#seen.has(app.key));
     // 必须在首次 await 前保护基线，记录或通知故障也不能让它变成新实例。
     for (const app of protectedApps) this.#seen.add(app.key);
     await this.#observe(snapshot, apps);
-    for (const app of protectedApps) {
+    for (const app of newlyProtected) {
       if (this.#autoRelaunch() || this.#notifyWhenManual) {
         await this.#call("notify", "needs-restart", { processKey: app.key });
       } else {
@@ -239,11 +247,12 @@ export class AgentController {
       } else if (!this.#fresh(app, snapshot)) {
         await this.#record("skipped-stale", details);
         await this.#call("notify", "skipped", details);
-      } else if (app.finishedLaunching !== true || snapshot.frontmostPid !== app.pid) {
+      } else if (app.finishedLaunching !== true) {
         this.#pendingLaunch = true;
         pending = true;
       } else if (this.#hasAttempt && this.#now() - this.#lastAttemptAt < this.#cooldownMs) {
         await this.#record("skipped-cooldown", details);
+        await this.#call("notify", "cooldown", details);
       } else {
         const lastAttemptAt = this.#now();
         await this.#record("attempt", { lastAttemptAt, processKey: app.key });
@@ -271,13 +280,15 @@ export class AgentController {
       if (this.#now() >= deadline) break;
       const latest = this.#latestSnapshot(snapshot);
       if ([...apps, ...latest.apps].some((entry) => entry.key !== app.key)) {
-        for (const entry of [...apps, ...latest.apps]) this.#seen.add(entry.key);
-        await this.#record("another-instance", { processKey: app.key, mode });
+        const seen = [...apps, ...latest.apps].map((entry) => entry.key);
+        for (const key of seen) this.#seen.add(key);
+        await this.#record("another-instance", { processKey: app.key, processKeys: seen, mode });
         return null;
       }
       if (apps.length === 0 && latest.apps.length === 0) return snapshot;
     }
     await this.#record("quit-timeout", { processKey: app.key, mode });
+    if (mode === "fresh") await this.#call("notify", "needs-restart", { processKey: app.key });
     return null;
   }
 
@@ -306,9 +317,16 @@ export class AgentController {
       await this.#record("quit-refused", { processKey: app.key, reason: "snapshot-changed" });
       return;
     }
-    const quit = await this.#call("quit", { pid: app.pid, key: app.key, mode: "fresh" });
+    // 刚启动与窗口激活是两条独立通知，先后无保证：初始或排队快照里任一帧在前台，就按前台恢复显示，避免 Dock 点开后像消失了一样。
+    const wasFrontmost = initial.frontmostPid === app.pid || this.#latestSnapshot(initial).frontmostPid === app.pid;
+    const quit = await this.#call("quit", { pid: app.pid, key: app.key, mode: "fresh", maxAgeMs: this.#freshWindowMs });
     if (!quit.accepted) {
       await this.#record("quit-refused", { processKey: app.key, reason: quit.reason });
+      if (quit.reason === "age-out-of-range") {
+        await this.#call("notify", "skipped", { processKey: app.key });
+      } else if (!["instance-mismatch", "key-mismatch", "debug-port-present"].includes(quit.reason)) {
+        await this.#call("notify", "needs-restart", { processKey: app.key });
+      }
       return;
     }
     if (!await this.#waitForExit(app, "fresh")) return;
@@ -317,14 +335,17 @@ export class AgentController {
     const apps = await this.#observe(snapshot);
     const latest = this.#latestSnapshot(snapshot);
     if (apps.length || latest.apps.length) {
-      for (const entry of [...apps, ...latest.apps]) this.#seen.add(entry.key);
-      await this.#record("reopen-canceled", { processKey: app.key });
+      const seen = [...apps, ...latest.apps].map((entry) => entry.key);
+      for (const key of seen) this.#seen.add(key);
+      await this.#record("reopen-canceled", { processKey: app.key, processKeys: seen });
       return;
     }
-    // 已经退出就必须带回窗口：重开期间切走或操作也照常显示，否则 Codex 像是自己消失了。
-    const launched = await this.#launch({ hidden: true }, app.key);
+    // 前台实例保持隐藏重开再显示；后台实例请求不激活重开，尽量避免抢走当前窗口焦点。
+    const launched = await this.#launch(wasFrontmost ? { hidden: true } : { background: true }, app.key);
     if (!launched) return;
-    const { shown } = await this.#call("show", { pid: launched.pid, key: launched.key });
+    const { shown } = wasFrontmost
+      ? await this.#call("show", { pid: launched.pid, key: launched.key })
+      : { shown: false };
     await this.#record("reopened", { processKey: app.key, key: launched.key, shown });
   }
 

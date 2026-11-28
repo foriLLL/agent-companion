@@ -46,8 +46,8 @@ Running multiple AI coding agents in parallel turns desktop apps into a tab-swit
 
 | Host | macOS (Apple Silicon / Intel) | Linux (x64 / ARM64) | Windows |
 |---|---|---|---|
-| **ChatGPT Desktop** | **Supported** — `launchd` agent auto-reopens fresh launches (≤ 8s, foreground) with a loopback CDP port | **Preview** — overrides `chatgpt.desktop` menu entry + `systemd --user` service (no auto-quit) | Not yet |
-| **Antigravity** | **Preview** — same native auto-reopen on launch & updates, or `agent-companion antigravity [--restart]` | — | Not yet |
+| **ChatGPT Desktop** | **Supported** — `launchd` agent auto-reopens fresh launches (≤ 30s, foreground or background) with a loopback CDP port | **Preview** — overrides `chatgpt.desktop` menu entry + `systemd --user` service (no auto-quit) | Not yet |
+| **Antigravity** | **Preview** — same native auto-reopen on fresh launch & updates (≤ 30s, foreground or background), or `agent-companion antigravity [--restart]` | — | Not yet |
 
 ---
 
@@ -244,7 +244,7 @@ flowchart LR
   Services -.->|"Sessions & Proxy"| Local["Local Disk &<br/>OS Keychain"]
 ```
 
-- **Safe auto-reopen (macOS)**: `companion-native` observes app launches via `NSWorkspace` and only requests a graceful `NSRunningApplication.terminate()` within 8 seconds of a foreground launch (never `SIGKILL`), then reopens with a random loopback debugging port. Already-running sessions are never interrupted.
+- **Safe auto-reopen (macOS)**: `companion-native` observes app launches via `NSWorkspace` and only requests a graceful `NSRunningApplication.terminate()` for fresh single instances within 30 seconds of launch (foreground or background; never `SIGKILL`), then reopens with a random loopback debugging port (using `--background` for background launches). Already-running baseline sessions and previously handled instances are persisted in `runtime.json` and never interrupted.
 - **Adaptive host DOM integration**: Entry buttons and layout hooks degrade gracefully across host UI updates; run `npm run check:host` after a ChatGPT update to inspect adapter tiers.
 - **Automatic updates**: Homebrew installations check GitHub Releases every 6 hours and upgrade the background service without restarting ChatGPT or Antigravity (deferring restarts while media is playing).
 

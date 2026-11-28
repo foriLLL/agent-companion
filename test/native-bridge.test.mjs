@@ -111,6 +111,38 @@ test("launch 用独立 argv 传 JSON，不经过 shell", async () => {
   assert.equal(calls[0].options.shell, undefined);
   await bridge.launch({ args: [] });
   assert.deepEqual(calls[1].args, ["launch", "--app", paths.appPath, "--args-json", "[]"]);
+  await bridge.launch({ args: [], background: true });
+  assert.deepEqual(calls[2].args, ["launch", "--app", paths.appPath, "--args-json", "[]", "--background"]);
+});
+
+test("旧版 0.0.1 原生助手不认识 --background 时自动降级重试，并缓存能力", async () => {
+  const calls = [];
+  const response = { launched: true, pid: app.pid, key: app.key };
+  const bridge = createNativeBridge({
+    ...paths,
+    execFileImpl: async (command, args) => {
+      calls.push(args);
+      if (args.includes("--background")) {
+        throw Object.assign(new Error("exit 2"), { code: 2, stdout: "{\"error\":\"unknown-or-duplicate-option\"}\n", stderr: "" });
+      }
+      return { stdout: `${JSON.stringify(response)}\n`, stderr: "" };
+    }
+  });
+  assert.deepEqual(await bridge.launch({ args: [], background: true }), response);
+  assert.equal(calls.length, 2);
+  assert.equal(calls[0].includes("--background"), true);
+  assert.equal(calls[1].includes("--background"), false);
+  // 已记住旧版助手不支持 --background，下次直接省略，不再多走一次失败。
+  assert.deepEqual(await bridge.launch({ args: [], background: true }), response);
+  assert.equal(calls.length, 3);
+  assert.equal(calls[2].includes("--background"), false);
+});
+
+test("version 校验返回版本号，不要求 appPath", async () => {
+  const calls = [];
+  const bridge = createNativeBridge({ helperPath: paths.helperPath, execFileImpl: fakeExec({ version: "0.0.2" }, calls) });
+  assert.deepEqual(await bridge.version(), { version: "0.0.2" });
+  assert.deepEqual(calls[0].args, ["--version"]);
 });
 
 test("launch 拒绝及 errorCode 原样返回", async () => {

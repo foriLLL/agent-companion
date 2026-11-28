@@ -368,3 +368,42 @@ test("Antigravity 宿主只在显式开启时启动：拿到初始配置、跟�
   await f.instance.stop();
   assert.equal(host.stopped, 1);
 });
+
+test("agent 重启后记住已处理/受保护的实例 key，不重复退出也不重复提醒", async t => {
+  const notices = [];
+  const runtimeState = stateStore();
+  const stale = app(42, 900_000);
+  const firstBridge = nativeBridge(snapshot([stale], 1_000_000));
+  const first = await fixture(t, {
+    nativeBridge: firstBridge, runtimeState,
+    notifyImpl: async (_title, msg) => notices.push(msg)
+  });
+  assert.equal(firstBridge.calls.filter(call => call[0] === "quit").length, 0, "基线旧实例不退出");
+  assert.equal(notices.length, 1);
+  assert.deepEqual(runtimeState.value.handledKeys, [stale.key]);
+  await first.instance.stop();
+
+  // agent 重启后（例如自动更新或看门狗重启），同一实例不再触发退出也不再重复提醒。
+  const secondBridge = nativeBridge(snapshot([stale], 1_000_500));
+  const second = await fixture(t, {
+    nativeBridge: secondBridge, runtimeState,
+    notifyImpl: async (_title, msg) => notices.push(msg)
+  });
+  assert.equal(secondBridge.calls.filter(call => call[0] === "quit").length, 0);
+  assert.equal(notices.length, 1);
+  await second.instance.stop();
+
+  // 场景 2：30s 窗口内刚启动但上次已被拒绝的实例，agent 重启后仍受持久化 handledKeys 保护，不二次退出。
+  const freshState = stateStore();
+  const freshApp = app(55, 999_000);
+  const thirdBridge = nativeBridge(snapshot([freshApp], 1_000_000));
+  const third = await fixture(t, { nativeBridge: thirdBridge, runtimeState: freshState });
+  assert.equal(thirdBridge.calls.filter(call => call[0] === "quit").length, 1);
+  assert.ok(freshState.value.handledKeys.includes(freshApp.key));
+  await third.instance.stop();
+
+  const fourthBridge = nativeBridge(snapshot([freshApp], 1_005_000));
+  const fourth = await fixture(t, { nativeBridge: fourthBridge, runtimeState: freshState });
+  assert.equal(fourthBridge.calls.filter(call => call[0] === "quit").length, 0, "窗口内已处理实例在重启后不再重复退出");
+  await fourth.instance.stop();
+});

@@ -42,6 +42,7 @@ function parseResponse(action, text) {
     if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("invalid-object");
     let valid;
     if (action === "snapshot" || action === "watch") valid = validSnapshot(value);
+    else if (action === "version") valid = typeof value.version === "string" && value.version.length > 0;
     else if (action === "show") valid = typeof value.shown === "boolean";
     else {
       const flag = action === "quit" ? value.accepted : value.launched;
@@ -68,15 +69,21 @@ export function createNativeBridge({
   helperPath, appPath, execFileImpl = execFileAsync, spawnImpl = spawn, timeoutMs = 35_000
 } = {}) {
   if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) throw new TypeError("timeoutMs 必须为正数");
-  const commandArgs = (action, args = []) => [action, "--app", appPath, ...args];
-  const requirePaths = () => {
-    if (typeof helperPath !== "string" || !helperPath || typeof appPath !== "string" || !appPath) {
+  const commandArgs = (action, args = []) => (action === "version" ? ["--version"] : [action, "--app", appPath, ...args]);
+  const requirePaths = (needApp = true) => {
+    if (typeof helperPath !== "string" || !helperPath || (needApp && (typeof appPath !== "string" || !appPath))) {
       throw failure("NATIVE_FAILED", "缺少原生助手或目标应用路径");
     }
   };
+  let backgroundSupported = true;
+  const isUnsupportedFlagError = (error) => {
+    if (error?.code !== "NATIVE_FAILED") return false;
+    const text = `${error.cause?.stdout ?? ""}\n${error.cause?.stderr ?? ""}`;
+    return text.includes("unknown-or-duplicate-option");
+  };
 
   async function request(action, args = []) {
-    requirePaths();
+    requirePaths(action !== "version");
     let timer;
     let timedOut = false;
     try {
@@ -178,14 +185,28 @@ export function createNativeBridge({
   }
 
   return {
+    version: () => request("version"),
     snapshot: () => request("snapshot"),
     quit: ({ pid, key, mode, maxAgeMs }) => request("quit", appendOptional([
       "--pid", String(pid), "--key", key, "--mode", mode
     ], [["--max-age-ms", maxAgeMs]])),
-    launch: ({ args = [], env, unsetEnv, hidden = false } = {}) => request("launch", appendOptional([
-      "--args-json", JSON.stringify(args), ...(hidden ? ["--hidden"] : [])
-    ], [["--env-json", env === undefined ? undefined : JSON.stringify(env)],
-      ["--unset-env-json", unsetEnv === undefined ? undefined : JSON.stringify(unsetEnv)]])),
+    async launch({ args = [], env, unsetEnv, hidden = false, background = false } = {}) {
+      const buildArgs = (useBackground) => appendOptional([
+        "--args-json", JSON.stringify(args), ...(hidden ? ["--hidden"] : []), ...(useBackground ? ["--background"] : [])
+      ], [["--env-json", env === undefined ? undefined : JSON.stringify(env)],
+        ["--unset-env-json", unsetEnv === undefined ? undefined : JSON.stringify(unsetEnv)]]);
+      const useBackground = Boolean(background && backgroundSupported);
+      try {
+        return await request("launch", buildArgs(useBackground));
+      } catch (error) {
+        // 兼容未重新编译的旧版 0.0.1 原生助手：不认识 --background 时自动降级重试，避免退出后拉不起来。
+        if (useBackground && isUnsupportedFlagError(error)) {
+          backgroundSupported = false;
+          return request("launch", buildArgs(false));
+        }
+        throw error;
+      }
+    },
     show: ({ pid, key }) => request("show", ["--pid", String(pid), "--key", key]),
     watch
   };

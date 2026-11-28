@@ -14,7 +14,7 @@ struct GuardChecks {
       count += 1
     }
     func refusal(_ app: AppInstance? = base, key: String? = nil, mode: String = "fresh",
-                 maxAge: Int64 = 8000, state: InputState = input) -> String? {
+                 maxAge: Int64 = 30_000, state: InputState = input) -> String? {
       quitRefusal(app, key: key ?? base.key, mode: mode, maxAgeMs: maxAge, input: state)
     }
     check("fresh", refusal(), nil)
@@ -39,17 +39,22 @@ struct GuardChecks {
     check("negative-age", refusal(state: state), "age-out-of-range")
     state.now = 1000
     check("age-zero", refusal(state: state), nil)
+    state.now = 31_000
+    check("age-default-boundary", refusal(state: state), nil)
+    state.now = 31_001
+    check("age-default-old", refusal(state: state), "age-out-of-range")
+    check("age-clamped-upper-bound", refusal(maxAge: 600_000, state: state), "age-out-of-range")
     state.now = 9000
-    check("age-boundary", refusal(state: state), nil)
+    check("age-boundary-explicit", refusal(maxAge: 8000, state: state), nil)
     state.now = 9001
-    check("old", refusal(state: state), "age-out-of-range")
+    check("old-explicit", refusal(maxAge: 8000, state: state), "age-out-of-range")
     check("custom-window", refusal(maxAge: 999), "age-out-of-range")
     state = input
     state.inputStamp = "9:9:9:9:9"
     state.inputIdleMs = 0
     check("input-since-launch-allowed", refusal(state: state), nil)
     state.frontmostPid = 99
-    check("background", refusal(state: state), "not-frontmost")
+    check("background-allowed", refusal(state: state), nil)
     app.finishedLaunching = false
     app.arguments = nil
     check("user-bypasses-fresh", refusal(app, mode: "user", maxAge: 0, state: state), nil)

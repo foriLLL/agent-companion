@@ -20,9 +20,10 @@ struct InputState {
 }
 
 // 守卫保持纯函数；生产入口必须在调用 AppKit 动作前读取原生状态再判断。
-// fresh 只要求刚启动、启动完成、未带调试端口且在前台；启动后的点击与输入不拒绝。
+// fresh 只允许刚启动（默认 30 秒内）、启动完成且未带调试端口的实例；不限前后台与启动后输入，
+// 既支持后台启动/自动更新重启，也保证绝不误杀已在运行的旧实例。
 func quitRefusal(_ instance: AppInstance?, key: String, mode: String,
-                 maxAgeMs: Int64, input: InputState) -> String? {
+                 maxAgeMs: Int64 = 30_000, input: InputState) -> String? {
   guard let instance else { return "instance-mismatch" }
   guard instance.key == key else { return "key-mismatch" }
   if mode == "user" { return nil }
@@ -32,9 +33,9 @@ func quitRefusal(_ instance: AppInstance?, key: String, mode: String,
   guard !arguments.contains(where: { $0 == "--remote-debugging-port" || $0.hasPrefix("--remote-debugging-port=") }) else {
     return "debug-port-present"
   }
+  let limit = min(maxAgeMs, 30_000)
   let age = input.now - instance.launchedAt
-  guard age >= 0 && age <= maxAgeMs else { return "age-out-of-range" }
-  guard input.frontmostPid == instance.pid else { return "not-frontmost" }
+  guard age >= 0 && age <= limit else { return "age-out-of-range" }
   return nil
 }
 

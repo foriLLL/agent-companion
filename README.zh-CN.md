@@ -44,8 +44,8 @@
 
 | 宿主 | macOS（Apple Silicon / Intel） | Linux（x64 / ARM64） | Windows |
 |---|---|---|---|
-| **ChatGPT 桌面端** | **已支持** — `launchd` 后台自动安全重开刚启动（8 秒内、前台）的实例 | **预览** — 覆盖 `chatgpt.desktop` 菜单入口 + `systemd --user` 常驻（不自动退出） | 暂不支持 |
-| **Antigravity** | **预览** — 同样支持启动与更新重启自动重开，或 `agent-companion antigravity [--restart]` | — | 暂不支持 |
+| **ChatGPT 桌面端** | **已支持** — `launchd` 后台自动安全重开刚启动（30 秒内，含后台与更新重启）的实例 | **预览** — 覆盖 `chatgpt.desktop` 菜单入口 + `systemd --user` 常驻（不自动退出） | 暂不支持 |
+| **Antigravity** | **预览** — 同样支持刚启动（30 秒内，含后台与更新重启）自动重开，或 `agent-companion antigravity [--restart]` | — | 暂不支持 |
 
 ---
 
@@ -241,7 +241,7 @@ flowchart LR
   Services -.->|"会话 · 媒体代理"| Local["本机数据与<br/>系统凭证库"]
 ```
 
-- **安全自动重开（macOS）**：`companion-native` 经 `NSWorkspace` 监听启动，仅对刚启动 8 秒内且处于前台的普通实例请求正常退出（`NSRunningApplication.terminate()`，绝不强杀），再以本机随机调试端口重开并注入；已运行中的会话不会被自动打断。
+- **安全自动重开（macOS）**：`companion-native` 经 `NSWorkspace` 监听启动，仅对刚启动 30 秒内的单个普通实例（含后台启动与更新重启）请求正常退出（`NSRunningApplication.terminate()`，绝不强杀），再以本机随机调试端口重开并注入（后台实例以 `--background` 不激活重开）；已运行中的基线会话与已处理实例 key 会持久化到 `runtime.json`，不会被自动打断。
 - **分级宿主适配**：顶栏锚点与布局让位按稳定性分级降级，宿主页改版时也能保底可用；ChatGPT 升级后可运行 `npm run check:host` 只读自检。
 - **自动更新**：Homebrew 安装每 6 小时检查一次 GitHub Release，发现新正式版后后台升级并重启后台服务（不重启 ChatGPT / Antigravity，视频播放中会等播完再重启）。
 

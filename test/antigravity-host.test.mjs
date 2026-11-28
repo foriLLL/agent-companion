@@ -172,7 +172,7 @@ test("原生助手模式：刚打开且未带调试参数的 Antigravity 自动�
   bridge.watches[0].onSnapshot(snapshot([], timer.now()));
   await flush();
 
-  // Antigravity 刚打开（含自动更新重启）：8 秒内、在前台、无调试参数。
+  // Antigravity 刚打开（含自动更新重启）：30 秒内、无调试参数。
   const fresh = app(42, timer.now(), []);
   bridge.value = snapshot([fresh], timer.now());
   bridge.watches[0].onSnapshot(bridge.value);
@@ -205,14 +205,21 @@ test("原生助手模式：刚打开且未带调试参数的 Antigravity 自动�
   assert.deepEqual(timer.delays(), []);
 });
 
-test("原生助手模式：旧实例只提醒不退出；关闭 autoRelaunch 不重开；省略地址的本机调试端口可接上，0.0.0.0 跳过", async () => {
+test("原生助手模式：已在运行的基线旧实例只提醒不退出；刚启动的后台实例在后台重开；关闭 autoRelaunch 不重开；省略地址的本机调试端口可接上，0.0.0.0 跳过", async () => {
   const timer = clock();
   const stale = app(11, timer.now() - 60_000, []);
-  const bridge = nativeBridge(snapshot([stale], timer.now()));
+  const bridge = nativeBridge({ ...snapshot([stale], timer.now()), frontmostPid: 99 });
+  const handled = [];
+  bridge.quit = async (options) => {
+    bridge.calls.push(["quit", options]);
+    bridge.value = snapshot([], timer.now() + 200);
+    return { accepted: true };
+  };
   const notices = [];
   const sessions = [];
   const host = createAntigravityHost({
     nativeBridge: bridge,
+    reservePort: async () => 9556,
     waitForTargets: async () => [{ port: 9444 }],
     sessionFactory: (options) => {
       const session = { options, async start() {}, async stop() {}, async applyConfig() {} };
@@ -222,31 +229,43 @@ test("原生助手模式：旧实例只提醒不退出；关闭 autoRelaunch 不
     initialConfig: { revision: 1, agent: { autoRelaunch: true } },
     logger: { info() {}, warn() {} },
     notifyImpl: async (title, message) => notices.push({ title, message }),
+    onHandledKey: (key) => handled.push(key),
     now: timer.now, setTimer: timer.setTimeoutImpl, clearTimer: timer.clearTimeoutImpl,
     sleepImpl: async () => {}
   });
   await host.start();
-  bridge.watches[0].onSnapshot(snapshot([stale], timer.now()));
   await flush();
-  assert.equal(bridge.calls.filter(([name]) => name === "quit").length, 0, "启动前已在运行的旧实例不退出");
+  assert.equal(bridge.calls.filter(([name]) => name === "quit").length, 0, "启动前已在运行的旧实例绝不退出");
   assert.equal(notices.length, 1);
   assert.equal(notices[0].message, ANTIGRAVITY_NOTIFICATIONS["needs-restart"]);
+  assert.deepEqual(handled, [stale.key], "受保护的基线实例 key 落盘防重启重复提醒");
+
+  // 刚启动的后台无端口实例（例如自动更新重启）在后台重开，不抢前台焦点。
+  const freshBg = app(15, timer.now(), []);
+  bridge.watches[0].onSnapshot({ ...snapshot([freshBg], timer.now() + 1), frontmostPid: 99 });
+  await flush();
+  assert.equal(bridge.calls.filter(([name]) => name === "quit").length, 1, "刚启动的后台实例应自动重开");
+  await timer.advance(200);
+  await timer.advance(250);
+  const bgLaunch = bridge.calls.find(([name]) => name === "launch");
+  assert.equal(bgLaunch[1].background, true, "后台重开不抢前台焦点");
+  assert.equal(bridge.calls.filter(([name]) => name === "show").length, 0);
 
   // 关闭 autoRelaunch 后新开的普通实例不自动重开。
   await host.applyConfig({ revision: 2, agent: { autoRelaunch: false } });
-  bridge.watches[0].onSnapshot(snapshot([app(22, timer.now(), [])], timer.now() + 1));
+  bridge.watches[0].onSnapshot(snapshot([app(22, timer.now(), [])], timer.now() + 10));
   await flush();
-  assert.equal(bridge.calls.filter(([name]) => name === "quit").length, 0);
+  assert.equal(bridge.calls.filter(([name]) => name === "quit").length, 1);
   assert.equal(host.lastEvent?.event, "skipped-disabled");
 
   // 监听 0.0.0.0 的调试实例既不退出也不接管。
-  bridge.watches[0].onSnapshot(snapshot([app(33, timer.now(), ["--remote-debugging-port=9339", "--remote-debugging-address=0.0.0.0"])], timer.now() + 2));
+  bridge.watches[0].onSnapshot(snapshot([app(33, timer.now(), ["--remote-debugging-port=9339", "--remote-debugging-address=0.0.0.0"])], timer.now() + 11));
   await flush();
   assert.equal(sessions.length, 0);
   assert.equal(host.lastEvent?.event, "foreign-debug");
 
   // 省略 --remote-debugging-address 时 Chromium 默认只监听 127.0.0.1，直接接上。
-  bridge.watches[0].onSnapshot(snapshot([app(44, timer.now(), ["--remote-debugging-port=9444"])], timer.now() + 3));
+  bridge.watches[0].onSnapshot(snapshot([app(44, timer.now(), ["--remote-debugging-port=9444"])], timer.now() + 12));
   await flush();
   assert.equal(sessions.length, 1);
   assert.equal(sessions[0].options.port, 9444);
@@ -263,4 +282,6 @@ test("原生助手模式：旧实例只提醒不退出；关闭 autoRelaunch 不
   assert.equal(isAntigravityDebugInstance({ known: true, debugPort: 9339, debugAddress: null }), true);
   assert.equal(isAntigravityDebugInstance({ known: true, debugPort: 9339, debugAddress: "0.0.0.0" }), false);
   assert.equal(resolveAntigravityAppPath({ env: { AGENT_COMPANION_ANTIGRAVITY_APP: "/test/AGY.app" }, platform: "darwin" }), "/test/AGY.app");
+  assert.ok(ANTIGRAVITY_NOTIFICATIONS["needs-restart"]);
+  assert.ok(ANTIGRAVITY_NOTIFICATIONS.cooldown);
 });

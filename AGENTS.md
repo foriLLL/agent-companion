@@ -7,7 +7,7 @@ Linux 不自动重开：用户级 `chatgpt.desktop` 覆盖菜单入口（`open-c
 systemd 用户服务常驻发现并注入；主进程 cmdline 被 Chromium setproctitle 改写成空格拼接的一行。
 官方插件（MCP Apps）链路已彻底放弃并删除，不要再加回来。
 Antigravity（预览，macOS）是第二个宿主：后台 agent 里的 `antigravity-host.mjs` 经原生助手监听 Antigravity 启动，
-刚打开且未带调试参数（含自动更新重启）的实例在安全条件下被正常退出、以 loopback 随机端口重开并注入，
+刚打开且未带调试参数（含后台启动与自动更新重启）的实例在安全条件下被正常退出、以 loopback 随机端口重开并注入，
 用户也可以随时用 `agent-companion antigravity [--restart]` 带调试端口打开；注入、卡片平台、设置页与 Codex 共用，
 按 `host` 区分页面适配器、会话定位与任务看板的数据源。
 
@@ -148,9 +148,10 @@ Codex 每次升级都可能改掉类名、data 属性、DOM 层级和打包方�
 
 ## 关键陷阱
 - Codex 的 Electron fuse 已关闭 inspect/RunAsNode/NODE_OPTIONS，CDP 只能在**启动参数**上开启；
-  已运行且未带参数的 Codex 只能重启后注入。agent 只自动重开「刚启动（8 秒内）、在前台」
-  的实例（守卫在 JS 状态机与原生助手两侧各查一次；启动后的点击与输入不拦截，避免操作得快就错过注入），
-  其余情况只通知，绝不强杀。
+  已运行且未带参数的 Codex 只能重启后注入。开启自动加载时，agent 只自动重开「刚启动（30 秒内）、启动完成、单实例、未带调试端口」
+  的实例（不限前后台与启动后输入，守卫在 JS 状态机与原生助手两侧各查一次；后台实例静默用 `--background` 重开不抢焦点；
+  已处理过的实例 key 落盘到 `runtime.json`，agent 重启或自动更新后绝不重复处理或打断正在运行的基线实例），
+  基线旧实例/多实例/外部调试端口/未知参数只提醒不碰，绝不强杀。
 - 退出 Codex 只能用 `NSRunningApplication.terminate()`；禁止 SIGKILL、forceTerminate。
   Linux 上 agent 不退出也不重启 Codex，只提示用户从应用菜单重开。
   开发与测试禁止对真实 Codex 执行 quit/launch/show，原生能力只对 dummy app 验证。

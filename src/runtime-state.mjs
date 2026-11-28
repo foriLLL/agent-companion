@@ -21,6 +21,19 @@ function sanitizePid(value) {
   return Number.isInteger(value) && value > 0 ? value : null;
 }
 
+const MAX_HANDLED_KEYS = 32;
+function sanitizeKeyList(value) {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set();
+  const keys = [];
+  for (const entry of value) {
+    if (typeof entry !== "string" || !/^\d+:\d+$/.test(entry) || seen.has(entry)) continue;
+    seen.add(entry);
+    keys.push(entry);
+  }
+  return keys.slice(-MAX_HANDLED_KEYS);
+}
+
 export function normalizeRuntimeState(value) {
   if (!value || typeof value !== "object") return null;
   const port = sanitizePort(value.port);
@@ -35,7 +48,9 @@ export function normalizeRuntimeState(value) {
     lastAttemptAt: Number.isFinite(value.lastAttemptAt) && value.lastAttemptAt >= 0 ? value.lastAttemptAt : 0,
     lastEvent: typeof value.lastEvent?.event === "string" && Number.isFinite(value.lastEvent.at)
       ? { event: value.lastEvent.event, at: value.lastEvent.at } : null,
-    codexKey: typeof value.codexKey === "string" ? value.codexKey : null
+    codexKey: typeof value.codexKey === "string" ? value.codexKey : null,
+    handledKeys: sanitizeKeyList(value.handledKeys),
+    antigravityHandledKeys: sanitizeKeyList(value.antigravityHandledKeys)
   };
 }
 
